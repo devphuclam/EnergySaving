@@ -131,16 +131,20 @@ covered by identity tests.
 
 ### P-014 - Local POC session
 
-IAM uses ASP.NET Core PasswordHasher with framework-managed iteration/version metadata and a
-server-issued encrypted Secure/HttpOnly/SameSite=Lax cookie (`.IUMP.Auth`) backed by revocable
-`iam.user_session`. The session has absolute (8h) and idle (20m) expiry, revocation/logout,
+IAM uses ASP.NET Core PasswordHasher with framework-managed iteration/version metadata. On login,
+a 256-bit opaque random session token is generated, SHA-256(token) is stored in `iam.user_session`,
+and the raw opaque token is placed in a Secure/HttpOnly/SameSite=Lax cookie (`.IUMP.Auth`). The
+cookie is not an ASP.NET encrypted identity ticket; it contains the raw opaque token. The session has absolute (8h) and idle (20m) expiry, revocation/logout,
 server-side lookup and Disabled-user invalidation. Session token is 256-bit CSPRNG, stored as
 SHA-256 hash. Antiforgery (`.IUMP.Xsrf` cookie, `X-XSRF-TOKEN` header) is required for
 state-changing cookie requests and tokens never appear in query strings. Login errors are
 non-enumerating, failed attempts have bounded framework-backed rate limiting (5 per 15s window),
 and success/failure/revocation are auditable. Seed credentials are delivered through protected
-local environment instructions, never committed. Data Protection keys are persisted under
-`%ProgramData%/IUMP/DataProtection-Keys/` with DPAPI protection (`ProtectKeysWithDpapi()`).
+local environment instructions, never committed. Data Protection keys are stored in a pre-provisioned directory writable by the API service account
+using DPAPI `ProtectKeysWithDpapi()`. The application must not request elevation or alter system
+ACLs. Development may use an approved user-writable local path configured outside the repository
+(e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`). Unavailable/unapproved storage is
+BLOCKED_BY_ENVIRONMENT. No keys are committed.
 
 ### P-015 - Production-attempt checkpoint
 
@@ -153,12 +157,13 @@ double-counting. No in-memory checkpoint is used. See `contracts/simulator.md` a
 ### P-016 - Cross-module lock order
 
 Strict cross-module invariants use a deterministic global lock order inside REPEATABLE READ
-transactions: (1) IAM user, (2) Organization hierarchy, (3) Catalog Metric/Unit/Source/Mapping,
-(4) Acquisition Run/dependency, (5) Telemetry identity/projection, (6) Integration outbox.
+transactions: IAM → Organization → Catalog → Acquisition → Telemetry → Integration.
 `SELECT FOR UPDATE` in this order. Retry on serialization/deadlock: up to 3 immediate retries with
-exponential backoff (50ms, 150ms, 450ms). `lock_timeout` set to 2 seconds. Applied to Point
-activation, Mapping activation, Simulator Start, Point decommission vs Start, Asset decommission,
-Point decommission, canonical ingestion and Source/Mapping delete. See `contracts/README.md`.
+exponential backoff (50ms, 150ms, 450ms). After exhaustion, return HTTP 503 with
+`TRANSIENT_DATABASE_CONFLICT` (never `PRECONDITION_FAILED`). `lock_timeout` set to 2 seconds.
+Each applied flow follows its specific required order; see `contracts/README.md` for the exact
+seven flow orders. `PRECONDITION_FAILED` remains for business-state failures only (inactive parent,
+missing Mapping, incompatible Unit, Running Simulator).
 
 ### P-017 - Capability model
 
@@ -171,8 +176,9 @@ suffice. See `contracts/iam-authorization.md`.
 ### P-018 - API concurrency semantics
 
 Create commands: Idempotency-Key required, no If-Match. Update/lifecycle/delete commands: both
-Idempotency-Key and If-Match required; stale version returns VERSION_CONFLICT. Login/logout/query:
-no aggregate If-Match. See `contracts/README.md`.
+Idempotency-Key and If-Match required; stale version returns VERSION_CONFLICT. Login: neither
+If-Match nor Idempotency-Key. Logout: no If-Match, antiforgery required. Query: neither If-Match
+nor Idempotency-Key. See `contracts/README.md`.
 
 ### P-019 - Bootstrap split
 
@@ -435,8 +441,8 @@ substitute database and do not claim end-to-end completion.
   capability mechanism for AUDIT_READ.
 - API concurrency semantics split (create no If-Match, update requires If-Match) is applied to all
   contracts.
-- Session working defaults are concrete (cookie name `.IUMP.Auth`, 256-bit CSPRNG, DPAPI key
-  protection, rate-limit 5/15s, etc.) and P-014 malformed sentence fixed.
+- Session working defaults are concrete (opaque 256-bit CSPRNG token, SHA-256 hash, multiple sessions
+  allowed, revoked_at IS NOT NULL means revoked) and P-014 malformed sentence fixed.
 - Reviewer is a capability/policy, not a base role; Manager and Viewer remain separate.
 - Audit snapshots do not block Draft-unused delete; operational dependencies do.
 - Asset/Point decommission is terminal, explicit, atomic and non-cascading.
@@ -445,8 +451,18 @@ substitute database and do not claim end-to-end completion.
   reproducibility; all retries use the production-attempt value and do not consume PRNG state again.
 - No "rejection/clamping" ambiguity: deterministic clamping on rounded float64 is the only
   bounding policy.
-- No encrypted cookie without persistent key-ring design: DPAPI `ProtectKeysWithDpapi()` under
-  `%ProgramData%/IUMP/DataProtection-Keys/`.
+- No encrypted identity ticket cookie: `.IUMP.Auth` contains an opaque random session token;
+  ASP.NET Data Protection is for antiforgery and framework-protected values, not for reconstructing
+  the session token.
+- Login does not use Idempotency-Key; each login creates a new independent session.
+- Data Protection key directory must be pre-provisioned and writable by the API service account;
+  application must not request elevation. BLOCKED_BY_ENVIRONMENT if unavailable.
+- Deadlock, lock timeout and serialization exhaustion return 503 TRANSIENT_DATABASE_CONFLICT
+  (not PRECONDITION_FAILED). PRECONDITION_FAILED reserved for business-state failures only.
+- Every applied lock flow follows the correct order starting at Organization or IAM; no
+  Catalog-before-Organization or Acquisition-before-Organization flows exist.
+- Telemetry ingestion lock order is Organization → Catalog → Telemetry → Integration (not
+  Telemetry-first).
 
 ## Readiness
 

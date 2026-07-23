@@ -59,14 +59,20 @@ ancestry and current state; it does not write Organization. Bootstrap is ordered
 Administrator credential injected from protected environment, Administrator creates Site, then the
 Administrator assigns Engineer scope. Deterministic seeds never insert a scope to a nonexistent Site.
 
-ASP.NET Core `PasswordHasher<T>` stores framework-versioned hashes. Login sets a server-issued
-encrypted Secure/HttpOnly/SameSite Lax cookie (`.IUMP.Auth`); the server resolves `user_session`
-and Active user/roles/scopes on every request. State-changing cookie requests require antiforgery
-(`.IUMP.Xsrf` cookie, `X-XSRF-TOKEN` header). Logout/revocation, expiry, Disabled status and scope
-revocation invalidate access. No token/hash is returned or placed in a query string. Successful/
+ASP.NET Core `PasswordHasher<T>` stores framework-versioned hashes. On login, a 256-bit opaque
+random session token is generated, SHA-256(token) is stored in `iam.user_session`, and the raw token
+is placed in a Secure/HttpOnly/SameSite Lax cookie (`.IUMP.Auth`). The cookie is not an ASP.NET
+encrypted identity ticket; it contains the raw opaque token. The server resolves `user_session` and
+Active user/roles/scopes on every request by hashing the cookie value. State-changing cookie requests
+require antiforgery (`.IUMP.Xsrf` cookie, `X-XSRF-TOKEN` header).
+Logout/revocation, expiry, Disabled status and scope revocation invalidate access. The raw token
+never appears in response JSON or query strings. Successful/
 failed authentication is auditable with non-enumerating errors and a bounded framework-backed rate
-limit (5 attempts per 15-second window). Data Protection keys are persisted under
-`%ProgramData%/IUMP/DataProtection-Keys/` with DPAPI protection.
+limit (5 attempts per 15-second window). Data Protection keys (required for antiforgery and
+framework-protected values, not for reconstructing the session token) reside in a pre-provisioned
+directory writable by the API service account. Development may use an approved user-writable local
+path (e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`). Unavailable storage is
+BLOCKED_BY_ENVIRONMENT. The application must not request elevation or alter system ACLs.
 
 Base roles are exactly Administrator, Engineer, Operator, Manager and Viewer. `AUDIT_READ` is a
 capability seeded into `iam.capability` and assigned via `iam.user_capability`. Administrator has
@@ -174,7 +180,7 @@ reconciliation path:
 | Area/Asset Draft -> Active; Active <-> Inactive | Admin or scoped Engineer | Active parent for activation | expected version; lifecycle/audit | parent/scope conflict |
 | Asset nonterminal -> Decommissioned | Admin/scoped Engineer | no Active child Point | atomic expected version; no cascade; audit | `ACTIVE_CHILD_POINT` |
 | Point Draft -> Active; Active <-> Inactive | Admin/scoped Engineer | all IAM/Catalog/Organization checks, REPEATABLE READ + global lock order | expected version; health reconcile; audit | specific prerequisite |
-| Point nonterminal -> Decommissioned | Admin/scoped Engineer | no Running mapped Run | lock Order Point then Acquisition Run; audit | `RUNNING_SIMULATOR` |
+| Point nonterminal -> Decommissioned | Admin/scoped Engineer | no Running mapped Run | lock order Organization Point → Acquisition Run → Integration outbox; audit | `RUNNING_SIMULATOR` |
 | Source Draft -> Active; Active <-> Suspended; nonterminal -> Decommissioned | Admin/scoped Engineer | config/scope checks | expected version; schedule/health event + audit | lifecycle/history conflict |
 | Mapping Draft -> Active; Active -> Inactive/Superseded | Admin/scoped Engineer | Point readiness port, no overlap | exclusion/serializable lock; Catalog event + audit | mapping conflict |
 | Run Start/Pause/Resume/Stop | scoped Engineer/Admin | Start requires active Source/Mapping/Point/ancestors; idempotency key; global lock order | expected version; new Run or continued state, lease/job/event/audit | invalid transition |

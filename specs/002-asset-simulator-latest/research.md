@@ -92,16 +92,19 @@ in the repository. The namespace and serialization version `V1` are fixed contra
 ### Decision: Cross-module transaction and lock protocol
 
 The composition root owns the unit-of-work boundary. Provider rows required for strict invariants are
-locked in a deterministic global order: (1) IAM user, (2) Organization hierarchy, (3) Catalog
-Metric/Unit/Source/Mapping, (4) Acquisition Run/dependency, (5) Telemetry identity/projection,
-(6) Integration outbox. Isolation level REPEATABLE READ, `SELECT FOR UPDATE` in lock order, up to
-3 retries with exponential backoff on serialization/deadlock, 2-second lock_timeout. Applied to
-Point activation, Mapping activation, Simulator Start, Point decommission vs Start, Asset
-decommission, Point decommission, canonical ingestion and Source/Mapping delete.
+locked in a deterministic global order: IAM → Organization → Catalog → Acquisition → Telemetry →
+Integration. Isolation level REPEATABLE READ, `SELECT FOR UPDATE` in the exact flow order. Up to
+3 retries with exponential backoff on serialization/deadlock (50ms, 150ms, 450ms). After exhaustion,
+return HTTP 503 with `TRANSIENT_DATABASE_CONFLICT` (never `PRECONDITION_FAILED`).
+`PRECONDITION_FAILED` is reserved for business-state failures only. Each applied flow
+(Point activation, Mapping activation, Simulator Start, Point decommission, Asset decommission,
+Telemetry ingestion, Source/Mapping hard delete) follows its specific required order documented in
+`contracts/README.md`. `lock_timeout` is 2 seconds.
 
 Alternatives rejected: distributed transaction (not available in single PostgreSQL database),
 optimistic-only for strict invariants (retry overhead makes crash-recovery paths fragile),
-cross-schema writes (violates module ownership).
+cross-schema writes (violates module ownership), PRECONDITION_FAILED for database contention
+(confuses infrastructure and business errors).
 
 ### Decision: POC seed and bootstrap model
 
@@ -131,16 +134,22 @@ permission-based approach (too complex for VS-01).
 ### Decision: API concurrency semantics
 
 Create: Idempotency-Key required, no If-Match (no aggregate version exists). Update/lifecycle/delete:
-both Idempotency-Key and If-Match required; stale version returns VERSION_CONFLICT. Login/logout/
-query: no aggregate If-Match. All contracts updated to reflect this split.
+both Idempotency-Key and If-Match required; stale version returns VERSION_CONFLICT. Login: neither
+If-Match nor Idempotency-Key. Logout: no If-Match, antiforgery required. Query: neither If-Match
+nor Idempotency-Key. All contracts updated to reflect this split.
 
 ### Decision: Session implementation details
 
-Working defaults defined for cookie name (`.IUMP.Auth`), Secure/SameSite Lax/HttpOnly, idle 20m,
-absolute 8h, 256-bit CSPRNG token, SHA-256 hash, rotation on login, logout revocation, antiforgery
-cookie/header (`.IUMP.Xsrf`/`X-XSRF-TOKEN`), same-origin only, HTTPS with Development override,
-persistent Data Protection keys under `%ProgramData%/IUMP/DataProtection-Keys/` with DPAPI, and
-rate-limit 5 attempts per 15s window.
+Working defaults defined for cookie name (`.IUMP.Auth`), opaque 256-bit CSPRNG token (not an ASP.NET
+encrypted identity ticket), SHA-256 hash stored in `user_session`, Secure/SameSite Lax/HttpOnly,
+idle 20m, absolute 8h, new opaque token after login (old session remains valid — multiple sessions
+allowed), logout revokes current session by `revoked_at`, revocation is `revoked_at IS NOT NULL`
+(idle/absolute expiry or Disabled user also invalid). Multiple sessions per user. Administrator
+revoke-all sets `revoked_at` on all sessions. Antiforgery cookie/header (`.IUMP.Xsrf`/
+`X-XSRF-TOKEN`), same-origin only, HTTPS with Development override. Data Protection keys in a
+pre-provisioned directory writable by the service account (no elevation). Development may use
+`%LOCALAPPDATA%/IUMP/DataProtection-Keys/`. Unavailable key storage is BLOCKED_BY_ENVIRONMENT.
+Rate-limit 5 attempts per 15s window.
 
 ### Decision: Immutable configuration versions
 
@@ -163,12 +172,16 @@ collision assumptions are tested as a contract.
 
 ### Decision: Local authentication/session
 
-Use approved ASP.NET Core `PasswordHasher<T>` and a server-issued encrypted Secure/HttpOnly/SameSite
-Lax cookie (`.IUMP.Auth`) backed by revocable `iam.user_session`. Every request validates Active
-user, roles and scopes; Disable/revoke takes effect immediately. Logout clears/revokes the session,
-expiry is idle plus absolute, state-changing cookie requests require antiforgery, and no token/hash
-is returned or placed in a query string. Login errors are non-enumerating with bounded framework-backed
-rate limiting. Bootstrap credentials are injected from protected environment state, never committed.
+Use approved ASP.NET Core `PasswordHasher<T>` and an opaque 256-bit CSPRNG session token in a
+Secure/HttpOnly/SameSite Lax cookie (`.IUMP.Auth`). The cookie is not an ASP.NET encrypted identity
+ticket; it contains the raw opaque token. The server stores SHA-256(token) in revocable
+`iam.user_session`. Login does not use Idempotency-Key: each login creates a new independent session.
+Multiple sessions per user are allowed. Logout revokes only the current session; Administrator
+revoke-all revokes all sessions for a user. Every request validates Active user, roles and scopes;
+Disabled user status takes effect immediately. State-changing cookie requests require antiforgery.
+No token appears in response JSON or query strings. Login errors are non-enumerating with bounded
+framework-backed rate limiting. Bootstrap credentials are injected from protected environment state,
+never committed.
 
 ### Decision: Five roles and audit review capability
 

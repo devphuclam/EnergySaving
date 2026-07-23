@@ -11,8 +11,8 @@ Engineer with Site scope or Administrator may mutate. Create commands require Id
 but no If-Match. Update/lifecycle commands require both Idempotency-Key and If-Match.
 Invalid transitions return PRECONDITION_FAILED. Start asks Catalog for Source and Mapping status
 and Organization for Point/ancestor readiness; a Draft Point never produces. Start acquires
-deterministic locks in global order (IAM, Organization, Catalog, Acquisition, Telemetry,
-Integration) before committing.
+deterministic locks in the required flow order: Organization Point/ancestors → Catalog
+Source/Mapping → Acquisition Run/Run-Point rows → Integration outbox.
 
 ## Immutable configuration and algorithm
 

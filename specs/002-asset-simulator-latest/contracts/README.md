@@ -23,7 +23,7 @@ own inbox; an originating module never inserts another schema. No consumer write
 Successful mutations return resource ID, status, new version and correlationId. Lists are
 scope-filtered before paging. Errors have errorCode, message, correlationId and field/record details.
 Canonical codes are UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, PRECONDITION_FAILED,
-DOMAIN_CONFLICT, VERSION_CONFLICT, DUPLICATE and DEPENDENT_HISTORY.
+DOMAIN_CONFLICT, VERSION_CONFLICT, DUPLICATE, DEPENDENT_HISTORY and TRANSIENT_DATABASE_CONFLICT.
 
 Known capability denials may return FORBIDDEN. An out-of-scope object lookup is indistinguishable
 NOT_FOUND with no payload.
@@ -42,17 +42,27 @@ NOT_FOUND with no payload.
 - Stale version returns the one canonical **VERSION_CONFLICT** response.
 - Idempotency-Key is also REQUIRED for retry safety.
 
-### Login / logout / query commands
+### Login
 
 - No aggregate If-Match.
-- Login uses Idempotency-Key to prevent duplicate session creation.
-- Logout and queries do not require If-Match.
+- No Idempotency-Key.
+
+### Logout
+
+- No aggregate If-Match.
+- Antiforgery required (cookie-authenticated state change).
+
+### Query
+
+- No aggregate If-Match.
+- No Idempotency-Key.
 
 ## Session implementation defaults
 
 | Setting | Working default |
 |---|---|
 | Cookie name | `.IUMP.Auth` |
+| Cookie content | Opaque random session token (256-bit CSPRNG). Not an ASP.NET encrypted identity ticket |
 | Secure | `true` (always); developer override via `ASPNETCORE_ENVIRONMENT=Development` |
 | SameSite mode | `Lax` |
 | HttpOnly | `true` |
@@ -60,16 +70,18 @@ NOT_FOUND with no payload.
 | Absolute timeout | 8 hours |
 | Session-token random entropy | 256 bits (32 bytes CSPRNG) |
 | Hash stored in `user_session` | SHA-256 of session token |
-| Session rotation | New token issued after login; old session revoked immediately |
-| Logout | Server revokes `user_session`, clears cookie |
-| Revocation | Server sets `revoked_at`; next request resolves `revoked_at < now` as invalid |
+| Session rotation | New opaque token after login; old session remains valid (multiple sessions allowed) |
+| Logout | Revokes current `user_session` by setting `revoked_at`, clears cookie |
+| Revocation | `revoked_at IS NOT NULL` means revoked; idle/absolute expiry or Disabled user also means invalid |
+| Multiple sessions | Allowed per user; each login creates a new independent session |
 | Antiforgery cookie name | `.IUMP.Xsrf` |
 | Antiforgery header name | `X-XSRF-TOKEN` |
 | API allowed origins | Same-origin only (no CORS for POC) |
 | Web allowed origins | Same-origin only |
 | Local HTTPS requirement | Required in Production; Development permits HTTP with explicit `Cookie.SecurePolicy=Never` |
-| Data Protection key ring | Persistent, stored under `%ProgramData%/IUMP/DataProtection-Keys/` on Windows |
-| Key protection | DPAPI `ProtectKeysWithDpapi()` for local POC; `ProtectKeysWithDpapiNG()` for domain service account when available |
+| Data Protection key store | Required for ASP.NET Data Protection (antiforgery, framework-protected values). Directory must be pre-provisioned and writable by the API service account. Application must not request elevation or alter system ACLs |
+| Key storage (Windows) | DPAPI `ProtectKeysWithDpapi()` using a pre-provisioned directory. Development may use an approved user-writable local path configured outside the repository (e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`) |
+| Key storage classification | Unavailable/unapproved storage is BLOCKED_BY_ENVIRONMENT. No keys are committed |
 | Rate-limit window | 15 seconds |
 | Rate-limit attempt threshold | 5 failed attempts per window per username |
 
@@ -99,33 +111,47 @@ deadlock:
 5. **Telemetry** — identity registry, raw Measurement, Latest projection
 6. **Integration** — outbox_event row
 
-### Applied rules
+### Applied flow orders
 
-- **Point activation**: IAM user (Data Owner), Organization Point/ancestor rows, Catalog
-  Metric/Unit/Mapping rows are locked before commit. Activation fails atomically if any advisory
-  lock or row version changed between validation and commit.
-- **Mapping activation**: Catalog Mapping row, Organization Point row locked in order. Exclusion
-  constraint prevents effective-period overlap.
-- **Simulator Start**: Acquisition Run, Organization Point, Catalog Source/Mapping rows locked
-  deterministically. Fails if any ancestor is no longer Active.
-- **Point decommission vs Simulator Start**: Both lock Organization Point row first, then
-  Acquisition Run row. Mutual consistency is guaranteed — both cannot pass on stale checks.
-- **Asset decommission**: Organization Asset row (with children check), then child Point rows
-  in ID order.
-- **Point decommission**: Organization Point row, then Acquisition Run status query (locked).
-- **Canonical Measurement ingestion**: Telemetry locks identity registry row (or takes
-  predicate lock), validates owner state via advisory snapshot version check inside the same
-  transaction.
-- **Source/Mapping hard-delete**: Catalog rows locked, dependency query against Acquisition
-  and Telemetry via public ports (not cross-schema queries).
+Each flow uses provider-owned adapters inside one host-coordinated PostgreSQL transaction.
+Consumers must not directly query or write another schema. `SELECT ... FOR UPDATE` on strict
+invariant rows in the exact order below.
+
+**Point activation:**
+IAM user/scope → Organization hierarchy/Point → Catalog Metric/Unit/Mapping → Integration outbox
+
+**Mapping activation:**
+Organization Point → Catalog Source/Mapping and overlap rows → Integration outbox
+
+**Simulator Start:**
+Organization Point/ancestors → Catalog Source/Mapping → Acquisition Run/Run-Point rows → Integration outbox
+
+**Point decommission:**
+Organization Point → Acquisition Running-Run dependency → Integration outbox
+
+**Asset decommission:**
+Organization Asset → child Organization Points ordered by Point ID → Integration outbox
+
+**Telemetry ingestion:**
+Organization operational Point snapshot → Catalog Source/Mapping/Metric/Unit → Telemetry identity/raw/Latest → Integration outbox
+
+**Source/Mapping hard delete:**
+Organization reference where required → Catalog Source/Mapping → Acquisition dependencies → Telemetry dependencies → Integration outbox
 
 ### Isolation and failure handling
 
 - **Isolation level**: `REPEATABLE READ` for commands that lock multiple rows.
 - **Row-lock behavior**: `SELECT ... FOR UPDATE` on referenced rows in the global order.
 - **Retry on serialization/deadlock**: Up to 3 immediate retries with exponential backoff
-  (50ms, 150ms, 450ms). After exhaustion, the error is returned to the caller as
-  `PRECONDITION_FAILED` with detail `TRANSIENT_LOCK_FAILURE`.
-- **Safe lock timeout**: `lock_timeout` set to 2 seconds per statement. Exceeding this is
-  classified as a transient infrastructure error, not a business rejection. Monitoring alerts
-  on sustained lock timeout.
+  (50ms, 150ms, 450ms). After exhaustion, the caller receives:
+  - HTTP 503 Service Unavailable
+  - `errorCode`: `TRANSIENT_DATABASE_CONFLICT`
+  - `retryable`: `true`
+  - Safe correlation ID
+  - `Retry-After` header when appropriate
+- **Lock timeout**: `lock_timeout` set to 2 seconds per statement. Exceeding this is also a
+  transient infrastructure error returning `TRANSIENT_DATABASE_CONFLICT`, never
+  `PRECONDITION_FAILED`. Monitoring alerts on sustained lock timeout.
+
+`PRECONDITION_FAILED` remains for business-state failures such as: inactive parent, missing
+Mapping, incompatible Unit, Running Simulator blocking decommission.

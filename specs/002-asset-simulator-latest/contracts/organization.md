@@ -20,17 +20,20 @@ hierarchy.
 
 ## Point activation contract
 
-ActivatePoint(pointId, expectedVersion) asks:
+ActivatePoint executes inside a single REPEATABLE READ transaction with lock order:
+IAM user/scope → Organization hierarchy/Point → Catalog Metric/Unit/Mapping → Integration outbox.
+
+Checks performed:
 
 1. IAM: Data Owner exists, is Active and is appropriately scoped.
-2. Catalog: Metric and Unit are Active and compatible.
-3. Catalog: exactly one Simulator Mapping is effective and Active.
-4. Organization: ancestors are Active, expected interval is positive, and no-data threshold is
+2. Organization: ancestors are Active, expected interval is positive, and no-data threshold is
    greater than expected interval.
+3. Catalog: Metric and Unit are Active and compatible.
+4. Catalog: exactly one Simulator Mapping is effective and Active.
 
 It commits only when returned provider versions remain valid at the transaction boundary.
 Provider rows required for strict invariants are locked in the global deterministic order
-(1. IAM user, 2. Organization hierarchy, 3. Catalog Metric/Unit/Mapping) before commit.
+(IAM → Organization → Catalog → Integration) before commit.
 
 **Point activation MUST NOT commit if Data Owner, Metric, Unit or Mapping can change between
 validation and commit.** The activation command rechecks provider version snapshots inside the
@@ -44,8 +47,9 @@ Site/Area scope and owner version. Acquisition and Telemetry consume this snapsh
 Organization.
 
 IPointDecommissionDependency is a synchronous Organization-to-Acquisition query. It returns whether
-any mapped Simulator Run is Running. Decommission fails with RUNNING_SIMULATOR before mutation.
-Both locks (Organization Point, then Acquisition Run) are acquired in global order.
+any mapped Simulator Run is Running. Decommission executes inside a REPEATABLE READ transaction
+with lock order: Organization Point → Acquisition Running-Run dependency → Integration outbox.
+Fails with RUNNING_SIMULATOR before mutation.
 
 ## Lifecycle behavior
 

@@ -21,8 +21,10 @@ and provider version. Organization uses it for Point activation; Telemetry uses 
 IActiveSimulatorMappingEligibility(PointId, at) returns exactly-one Active effective mapping or a
 specific missing/multiple reason. ISourceMappingSnapshot returns Source/Mapping status, effective
 period, Point ID and provider version for Acquisition/Telemetry validation. Mapping activation asks
-Organization for Point readiness and scope through a public port. Phase 2 uses a fake readiness port;
-real Draft Point readiness is integrated in Phases 3-4.
+Organization for Point readiness and scope through a public port. Mapping activation executes inside
+a REPEATABLE READ transaction with lock order: Organization Point → Catalog Source/Mapping and
+overlap rows → Integration outbox. Phase 2 uses a fake readiness port; real Draft Point readiness
+is integrated in Phases 3-4.
 
 ## Invariants and lifecycle
 

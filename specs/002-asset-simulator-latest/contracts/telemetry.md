@@ -32,16 +32,15 @@ Duplicate and returns the original stable classification and outcome without per
 
 Validation sequence:
 
-1. confirm trusted internal producer context;
-2. ask Catalog for Active Source and effective Active Mapping;
-3. ask Organization for Active Point/ancestor operational eligibility;
-4. ask Catalog for Metric/Unit compatibility;
+ 1. confirm trusted internal producer context;
+ 2. ask Organization for Active Point/ancestor operational eligibility;
+ 3. ask Catalog for Active Source, effective Active Mapping, and Metric/Unit compatibility;
 5. validate `measurement_id` presence, format and uniqueness;
 6. validate schema, timestamp, lineage;
 7. classify range and clock skew;
-8. persist identity/raw Measurement atomically in a REPEATABLE READ transaction with
-   deterministic lock order (IAM, Organization, Catalog, Acquisition, Telemetry identity,
-   Integration outbox);
+ 8. persist identity/raw Measurement atomically in a REPEATABLE READ transaction with
+    deterministic lock order: Organization operational Point snapshot → Catalog
+    Source/Mapping/Metric/Unit → Telemetry identity/raw/Latest → Integration outbox;
 9. compare-and-set Point Latest only when eligible and newer;
 10. return stable outcome.
 
