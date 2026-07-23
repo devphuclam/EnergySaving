@@ -2,36 +2,45 @@
 
 ## HTTP surface
 
-- Simulator control: `POST /api/v1/simulators/{sourceId}/start|pause|resume|stop`.
-- Run status: `GET /api/v1/simulators/{sourceId}/run`.
+- POST /api/v1/simulators/{sourceId}/start|pause|resume|stop
+- GET /api/v1/simulators/{sourceId}/run
+- Configuration version commands are scoped to the Catalog Source and Acquisition configuration
+  aggregate.
 
-Mutation requires Engineer in object scope or Administrator, expected version, correlation ID, and
-an idempotency key for control commands. Invalid state changes return `PRECONDITION_FAILED`.
-Source and mapping commands are owned by the Catalog contract.
+Engineer with Site scope or Administrator may mutate. Commands require If-Match, correlation ID and
+idempotency key. Invalid transitions return PRECONDITION_FAILED. Start asks Catalog for Source and
+Mapping status and Organization for Point/ancestor readiness; a Draft Point never produces.
 
-## Configuration and lifecycle
+## Immutable configuration and algorithm
 
-Constant requires min=max. Normal requires min<max and produces deterministic values within bounds.
-Only these scenarios are valid. One source may map to many Points, but a Point has at most one
-effective Active Simulator mapping. A Draft Point may be configured with a mapping; production still
-requires an Active Point and ancestors.
+simulator_configuration is a head with current_version. Every edit creates an immutable
+simulator_configuration_version row. A Run stores the exact configuration ID/version and later
+edits affect only future Start commands.
 
-Start creates a new Run and per-Point deterministic state. Pause persists state. Resume continues
-the same Run. Stop is terminal for that Run; another Start creates another Run. The Worker
-reacquires only persisted Running runs after restart. A lease and expected version prevent two
-workers from generating the same slot.
+Constant requires min=max and emits that exact value without PRNG state. Normal requires min<max and
+uses IUMP-DETERMINISTIC-V1: repository-owned PCG32 plus Box-Muller normal-like transformation,
+midpoint mean, range/6 sigma, cached spare and rejection/clamping to bounds. Algorithm ID/version,
+seed, stable Point ID, configuration version and source sequence are complete deterministic inputs.
+No platform Random, current time seed, system randomness or third-party statistics.
 
-## Worker production contract
+## Run lifecycle and Worker
 
-For every due Run+Point, Acquisition constructs a canonical request with stable measurement ID,
-source/run/point/mapping IDs, source sequence, source/received timestamps, value/unit, trusted
-producer identity, and correlation/lineage. It calls Telemetry ingestion and records exactly one
-Generated outcome, then increments Accepted or Rejected according to the returned classification.
-Duplicate retries do not double-increment counters.
+Start creates a new Running Run and resets independent Run+Point state. Running -> Paused/Stopped;
+Paused -> Running/Stopped; Stopped is terminal for that Run. Resume continues sequence and generator
+state. Only persisted Running Runs auto-recover after Worker restart. Lease/version prevents two
+workers producing one slot.
+
+For each due Run+Point, canonical identity derives from:
+IUMP:SIMULATOR:V1|source_id|run_id|point_id|mapping_id|source_sequence|algorithm_version
+using a repository namespace and UTF-8 canonical bytes. Received/processing time is excluded.
+
+Acquisition creates a unique production-attempt checkpoint for (Run, Point, Sequence) before calling
+Telemetry. The Telemetry result is Accepted, Rejected or Duplicate. The checkpoint finalizes
+Generated/Accepted/Rejected counters once, so a crash between transactions cannot double-count or
+lose an attempt. Audit is event-driven, not a direct cross-schema write.
 
 ## Events
 
-`SimulatorRunStarted`, `SimulatorRunPaused`, `SimulatorRunResumed`, `SimulatorRunStopped`, and
-optionally `SimulatorRunFaulted`. Catalog supplies `DataSourceStatusChanged` and
-`SourcePointMappingChanged`. Control events drive immutable audit; status facts allow health
-re-evaluation.
+SimulatorRunStateChanged.v1 is consumed by Operations, Audit and Source Status evaluation.
+Catalog supplies DataSourceStatusChanged.v1 and SourcePointMappingChanged.v1. Events use outbox_event
+and are deduplicated by inbox_message.

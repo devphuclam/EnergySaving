@@ -1,32 +1,29 @@
 # Audit Contract
 
-## `AppendAuditEvent`
+## Append and ownership
 
-Required input: actor ID and username snapshot, UTC occurrence time, correlation ID, object type and
-ID, action, important before/after values, human-readable summary, and Site/Area scope snapshot.
-Creation is part of the originating transaction when within the same owner boundary, or consumes an
-outbox-backed control/config event idempotently.
+AppendAuditEvent requires actor ID/username snapshot, UTC time, correlation ID, object type/ID,
+action, important before/after values, summary and Site/Area scope snapshot. Audit owns the write.
+Business modules commit their own state and publish events to integration.outbox_event; Audit
+consumes through integration.inbox_message idempotently. Producers never insert another schema.
 
-Covered operations:
+Covered operations include Site/Area/Asset/Point create/update/lifecycle, Source/Mapping lifecycle
+and permitted deletion, configuration version creation, Simulator Start/Pause/Resume/Stop, user
+role/scope/status changes, authentication success/failure/revocation and required authorization
+decisions. Credentials and hashes are excluded.
 
-- create, update, and lifecycle changes for Site, Area, Asset, and Measurement Point;
-- create, update, activate/inactivate/supersede, and permitted delete for mappings;
-- Simulator start, pause, resume, and stop;
-- required authorization decisions.
+Audit is append-only: no update/delete contract exists and database permissions enforce it. Event
+subject snapshots preserve readable evidence if a Draft-unused Source/Mapping is later deleted; an
+Audit snapshot alone does not block that deletion.
 
-Audit is append-only: no update/delete contract exists, and database permissions enforce it.
-`eventId` is the inbox idempotency key. Before/after values exclude credentials and secrets.
-Subject and actor snapshots preserve readable evidence if a Draft-unused source/mapping is later
-deleted.
+## Authorized query
 
-## HTTP read surface
+GET /api/v1/audit-events supports filters by object, action, actor, correlation ID and time.
+AuditReview is an approved capability/responsibility, not a base role and not automatic for Viewer.
+Data Owner assignment grants no AuditReview. Results are Site/Area scoped unless Administrator.
 
-`GET /api/v1/audit-events` supports authorized filters by object, action, actor, correlation ID, and
-time. Reviewer access is satisfied by the authorized read capability assigned to the appropriate
-Manager/Viewer policy; Data Owner assignment alone grants nothing. Results are Site/Area scoped
-unless the caller is Administrator.
+## Timeliness and event envelope
 
-## Timeliness
-
-Same-transaction entries are immediately visible. Outbox-delivered entries must become visible
-within five seconds (`SC-006`) under the supported POC load, with retry and duplicate suppression.
+Audit events must become query-visible within five seconds of configuration/control execution under
+supported POC load. Events are eventType.v1 with schemaVersion=1, event ID and causation/correlation
+IDs; inbox deduplicates retries. Authorization denial evidence contains no target data.

@@ -2,39 +2,44 @@
 
 ## HTTP surface
 
-- `GET|POST /api/v1/metrics`, `GET|PUT /api/v1/metrics/{id}`
-- `GET|POST /api/v1/units`, `GET|PUT /api/v1/units/{id}`
-- `GET|PUT /api/v1/metrics/{metricId}/compatible-units`
-- `GET|POST /api/v1/data-sources`, `GET|PUT|DELETE /api/v1/data-sources/{id}`
-- `GET|POST /api/v1/source-point-mappings`,
-  `PUT|DELETE /api/v1/source-point-mappings/{id}`, plus `activate`, `inactivate`, and `supersede`
+- GET|POST /api/v1/metrics; GET|PUT /api/v1/metrics/{id}
+- GET|POST /api/v1/units; GET|PUT /api/v1/units/{id}
+- GET|PUT /api/v1/metrics/{metricId}/compatible-units
+- GET|POST /api/v1/data-sources; GET|PUT|DELETE /api/v1/data-sources/{id}
+- GET|POST /api/v1/source-point-mappings; GET|PUT|DELETE
+  /api/v1/source-point-mappings/{id}; activate, inactivate and supersede commands
 
-Mutations require Engineer in scope or Administrator; POC seed application is idempotent.
+Administrator or Engineer with an existing Site scope may mutate. All commands require If-Match,
+idempotency key and correlation ID. Source and Mapping are Catalog-owned; no Catalog command writes
+Organization tables.
 
-## `IMetricUnitCompatibility`
+## Compatibility and mapping ports
 
-Input: Metric ID and Unit ID. Output: both existence/status values, compatibility, canonical Unit
-indicator, and provider version. Organization calls it for Point activation; Telemetry calls it for
-canonical ingestion. A missing/inactive/incompatible pair returns a reason code, not a partial
-business row.
+IMetricUnitCompatibility(MetricId, UnitId) returns existence/status, compatibility, canonical flag
+and provider version. Organization uses it for Point activation; Telemetry uses it for ingestion.
 
-## Invariants
+IActiveSimulatorMappingEligibility(PointId, at) returns exactly-one Active effective mapping or a
+specific missing/multiple reason. ISourceMappingSnapshot returns Source/Mapping status, effective
+period, Point ID and provider version for Acquisition/Telemetry validation. Mapping activation asks
+Organization for Point readiness and scope through a public port. Phase 2 uses a fake readiness port;
+real Draft Point readiness is integrated in Phases 3-4.
 
-Metric and Unit codes are globally unique. At most one canonical Unit exists per Metric. Seeds
-include Electric Power/kW and Electrical Energy/kWh and can be applied repeatedly without
-duplicates. Seed presence is not approval of any Point.
+## Invariants and lifecycle
 
-Data Source lifecycle is Draft/Active/Suspended/Decommissioned; Mapping lifecycle is
-Draft/Active/Inactive/Superseded. A Point has at most one effective Active mapping, enforced with
-half-open periods and transactional overlap protection. Draft-unused deletion is conditional; once
-operational history exists it returns `DEPENDENT_HISTORY`.
+Metric and Unit codes are globally unique. At most one canonical Unit exists per Metric. Idempotent
+seeds include Electric Power/kW and Electrical Energy/kWh; seed presence is not Point approval.
 
-`IActiveSimulatorMappingEligibility` answers Point activation. `ISourceMappingSnapshot` answers
-Acquisition/Telemetry validation without permitting cross-schema writes. Mapping activation asks
-Organization for Point readiness and scope.
+Data Source lifecycle is Draft, Active, Suspended, Decommissioned. Mapping lifecycle is Draft, Active,
+Inactive, Superseded. A Draft Point may have an Active Mapping but it is non-producing until the
+Point and all ancestors are Active. Active Mapping periods are half-open and cannot overlap per
+Point. Future/historical mappings may coexist.
+
+Draft-unused Source or Mapping deletion is allowed only after owner dependency checks find no mapping
+use, Run, Measurement, projection, scheduled job or other business reference. An Audit snapshot alone
+does not block deletion. Operational dependency returns DEPENDENT_HISTORY.
 
 ## Events
 
-`MetricStatusChanged`, `UnitStatusChanged`, `MetricUnitCompatibilityChanged`,
-`DataSourceStatusChanged`, and `SourcePointMappingChanged` are published only when a real consumer
-requires reconciliation.
+MetricStatusChanged.v1, UnitStatusChanged.v1, MetricUnitCompatibilityChanged.v1,
+DataSourceStatusChanged.v1 and SourcePointMappingChanged.v1 are emitted only when a real consumer
+requires reconciliation. Audit consumes committed events through inbox_message.

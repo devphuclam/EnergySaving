@@ -1,175 +1,129 @@
-# Research: Asset Simulator Latest
+# Research: Asset Simulator Latest (Targeted Repair)
 
-**Feature**: `002-asset-simulator-latest`  
-**Release boundary**: R1 / VS-01  
-**Date**: 2026-07-23
+**Scope**: R1 / VS-01 only | **Authority**: updated `spec.md` and its Clarifications
 
-## Sources and Authority
+## Findings and decisions
 
-Research used the feature specification as the requirement authority, the constitution and accepted
-ADRs as governance authority, and the following business documents as supporting design sources:
-DOC-04 v0.2 (SRS), DOC-05 v0.2 (Architecture), DOC-06 v0.1 (Data and Integration), and DOC-07 v0.2
-(Roadmap). `CONTEXT.md`, the module ownership manifest, the existing R0 solution, migration
-`0001_r0_foundation.sql`, and verification scripts were inspected to ensure the design fits the
-repository that actually exists.
+### Decision: Administrator-rooted bootstrap
 
-The planning prompt mentions six success criteria, while `spec.md` defines eight. The specification
-wins; all `SC-001..SC-008` are planned.
+The root Site is created by Administrator only. The Administrator then assigns an Engineer Site
+scope. The Engineer can create/manage lower hierarchy, Catalog-owned Source/Mapping and Acquisition
+Simulator within that scope. An Engineer without a Site scope has no global bypass and receives a
+specific permission denial for root Site creation. Seeds create fixed roles and a bootstrap Admin
+identity first; they do not insert a scope row referencing a Site that does not exist.
 
-## Decision P-001: Latest eligibility by quality
+Alternatives rejected: pre-seeding Engineer scope to a future Site (invalid logical reference),
+granting Engineer a global bootstrap exception, or allowing UI claims to override server scope.
 
-**Decision**: A safely interpreted Measurement with quality `Good` or `Uncertain` is eligible to
-advance Point Latest. A safely interpreted Measurement with quality `Bad` is persisted for
-traceability but is not Latest-eligible. `No Data` is a derived Source Health state, not a stored
-Measurement quality. The last observed health/result is retained separately from the current
-derived health.
+### Decision: Catalog owns Source and Mapping
 
-**Rationale**: This preserves observable evidence while preventing known-invalid values from
-becoming the operational current value. It also avoids manufacturing Measurement rows to express
-silence.
+Catalog owns Data Source, Source-Point Mapping, lifecycle, effective periods, overlap protection and
+mapping eligibility. Organization Point activation synchronously asks IAM for Data Owner eligibility,
+Catalog for Metric/Unit compatibility and exactly one Active Mapping, and Organization for its own
+ancestor/interval checks. Organization never asks Acquisition whether a Mapping exists.
 
-**Alternatives considered**:
+Alternatives rejected: placing Mapping in Acquisition (contradicts authoritative module ownership),
+or direct cross-schema writes.
 
-- Only `Good` advances Latest: rejected because valid-but-qualified data would make Latest stale.
-- `Bad` advances Latest: rejected because the current operational value could become known-invalid.
-- Store synthetic `No Data` Measurements: rejected because absence is derived from elapsed time.
+### Decision: Correct dependency order
 
-## Decision P-002: Clock-skew policy
+The design uses ten checkpoints: IAM/bootstrap; Catalog primitives; Draft Organization; Simulator
+configuration/mapping; Point activation; Run/Worker; canonical Telemetry; Latest/Health; API/Web;
+acceptance hardening. A Draft Point may have an Active non-producing Mapping, eliminating the former
+activation circularity.
 
-**Decision**: The allowed future source-timestamp skew is configuration with an R1 default of
-`300 seconds`. A safely parsed Measurement beyond that threshold is accepted, persisted with
-`Uncertain` quality and reason `SOURCE_TIMESTAMP_FUTURE`, and remains Latest-eligible under P-001.
-The configured value is bounded, versioned, audited, and evaluated using the server processing
-clock.
+### Decision P-001: Latest eligibility
 
-**Rationale**: Simulator and industrial source clocks can drift. Downgrading quality preserves the
-evidence and deterministic Latest behavior without silently losing data.
+Good and Uncertain may advance Latest; Bad may be retained but never advances; No Data is derived and
+does not replace Latest or produce numeric zero. The API separates last observed value from current
+status. This preserves evidence while avoiding an invalid operational current value.
 
-**Alternatives considered**:
+### Decision P-002: Future timestamp
 
-- Hard reject future timestamps: rejected because it loses interpretable evidence.
-- Clamp source time to processing time: rejected because it corrupts provenance.
-- Use an unconfigurable constant: rejected because the business environment varies by deployment.
+`clock_skew_threshold_seconds` is configurable with 300 seconds as the VS-01 working default. A
+safely parsed future value beyond the threshold is retained as Uncertain with
+`SOURCE_TIMESTAMP_FUTURE`, remains Latest-eligible and is not subject to an extra hidden rejection
+threshold. Server time is used for the comparison.
 
-## Decision P-003: Total Latest ordering
+### Decision P-003: Latest ordering
 
-**Decision**: For Latest-eligible Measurements of one Point, compare the tuple
-`(source_timestamp, source_sequence, processing_timestamp, measurement_id)` in ascending order.
-Only a strictly greater tuple may replace Point Latest. Missing source sequence is normalized to a
-documented sentinel below any supplied sequence for that same source timestamp. The compare and
-update occurs atomically in Telemetry.
+Compare source timestamp, then supplied sequence when it resolves an equal timestamp, then processing
+timestamp, then measurement ID. Simulator always supplies sequence. A distinct out-of-order row may
+be stored but cannot regress Latest; duplicate identity returns the original outcome and does not
+increment counters again.
 
-**Rationale**: Source time expresses business recency; sequence resolves same-source-time batches;
-processing time and immutable ID provide deterministic tie-breakers. Atomic compare-and-set prevents
-late arrivals or concurrent retries from regressing Latest.
+### Decision: Immutable configuration versions
 
-**Alternatives considered**:
+Acquisition has a configuration head plus immutable version rows. A Run stores the exact version used.
+Editing creates a new version for future Starts; Running, Paused and historical Runs are unchanged.
+This avoids a mutable row whose historical meaning changes.
 
-- Processing time only: rejected because late arrival could overwrite a newer source reading.
-- Source timestamp only: rejected because equal timestamps remain ambiguous.
-- Last database write wins: rejected because concurrency makes the result nondeterministic.
+### Decision: Reproducible Normal algorithm
 
-## Decision P-004: Point and Simulator bootstrap
+Use repository-owned `IUMP-DETERMINISTIC-V1` with a fixed algorithm version, PCG32 integer PRNG and a
+Box-Muller normal-like transformation (mean midpoint, sigma range/6, cached spare, rejection/
+clamping to bounds). State is per Run+Point and includes seed/state/spare. Constant emits exact fixed
+value without PRNG. Inputs are algorithm version, seed, stable Point ID, configuration version and
+source sequence. No platform-default Random, system randomness, current-time seed or third-party
+statistics dependency is permitted.
 
-**Decision**: A Draft Point may receive an Active Simulator mapping after Metric/Unit compatibility
-and hierarchy checks. The mapping is configuration-ready but produces no data until the Point is
-Active. Point activation requires exactly one effective Active source mapping. Simulator Start also
-rechecks that the Point and its ancestors are Active.
+This survives Worker restart because state is persisted; scheduling order because each Point stream is
+independent; process changes because the algorithm is repository-owned; and future revisions because
+algorithm ID/version is part of the immutable configuration.
 
-**Rationale**: The specification otherwise creates a circular dependency: activation requires a
-mapping while the primary story configures a Simulator around an active Point.
+### Decision: Stable Measurement identity
 
-**Alternatives considered**:
+Use UUIDv5-style name derivation under a repository namespace over canonical UTF-8 bytes:
+`IUMP:SIMULATOR:V1|source_id|run_id|point_id|mapping_id|source_sequence|algorithm_version`.
+Lowercase canonical UUIDs, decimal sequence and literal separators are normative. Time is excluded.
+Retries of the same slot share identity; different Run/Point/Mapping/sequence do not. UUID namespace
+collision assumptions are tested as a contract.
 
-- Permit an active Point without a source: rejected because it violates readiness invariants.
-- Permit generation for Draft Points: rejected because it bypasses hierarchy lifecycle control.
+### Decision: Local authentication/session
 
-## Decision P-005: Accepted, rejected, and Bad
+Use approved ASP.NET Core `PasswordHasher<T>` and a server-issued encrypted Secure/HttpOnly/SameSite
+cookie backed by revocable `iam.user_session`. Every request validates Active user, roles and scopes;
+Disable/revoke takes effect immediately. Logout clears/revokes the session, expiry is idle plus
+absolute, state-changing cookie requests require antiforgery, and no token/hash is returned or placed
+in a query string. Login errors are non-enumerating with bounded framework-backed rate limiting.
+Bootstrap credentials are injected from protected environment state, never committed.
 
-**Decision**: A parseable, attributable record that violates a value-range/data-quality rule is
-accepted and persisted as `Bad`; it increments the accepted count but cannot advance Latest.
-Malformed, unattributable, unauthorized, or irreconcilably invalid input is rejected and is not a
-Measurement. Duplicate identity is an idempotent duplicate outcome, not a second acceptance.
+### Decision: Five roles and audit review capability
 
-**Rationale**: This makes batch accounting and evidence retention testable and keeps rejection
-reserved for records that cannot safely enter the canonical model.
+Base roles are exactly Administrator, Engineer, Operator, Manager and Viewer. Manager and Viewer are
+distinct. `AuditReview` is a capability/responsibility assigned under policy, not a sixth role and not
+automatic for Viewer. Data Owner assignment grants no audit-review or elevated permission.
 
-## Decision P-006: Source Health precedence
+### Decision: Decommission and delete
 
-**Decision**: Administrative and terminal states take precedence:
-`Decommissioned > Suspended > derived elapsed-time state`. Otherwise the evaluator uses the last
-accepted observation and configured interval/thresholds to derive `Healthy`, `Late`, or `NoData`.
-Repeated evaluation of the same evidence is idempotent.
+Asset decommission fails atomically while an Active child Point exists; it never cascades. Point
+decommission fails while a mapped Simulator Run is Running, requires explicit stop/inactivation,
+triggers Health reconciliation and is terminal. An Audit snapshot alone does not block deleting a
+Draft-unused Source/Mapping; Run, Mapping use, Measurement, projection, scheduled job or other
+business dependency does. Audit remains append-only with no restrictive target FK.
 
-**Rationale**: Administrative intent must not be overwritten by a timer, and elapsed-time states
-must remain reproducible.
+### Decision: R0 infrastructure and cross-schema references
 
-## Decision P-007: Deterministic Simulator state
+R0 supplies only `integration.outbox_event`, `integration.inbox_message` and `operations.job` for this
+slice. Existing structures are reused; only minimal approved additive changes are possible. Logical
+cross-schema IDs have no FK, are validated by versioned public contracts, carry snapshots in evidence,
+and are checked by reconciliation. No module writes another schema. Audit receives committed events
+through outbox/inbox; originating modules do not insert Audit rows into another schema transaction.
 
-**Decision**: Random generator state and the next source sequence are maintained per
-`SimulatorRun + Point`. Constant output ignores random state; Normal output uses the stored seed and
-state. A new Start creates a new Run and resets state; Resume continues the same Run state. Worker
-leases prevent simultaneous production for one Run.
+## Controlled source differences
 
-**Rationale**: Per-point state makes multi-point runs reproducible and avoids scheduling order
-changing the generated series.
+- The updated feature has 68 FRs and 9 SCs; all earlier planning counts are obsolete.
+- DOC-07 broader Simulator scenarios and replay are deferred because the clarified feature permits
+  Constant and Normal only.
+- DOC-07/R0 assumptions about IAM, Catalog and Site seeds are not true of the repository baseline;
+  R1 supplies minimal IAM/Catalog and the Admin bootstrap journey without recreating R0.
+- DOC-06 physical names are respected: `iam.user_scope`, `telemetry.point_source_status`,
+  `integration.outbox_event`, `integration.inbox_message`, `operations.job`. VS-01 compatibility,
+  version, run-point-state and lifecycle-history tables are explicit extensions.
+- DOC-04 grace-period wording is narrowed to the clarified total `no_data_after_seconds` threshold.
 
-## Decision P-008: Conditional deletion and evidence
+## Clarification status
 
-**Decision**: Draft, unused configuration may be physically deleted only when it has no operational
-history or active dependency. An audit reference alone does not create an undeletable foreign-key
-cycle; audit retains an immutable subject snapshot. Once operational history exists, records are
-inactivated or decommissioned rather than deleted.
-
-**Rationale**: This reconciles CRUD requirements with audit immutability and database referential
-integrity.
-
-## Decision P-009: Lifecycle semantics
-
-**Decision**: `Inactive` records may be reactivated through the same readiness checks.
-`Decommissioned` is terminal. Asset decommission is blocked while any child Point is Active.
-Top-down activation and bottom-up deactivation/decommission checks are enforced by the owning
-Organization module.
-
-**Rationale**: A single lifecycle vocabulary avoids accidental resurrection and orphaned active
-children.
-
-## Decision P-010: Effective source mapping
-
-**Decision**: A Point has at most one mapping effective at an instant. Mapping intervals are
-half-open `[effective_from, effective_to)`. A future mapping can remain Draft; activation uses
-transactional overlap protection. Replaced mappings remain historical as Inactive/Superseded rows.
-
-**Rationale**: Effective dating provides traceability and a deterministic source for every
-Measurement without destructive overwrite.
-
-## Architectural Findings
-
-- Preserve the modular monolith with API and Worker as composition roots.
-- Each module owns its schema and writes; no module writes another module's tables.
-- Consumer-shaped synchronous ports are defined in the consuming Application layer and composed by
-  the hosts. Cross-module facts that need eventual propagation use outbox/inbox.
-- Business contracts do not belong in `BuildingBlocks`; it remains technical infrastructure.
-- The exact module ownership manifest is authoritative where DOC-05 uses shorthand schema names.
-- PostgreSQL is required for transactional, migration, concurrency, and integration verification.
-  An in-memory substitute would invalidate the architecture guarantees.
-
-## Delivery and Test Findings
-
-- R0 provides outbox, inbox, job/lease, structure tests, and a Fast/Full harness, but not the R1
-  domain schemas.
-- Ordered migrations must establish IAM, hierarchy/catalog, acquisition configuration, Telemetry,
-  Latest/Health projections, and audit/evidence constraints before data producers are enabled.
-- Pure domain and authorization-policy tests can run Fast. Repository, migration, concurrency,
-  idempotency, Worker lease, API/Worker integration, and end-to-end scenarios require Full with
-  PostgreSQL.
-- R1 implementation is constitution-gated: the current constitution contains a historical rule
-  limiting source implementation to feature 001/R0. Planning and task generation change no source
-  behavior, but implementation must not begin until that text is amended or explicitly superseded.
-
-## Resolved Ambiguities
-
-There are no unresolved clarification items remaining for planning. The success-criteria count,
-Point/mapping bootstrap, deletion/audit interaction, Bad-vs-rejected accounting, health precedence,
-multi-point determinism, and effective-date overlap have explicit decisions above. Environment and
-constitution approvals are execution blockers, not unanswered product questions.
+All repair points have a documented decision. Unresolved questions: **0**. The constitution's
+historical R0-only implementation restriction and missing PostgreSQL/package approvals are execution
+gates, not product questions.

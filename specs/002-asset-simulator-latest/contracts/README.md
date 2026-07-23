@@ -1,46 +1,37 @@
 # Contracts: Asset Simulator Latest
 
-These contracts define R1/VS-01 boundaries. They are technology-neutral design inputs, not generated
-source code. HTTP routes are versioned under `/api/v1`; commands use authenticated principals,
-`correlationId`, and an `expectedVersion` for mutable aggregates.
+These contracts define R1/VS-01 boundaries. They are design inputs, not generated source code.
+HTTP routes use /api/v1. Mutable commands use an authenticated principal, correlationId, an
+idempotency key and If-Match carrying aggregate version bigint.
 
 ## Ownership
 
-| Contract | Provider | Primary consumers |
+| Contract | Provider | Consumers |
 |---|---|---|
-| Principal, role, scope, active-user eligibility | IAM | API, Organization, Acquisition, Audit |
-| Hierarchy lifecycle and Point readiness/scope | Organization | API, Acquisition, Telemetry |
-| Metric/Unit compatibility, Source and mapping | Catalog | Organization, Acquisition, Telemetry |
-| Simulator configuration and run | Acquisition | API, Worker, Telemetry |
-| Canonical ingestion, Latest, Source Health | Telemetry | Worker, API |
-| Immutable control/config evidence | Audit | API/query consumers |
+| Principal, role, scope, session and active-user eligibility | IAM | API, Organization, Acquisition, Audit |
+| Hierarchy lifecycle, Point readiness and decommission dependency | Organization | API, Acquisition, Telemetry |
+| Metric/Unit, Source and Mapping | Catalog | Organization, Acquisition, Telemetry |
+| Simulator configuration and Run | Acquisition | API, Worker, Telemetry |
+| Canonical ingestion, Latest and Source Status | Telemetry | Worker, API |
+| Immutable evidence and AuditReview query | Audit | API and authorized reviewers |
 
-Synchronous ports answer facts required to accept or reject the current operation. Cross-module
-effects that may complete later use the existing transactional outbox/inbox. No consumer writes a
-provider's schema.
+Synchronous ports answer facts needed to accept/reject the current operation. Later effects use
+integration.outbox_event and integration.inbox_message. Audit consumes committed events through its
+own inbox; an originating module never inserts another schema. No consumer writes a provider schema.
 
-## Common Result and Error Shape
+## Common result and error
 
-Successful mutations return the resource ID, status, new version, and correlation ID. List results
-are scope-filtered before paging. Errors use:
+Successful mutations return resource ID, status, new version and correlationId. Lists are
+scope-filtered before paging. Errors have errorCode, message, correlationId and field/record details.
+Canonical codes are UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, PRECONDITION_FAILED,
+DOMAIN_CONFLICT, VERSION_CONFLICT, DUPLICATE and DEPENDENT_HISTORY.
 
-```json
-{
-  "code": "DOMAIN_CONFLICT",
-  "message": "A specific safe message",
-  "correlationId": "uuid",
-  "fieldErrors": [{ "field": "name", "code": "REQUIRED" }]
-}
-```
+Known capability denials may return FORBIDDEN. An out-of-scope object lookup is indistinguishable
+NOT_FOUND with no payload. Aggregate version is surfaced as an ETag and required as If-Match.
 
-Canonical codes: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_FAILED`,
-`PRECONDITION_FAILED`, `DOMAIN_CONFLICT`, `VERSION_CONFLICT`, `DUPLICATE`, and
-`DEPENDENT_HISTORY`. A scoped caller receives no target payload on forbidden/not-found responses.
+## Reliability and events
 
-## Reliability
-
-- Commands are retriable only with an idempotency key or stable resource identity.
-- Events carry `eventId`, `eventType`, `occurredAt`, `correlationId`, `causationId`, aggregate ID,
-  aggregate version, and schema version.
-- Consumers deduplicate by event ID. Ordering is guaranteed only per aggregate; version gaps trigger
-  retry/reconciliation rather than blind application.
+Commands are retriable with idempotency keys. Events carry eventId, immutable eventType.v1,
+occurredAt, correlationId, causationId, aggregate ID/version and schemaVersion=1. Consumers
+deduplicate by eventId using inbox_message. Ordering is guaranteed per aggregate; version gaps
+trigger retry/reconciliation.

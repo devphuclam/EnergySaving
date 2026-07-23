@@ -1,62 +1,58 @@
 # Telemetry Contracts
 
-## `IngestMeasurement`
+## Internal generated-measurement contract
 
-Input contains stable `measurementId`, Point/Source/Mapping identity, optional source sequence,
-source and received timestamps, numeric value, unit code, trusted internal producer identity,
-correlation ID, and lineage/run ID.
+Input contains sourceId, pointId, mappingId/mapping version, stable producer externalId,
+sequenceNumber, sourceTimestamp, numeric value, unitCode, correlationId and lineage/runId.
+Trusted internal producer identity is contextual, not an external transport credential. Telemetry
+generates receivedAt, processingAt, quality/reason and canonical measurementId.
 
-Validation order:
+Validation sequence:
 
-1. authenticate trusted internal producer;
-2. confirm Active Source and effective Active Mapping;
-3. confirm Point and hierarchy operational eligibility;
-4. confirm Active Metric/Unit compatibility;
-5. validate schema, timestamp, identity, lineage, and duplicate status;
-6. classify value/range and clock skew;
-7. persist identity and Measurement atomically;
-8. atomically advance Latest if eligible and newer;
-9. return a stable outcome.
+1. confirm trusted internal producer context;
+2. ask Catalog for Active Source and effective Active Mapping;
+3. ask Organization for Active Point/ancestor operational eligibility;
+4. ask Catalog for Metric/Unit compatibility;
+5. validate schema, timestamp, lineage and duplicate identity;
+6. classify range and clock skew;
+7. persist identity/raw Measurement atomically;
+8. compare-and-set Point Latest only when eligible and newer;
+9. return stable outcome.
 
-Outcomes:
+## Result
 
-- `Accepted`: persisted Good/Uncertain/Bad row, quality/reason, and whether Latest advanced.
-- `Duplicate`: the identity already exists; no second row or counter effect.
-- `Rejected`: safe reason code; no Measurement persisted.
+- Accepted: Measurement persisted as Good, Uncertain or Bad, with reason and Latest-advanced flag.
+- Duplicate: same identity returns original measurement/classification; no second row or counter.
+- Rejected: safe error code; no Measurement row.
 
-P-001: Good and Uncertain are Latest-eligible; Bad is persisted but not eligible. No Data is never a
-Measurement. P-002: future skew is configurable and defaults to 300 seconds; a safely interpreted
-row beyond it is Uncertain with `SOURCE_TIMESTAMP_FUTURE`. Out-of-range is accepted Bad with
-`VALUE_OUT_OF_RANGE`.
+P-001: Good and Uncertain are Latest-eligible; Bad is persisted but not eligible; No Data is never a
+Measurement. P-002: future skew beyond configurable 300 seconds is preserved Uncertain with
+SOURCE_TIMESTAMP_FUTURE and remains eligible. Out-of-range is Accepted Bad with VALUE_OUT_OF_RANGE.
 
-P-003: Latest uses the strict tuple
-`(sourceTimestamp, normalizedSourceSequence, processingTimestamp, measurementId)`. Missing sequence
-sorts below supplied sequence at equal source time. Compare-and-update is atomic, so retry, late
-arrival, and concurrency cannot regress Latest.
+P-003: compare sourceTimestamp, then sequence when supplied and resolving an equal timestamp, then
+processingTimestamp, then measurementId. Simulator always supplies sequence. Older/out-of-order
+history remains stored without Latest regression. Duplicate identity is not out-of-order data.
 
-## HTTP read surface
+## Query surface
 
-- `GET /api/v1/points/{pointId}/latest`
-- `GET /api/v1/points/{pointId}/source-health`
-- `GET /api/v1/sites/{siteId}/points/current`
+- GET /api/v1/points/{pointId}/latest
+- GET /api/v1/points/{pointId}/source-health
+- GET /api/v1/sites/{siteId}/points/current
 
-Responses contain Point identity, value, unit, source/received timestamps, quality, elapsed time,
-run status, last received time, generated/accepted/rejected counts, and health. IAM scope is applied
-before lookup/list paging. A Point with no accepted observation returns Latest absent plus health
-NoData, never numeric zero.
+Responses contain Point identity, value, unit, source/received timestamps, quality/reason, elapsed
+time, Run status, last received time, Generated/Accepted/Rejected counts and Source Status. Scope is
+applied before lookup/paging. No accepted observation returns Latest absent plus NoData, never zero.
 
-## Health evaluation
+## Source Status
 
-The evaluator uses server time and last accepted received time:
-Online at elapsed <= expected interval; Stale above expected and <= no-data threshold; NoData above
-the threshold. Decommissioned overrides Suspended, which overrides elapsed-time status. Repeated
-evaluation is idempotent. Administrative and Point/run change events trigger early evaluation in
-addition to a leased periodic job.
+Physical projection is telemetry.point_source_status. Worker uses server time and last accepted
+received time: Online when elapsed <= expected interval; Stale when above expected and <= no-data
+threshold; NoData when above threshold. Decommissioned overrides Suspended, which overrides elapsed
+status. Evaluation is idempotent and validates owner snapshot/version before update. A real status
+transition emits an event; repeated evaluation does not.
 
 ## Events
 
-`MeasurementAccepted` contains identifiers, quality/reason, timestamps, and lineage, not a mutable
-entity graph. `PointLatestAdvanced` includes old/new measurement IDs and ordering tuple.
-`PointSourceHealthChanged` is emitted only on a real state transition. All are outbox-backed and
-consumer-deduplicated.
-
+MeasurementAccepted.v1 contains identifiers, quality/reason, timestamps and lineage. PointLatestAdvanced.v1
+contains old/new IDs and the ordering tuple. PointSourceHealthChanged.v1 is emitted only on a real
+status transition. All use integration.outbox_event and inbox_message deduplication.

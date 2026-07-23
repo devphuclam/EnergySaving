@@ -1,119 +1,90 @@
 # Quickstart: Validate Asset Simulator Latest
 
-This is the planned validation path for R1/VS-01. It does not claim that the feature is implemented.
-Use it after `/speckit.tasks` and implementation are complete.
+This is a validation guide for the planned R1/VS-01 slice. It does not claim implementation and
+does not replace tasks.md.
 
 ## Prerequisites
 
-- .NET SDK 10.0.300 and Node 24.16.0.
-- An approved PostgreSQL instance and credentials supplied through local environment configuration.
-- Only locked/approved package sources; no public download and no container dependency.
-- Current migrations applied from `0001_r0_foundation` through the R1 ordered set.
-- Deterministic POC users/scopes and Catalog seeds applied idempotently.
-- The constitution's feature-001/R0 implementation restriction amended or superseded before source
-  implementation begins.
+- .NET SDK 10.0.300, Node 24.16.0 and approved PostgreSQL.
+- Locked package sources and protected local bootstrap credential; no public download or container.
+- Current R0 migration 0001 applied. R1 migrations are applied in documented order only after tasks
+  and implementation approval.
+- Constitution R0-only implementation wording amended through its governed process.
 
-Never commit local credentials, generated document extracts, or environment-specific config.
+## Fast and Full checks
 
-## Repository Checks
+From the repository root:
 
-Run the existing repository harness from the workspace root:
+    .\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest
 
-```powershell
-.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest
-```
+Fast covers artifacts, policy, architecture and tests that need no database.
 
-Fast is the developer loop: repository structure, architecture boundaries, formatting/static
-checks, and pure tests that require no external service.
+    .\scripts\harness.ps1 -Mode Full -Feature 002-asset-simulator-latest
 
-```powershell
-.\scripts\harness.ps1 -Mode Full -Feature 002-asset-simulator-latest
-```
+Full additionally requires PostgreSQL/package-backed migration, constraints, transaction,
+deduplication, lease, API/Worker and acceptance evidence. Until tasks.md exists, a missing-task
+artifact result is expected and must not be reported as an end-to-end pass.
 
-Full is the evidence gate: Fast plus build, clean-database migrations, PostgreSQL integration,
-concurrency/idempotency, API/Worker integration, Web checks, and acceptance scenarios. While this
-planning command intentionally omits `tasks.md`, Full may report that required artifact missing;
-that is expected until `/speckit.tasks`.
+## Executable business journey
 
-## Phase Checkpoints
+1. Seed fixed roles and inject a protected Administrator credential. Do not seed an Engineer scope.
+2. Login as Administrator; verify session cookie, antiforgery token, and GET /me.
+3. Administrator creates the root Site.
+4. Administrator assigns the Engineer to the Site scope.
+5. Login as Engineer; verify an Engineer without scope cannot create a Site and has no global bypass.
+6. Engineer creates Draft Area, Draft Asset and Draft Measurement Point in the assigned Site.
+7. Administrator activates the Site; Engineer or Administrator activates Area and Asset top-down.
+8. Create or verify idempotent Metric/Unit seeds and compatibility.
+9. Create a Catalog-owned Simulator Data Source and make it Active.
+10. Create an immutable Acquisition configuration version.
+11. Create and activate exactly one effective Catalog Mapping for the Draft Point.
+12. Confirm the Active Mapping is configuration only and produces no Measurement yet.
+13. Assign an eligible Active Data Owner and activate the Point.
+14. Start the Simulator. Start must fail if Source, Mapping, Point or any ancestor is inactive.
+15. Observe Accepted Measurements, stable identity, counters and the immutable Run configuration
+    version.
+16. Pause and cross Online -> Stale -> NoData; verify NoData is never numeric zero and last value
+    remains distinct.
+17. Resume; verify per-Run+Point deterministic continuation and recovery to Online.
+18. Submit duplicate, older, equal-time, future-skew and out-of-range internal records; verify
+    Duplicate/Accepted/Rejected outcomes, P-001/P-002/P-003 and no Latest regression.
+19. Query Latest and Source Status as an in-scope Operator; query as out-of-scope users and verify
+    no data leakage.
+20. Attempt Asset decommission with an Active child Point: expect ACTIVE_CHILD_POINT, no cascade and
+    no partial change. Stop/inactivate the source, explicitly handle the Point, then decommission.
+21. Attempt Point decommission while its Run is Running: expect RUNNING_SIMULATOR. After explicit
+    stop, decommission is terminal and triggers Source Status reconciliation.
+22. Inspect AuditReview results for bootstrap, scope, configuration, mapping, Run controls, auth and
+    decommission. Audit-only reference must not block Draft-unused Source/Mapping deletion; business
+    dependency must return DEPENDENT_HISTORY.
 
-### 1. IAM
+## Phase checkpoints and expected criteria
 
-Seed Administrator, Engineer, Operator, Manager, and Viewer users with Site/Area assignments.
-Confirm login and `/api/v1/me`; then parameterize every protected command/query with an allowed and
-out-of-scope principal. Expected: server-side allow/deny, no target-data leakage, deterministic
-seeds, and Data Owner assignment does not grant privilege.
+| Phase | Independent checkpoint |
+|---|---|
+| 1 IAM/bootstrap | Admin-only root Site, cookie session, five roles, no pre-Site Engineer scope |
+| 2 Catalog | idempotent seeds, compatibility, Source/Mapping lifecycle and overlap policy |
+| 3 Draft Organization | scoped Draft hierarchy, top-down Site/Area/Asset activation, no cascade |
+| 4 Simulator mapping | immutable configuration version, one effective Mapping, non-producing Draft Point |
+| 5 Point activation | IAM/Catalog/Organization checks and specific failures |
+| 6 Run/Worker | Start/Pause/Resume/Stop, lease/restart/counters, deterministic values |
+| 7 Telemetry | identity, quality, duplicate, accepted/rejected, raw history and Latest |
+| 8 Latest/Status | ordering, Online/Stale/NoData, administrative precedence/recovery |
+| 9 API/Web | supported journey, scope-safe reads, errors/empty/blocked states, AuditReview |
+| 10 Hardening | all 68 FRs, five stories and nine criteria with truthful blocker evidence |
 
-### 2. Catalog
+SC-001 is the timed Admin bootstrap plus Engineer journey. SC-005 includes no-scope Engineer root
+Site denial and cross-scope no-leakage. SC-009 verifies Active-child Asset rejection, no cascade,
+atomicity and successful decommission audit.
 
-Apply seeds twice. Expected: one Electric Power/kW pair and one Electrical Energy/kWh pair, active
-compatibility, no duplicates. Try an inactive or incompatible pair during Point activation and
-expect a specific prerequisite error.
+## Test classification
 
-### 3. Hierarchy
+- RUNNABLE_NOW: pure domain, session policy, authorization, generator, identity, contract and
+  architecture tests.
+- REQUIRES_APPROVED_POSTGRESQL: migrations, constraints, exclusion/overlap, atomic Latest, dedup,
+  outbox/inbox, production-attempt checkpoint and leases.
+- BLOCKED_BY_PACKAGE_POLICY: ORM/driver compilation if locked packages are unavailable.
+- BLOCKED_BY_ENVIRONMENT: missing database/service/tool for API/Worker/Web smoke.
+- REQUIRES_COMPANY_APPROVAL: CI, promotion and target deployment.
 
-As an in-scope Engineer create Site -> Area -> Asset -> Point. Prepare Draft children before parents
-activate, then activate top-down. Verify a Point cannot activate until parent, Metric, Unit,
-intervals, Data Owner, and exactly one mapping are valid. Time the happy path for `SC-001`.
-
-### 4. Simulator and mapping
-
-Create Constant and Normal configurations, map one source to multiple Points, and attempt an
-overlapping second Active mapping. Expected: the second activation fails with a domain conflict
-(`SC-007`). Start, pause, resume, stop, restart the Worker, and verify persisted state, lease
-exclusion, per-Run+Point deterministic sequence, and no output while Paused/Stopped.
-
-### 5. Canonical ingestion
-
-Submit controlled Good, future-skew, out-of-range, duplicate, late, malformed, and unauthorized
-records. Expected:
-
-- Good: accepted and eligible for Latest.
-- Future beyond configured 300-second default: accepted Uncertain,
-  `SOURCE_TIMESTAMP_FUTURE`, Latest-eligible.
-- Out of range: accepted Bad, `VALUE_OUT_OF_RANGE`, not Latest-eligible.
-- Duplicate: one stored identity/Measurement and no doubled counters.
-- Rejected input: no Measurement.
-
-Run race tests against the same identity and Point using PostgreSQL; an in-memory replacement is not
-valid evidence.
-
-### 6. Latest and Source Health
-
-Feed equal source timestamps with different sequence, processing time, and IDs. Expected: strict
-P-003 tuple ordering and no regression from late/concurrent arrivals. Advance a controlled clock
-through Online, Stale, and No Data thresholds; verify No Data is derived and never numeric zero
-(`SC-004`). Suspend/decommission the source and verify administrative precedence.
-
-### 7. API and Web slice
-
-As an Operator scoped to one Site, load the current Point page once. Expected: every active Point in
-scope exposes Latest value/unit/timestamps/quality and Source Health (`SC-003`), while another Site
-is absent from lists and direct access is denied (`SC-005`). Start a Simulator and verify the first
-accepted Measurement becomes visible within two minutes (`SC-002`).
-
-### 8. Audit and retention
-
-Create/update/status-change hierarchy records, change a mapping, and perform all four Simulator
-commands. Query by correlation ID. Expected: immutable actor/time/object/action/before/after/summary
-evidence appears within five seconds (`SC-006`). Attempt hard deletion after run/Measurement
-history; expect `DEPENDENT_HISTORY` (`SC-008`). Confirm Draft-unused deletion preserves readable
-audit snapshots.
-
-## Test Classification
-
-| Classification | Runs in | Examples |
-|---|---|---|
-| Pure domain/unit | Fast | state transitions, validation, quality, tuple comparison, deterministic generator |
-| Architecture/static | Fast | module references, schema ownership, endpoint authorization metadata |
-| Repository/migration | Full | clean and upgrade migration, indexes, constraints, permissions, seeds |
-| PostgreSQL integration | Full | overlap exclusion, atomic Latest, duplicate races, outbox/inbox |
-| Worker integration | Full | leases, restart recovery, generation schedule, health evaluator |
-| API/Web integration | Full | role/scope matrix, response contracts, single-screen current view |
-| Acceptance/performance | Full | `SC-001..SC-008`, two-minute/five-second thresholds |
-
-## Evidence to Retain
-
-Retain harness output, migration version, test classification/results, correlation IDs for the timed
-flows, and any approved blocker record. Do not substitute a manual screenshot for authorization,
-concurrency, migration, or idempotency evidence.
+No alternate database is permitted and blocked evidence is never called complete.
