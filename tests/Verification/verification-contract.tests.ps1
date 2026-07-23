@@ -28,8 +28,17 @@ $blocked = New-VerificationResult -CheckId 'db' -Classification 'BLOCKED_BY_DATA
 if ($blocked.classification -ne 'BLOCKED_BY_DATABASE_ACCESS') {
     throw 'Expected blocked classification to be preserved.'
 }
-if ((Get-VerificationExitCode -Results @($blocked)) -eq 0) {
-    throw 'Mandatory blocked checks must produce a non-zero aggregate exit code.'
+if ((Get-VerificationExitCode -Results @($blocked)) -ne 20) {
+    throw 'Mandatory blocked checks must produce aggregate exit code 20.'
+}
+
+$failed = New-VerificationResult -CheckId 'architecture' -Classification 'FAIL' `
+    -Command 'architecture.tests.ps1' -Mandatory $true -Evidence 'forbidden dependency'
+if ((Get-VerificationExitCode -Results @($failed)) -ne 1) {
+    throw 'Mandatory failed checks must produce aggregate exit code 1.'
+}
+if ((Get-VerificationExitCode -Results @($blocked, $failed)) -ne 1) {
+    throw 'FAIL must take precedence over blocked results.'
 }
 
 $pass = New-VerificationResult -CheckId 'git' -Classification 'PASS' -Command 'git --version' `
@@ -51,6 +60,29 @@ $allowedKeys = @('checkId', 'classification', 'command', 'timestamp', 'mandatory
 $actualKeys = @($pass.PSObject.Properties.Name)
 if (@($actualKeys | Where-Object { $_ -notin $allowedKeys }).Count -gt 0) {
     throw 'Serialized verification result contains a key outside the canonical schema.'
+}
+
+$schemaPath = Join-Path $repoRoot 'docs\contracts\verification-result.schema.json'
+if (-not (Test-Path -LiteralPath $schemaPath)) {
+    throw "Project-wide verification schema is missing: $schemaPath"
+}
+$schema = Get-Content -LiteralPath $schemaPath -Raw | ConvertFrom-Json
+if ($schema.'$id' -ne 'urn:iump:verification-result:v1') {
+    throw 'Verification schema must use the project-wide identifier.'
+}
+$schemaClassifications = @($schema.properties.classification.enum)
+foreach ($classification in @(
+    'PASS',
+    'FAIL',
+    'NOT_RUN',
+    'BLOCKED_BY_MISSING_TOOL',
+    'BLOCKED_BY_PACKAGE_POLICY',
+    'BLOCKED_BY_DATABASE_ACCESS',
+    'BLOCKED_BY_COMPANY_APPROVAL'
+)) {
+    if ($classification -notin $schemaClassifications) {
+        throw "Verification schema is missing classification '$classification'."
+    }
 }
 
 Write-Output 'PASS: verification result contract'

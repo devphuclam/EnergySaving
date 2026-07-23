@@ -52,12 +52,14 @@ function Get-VerificationExitCode {
     [CmdletBinding()]
     param([Parameter(Mandatory)][object[]]$Results)
 
-    $blockingResult = $Results | Where-Object {
-        $_.mandatory -and $_.classification -ne 'PASS'
-    } | Select-Object -First 1
-
-    if ($null -eq $blockingResult) { return 0 }
-    return 20
+    $mandatory = @($Results | Where-Object { $_.mandatory })
+    if (@($mandatory | Where-Object { $_.classification -eq 'FAIL' }).Count -gt 0) {
+        return 1
+    }
+    if (@($mandatory | Where-Object { $_.classification -ne 'PASS' }).Count -gt 0) {
+        return 20
+    }
+    return 0
 }
 
 function Write-VerificationResult {
