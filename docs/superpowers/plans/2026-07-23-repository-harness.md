@@ -801,7 +801,7 @@ environmental blockers remain.
 Run:
 
 ```powershell
-$results = @(Get-Content -LiteralPath '.\verification-results.json' -Raw | ConvertFrom-Json)
+$results = Get-Content -LiteralPath '.\verification-results.json' -Raw | ConvertFrom-Json
 $results | Group-Object classification | Select-Object Name,Count
 $results | Where-Object { $_.mandatory -and $_.classification -ne 'PASS' } |
     Select-Object checkId,classification,blockerId,evidence
