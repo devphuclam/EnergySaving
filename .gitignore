@@ -53,5 +53,7 @@ verification-results.json
 AGENTS.md
 docs/agents/
 .specify/integrations/codex.manifest.json
+.specify/integrations/opencode.manifest.json
+.specify/integrations/.cache/
 opencode.json
 docs/opencode/
