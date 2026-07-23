@@ -1,0 +1,17 @@
+{
+  "modules": [
+    { "name": "IAM", "schema": "iam" },
+    { "name": "Organization", "schema": "organization" },
+    { "name": "Catalog", "schema": "catalog" },
+    { "name": "Acquisition", "schema": "acquisition" },
+    { "name": "Telemetry", "schema": "telemetry" },
+    { "name": "Rules", "schema": "rules" },
+    { "name": "Alerts", "schema": "alerts" },
+    { "name": "Notifications", "schema": "notifications" },
+    { "name": "Reporting", "schema": "reporting" },
+    { "name": "Audit", "schema": "audit" },
+    { "name": "Integration", "schema": "integration" },
+    { "name": "Operations", "schema": "operations" },
+    { "name": "Files", "schema": "files" }
+  ]
+}

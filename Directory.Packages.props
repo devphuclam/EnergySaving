@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <!--
+    Package versions are intentionally not activated during restricted R0 execution.
+    Add PackageVersion entries only after an approved internal/local source is provided.
+  -->
+</Project>

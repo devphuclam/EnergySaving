@@ -1,0 +1,51 @@
+# OS
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+*.sln.DotSettings.user
+.vs/
+.vscode/
+*.user
+*.suo
+
+# .NET
+bin/
+obj/
+*.nupkg
+*.log
+packages/
+
+# Node
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Secrets / Config
+appsettings.Local.*
+appsettings.Development.*
+*.local.*
+*.secret.*
+.env
+.env.local
+*.rar
+
+# Generated
+*.generated.cs
+generated/
+coverage/
+*.trx
+*.coverage
+test-results/
+verification-results.json
+
+# Local assistant tooling
+.agents/
+AGENTS.md
+docs/agents/
+.specify/integrations/codex.manifest.json

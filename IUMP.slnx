@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Api/IUMP.Api.csproj" />
+    <Project Path="src/Worker/IUMP.Worker.csproj" />
+    <Project Path="src/BuildingBlocks/IUMP.BuildingBlocks.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/Acquisition/IUMP.Modules.Acquisition.csproj" />
+    <Project Path="src/Modules/IAM/IUMP.Modules.IAM.csproj" />
+    <Project Path="src/Modules/Files/IUMP.Modules.Files.csproj" />
+    <Project Path="src/Modules/Integration/IUMP.Modules.Integration.csproj" />
+    <Project Path="src/Modules/Organization/IUMP.Modules.Organization.csproj" />
+    <Project Path="src/Modules/Catalog/IUMP.Modules.Catalog.csproj" />
+    <Project Path="src/Modules/Telemetry/IUMP.Modules.Telemetry.csproj" />
+    <Project Path="src/Modules/Rules/IUMP.Modules.Rules.csproj" />
+    <Project Path="src/Modules/Alerts/IUMP.Modules.Alerts.csproj" />
+    <Project Path="src/Modules/Notifications/IUMP.Modules.Notifications.csproj" />
+    <Project Path="src/Modules/Reporting/IUMP.Modules.Reporting.csproj" />
+    <Project Path="src/Modules/Audit/IUMP.Modules.Audit.csproj" />
+    <Project Path="src/Modules/Operations/IUMP.Modules.Operations.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Unit/IUMP.Tests.Unit.csproj" />
+  </Folder>
+</Solution>
