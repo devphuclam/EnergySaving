@@ -9,8 +9,8 @@ consumes through integration.inbox_message idempotently. Producers never insert 
 
 Covered operations include Site/Area/Asset/Point create/update/lifecycle, Source/Mapping lifecycle
 and permitted deletion, configuration version creation, Simulator Start/Pause/Resume/Stop, user
-role/scope/status changes, authentication success/failure/revocation and required authorization
-decisions. Credentials and hashes are excluded.
+role/scope/status/capability changes, authentication success/failure/revocation and required
+authorization decisions. Credentials and hashes are excluded.
 
 Audit is append-only: no update/delete contract exists and database permissions enforce it. Event
 subject snapshots preserve readable evidence if a Draft-unused Source/Mapping is later deleted; an
@@ -19,8 +19,15 @@ Audit snapshot alone does not block that deletion.
 ## Authorized query
 
 GET /api/v1/audit-events supports filters by object, action, actor, correlation ID and time.
-AuditReview is an approved capability/responsibility, not a base role and not automatic for Viewer.
-Data Owner assignment grants no AuditReview. Results are Site/Area scoped unless Administrator.
+AuditReview requires the `AUDIT_READ` capability:
+
+- Administrator has implicit `AUDIT_READ` (no explicit user_capability row required).
+- All other users require an explicit active `user_capability` assignment to `AUDIT_READ`.
+- Viewer never receives it automatically.
+- Manager does not receive it automatically unless explicitly chosen by seeded POC policy.
+- Data Owner assignment never grants `AUDIT_READ`.
+
+Results are Site/Area scoped unless Administrator.
 
 ## Timeliness and event envelope
 

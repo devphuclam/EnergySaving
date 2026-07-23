@@ -2,24 +2,78 @@
 
 ## HTTP surface
 
-- POST /api/v1/auth/login validates with ASP.NET Core PasswordHasher, sets a server-issued encrypted
-  Secure/HttpOnly/SameSite cookie and returns no token body or hash.
+- POST /api/v1/auth/login validates with ASP.NET Core PasswordHasher, sets a server-issued
+  encrypted Secure/HttpOnly/SameSite Lax cookie (`.IUMP.Auth`) and returns no token body or hash.
+  Requires Idempotency-Key.
 - POST /api/v1/auth/logout revokes the server session and clears the cookie.
-- GET /api/v1/auth/antiforgery supplies the token required for state-changing cookie requests.
-- GET /api/v1/me resolves user ID, status, five base roles and canonical user_scope rows.
-- Minimal Administrator commands assign roles and Site/Area scopes. SSO, reset workflow and complete
-  administration UI remain out of scope.
+- GET /api/v1/auth/antiforgery supplies the token (`.IUMP.Xsrf` cookie, `X-XSRF-TOKEN` header)
+  required for state-changing cookie requests.
+- GET /api/v1/me resolves user ID, status, five base roles, canonical capabilities and canonical
+  user_scope rows.
+- Minimal Administrator commands assign roles, capabilities and Site/Area scopes. SSO, reset
+  workflow and complete administration UI remain out of scope.
 
-## Session and caller context
+## Session implementation
 
-iam.user_session stores a hashed session identifier, user ID, issue time, idle/absolute expiry,
+Working defaults:
+
+| Setting | Value |
+|---|---|
+| Cookie name | `.IUMP.Auth` |
+| Secure | `true`; `ASPNETCORE_ENVIRONMENT=Development` permits `Cookie.SecurePolicy=Never` |
+| SameSite | `Lax` |
+| HttpOnly | `true` |
+| Idle timeout | 20 minutes |
+| Absolute timeout | 8 hours |
+| Session-token entropy | 256 bits (32 bytes CSPRNG) |
+| Hash stored in `user_session` | SHA-256 of session token |
+| Session rotation | New token after login; old session revoked |
+| Logout | Revoke `user_session`, clear cookie |
+| Revocation | `revoked_at` check on every request |
+| Antiforgery cookie | `.IUMP.Xsrf` |
+| Antiforgery header | `X-XSRF-TOKEN` |
+| API origins | Same-origin only (no CORS) |
+| Web origins | Same-origin only |
+| HTTPS | Required in Production; Development permits HTTP |
+| Data Protection key ring | `%ProgramData%/IUMP/DataProtection-Keys/`; DPAPI `ProtectKeysWithDpapi()` |
+| Rate-limit window | 15 seconds |
+| Rate-limit threshold | 5 failed attempts per window per username |
+
+`iam.user_session` stores a hashed session identifier, user ID, issue time, idle/absolute expiry,
 revocation and status. Every authenticated request resolves the session and Active user, roles and
 scopes server-side. Disabled users and revoked scopes lose access immediately. Tokens never appear
-in query strings. Login errors are non-enumerating and failed attempts use bounded framework
-rate-limiting. Bootstrap credentials are injected from protected environment state.
+in query strings. Login errors are non-enumerating and failed attempts use bounded ASP.NET Core
+framework rate-limiting. Bootstrap credentials are injected from protected environment state.
 
-ICallerContext supplies userId, username, roles, canonical Site/Area scopes and correlation ID.
-Claims supplied by the UI are never authority.
+ICallerContext supplies userId, username, roles, canonical capabilities, Site/Area scopes and
+correlation ID. Claims supplied by the UI are never authority.
+
+## Capability model
+
+`iam.capability` is a fixed seeded table:
+
+| capability_id | code | name |
+|---|---|---|
+| (seeded UUID) | `AUDIT_READ` | Audit Review |
+
+`iam.user_capability` assigns capabilities to users (not roles):
+
+- `user_capability_id` (UUID PK)
+- `user_id` (FK to `iam.user_account`)
+- `capability_id` (FK to `iam.capability`)
+- `assigned_by` (FK to `iam.user_account`)
+- `assigned_at` (timestamptz)
+- `revoked_at` (timestamptz, nullable)
+- `version` (bigint)
+
+Administrator has implicit/global `AUDIT_READ` without a `user_capability` row. All other users
+require an explicit active `user_capability` assignment (where `revoked_at IS NULL`). Viewer
+does not receive it automatically. Manager does not receive it automatically unless explicitly
+chosen by the seeded POC policy. Data Owner never gains it implicitly.
+
+No full permission-management UI is required. A minimal Administrator command
+`POST /api/v1/admin/capabilities/assign` and `POST /api/v1/admin/capabilities/revoke` is
+sufficient for POC.
 
 ## Authorization
 
@@ -30,10 +84,11 @@ Operator, Manager and Viewer have distinct read policies and cannot mutate confi
 
 Known capability denial returns FORBIDDEN. Out-of-scope object lookup returns indistinguishable
 NOT_FOUND with no target payload. Every query and command invokes this decision before target data is
-returned or changed.
+returned or changed. AUDIT_READ is checked as a capability (Administrator implicit, others via
+user_capability).
 
 IActiveUserEligibility takes userId and required Site/Area and returns existence, Active status and
-scope compatibility. Data Owner assignment grants no role, AuditReview responsibility or elevated
+scope compatibility. Data Owner assignment grants no role, AuditReview capability or elevated
 permission.
 
 ## Bootstrap and roles
@@ -41,10 +96,35 @@ permission.
 Seed fixed roles and a protected Administrator identity first. Administrator creates the root Site,
 then assigns Engineer Site scope. No deterministic seed inserts a user_scope row that references a
 nonexistent Site. Base roles are exactly Administrator, Engineer, Operator, Manager and Viewer.
-AuditReview is a policy capability, not a sixth role and not automatic for Viewer.
+AuditReview is governed by the capability model (iam.capability + user_capability), not a sixth
+role and not automatic for Viewer.
+
+### Deterministic POC users (A - database fixture)
+
+Five users with fixed credentials (delivered via protected environment, never committed):
+
+- Administrator (global scope, implicit AUDIT_READ)
+- Engineer (no Site scope — scope is assigned post-Site via B)
+- Operator (no Site scope — assigned post-Site via B)
+- Manager (no Site scope — assigned post-Site via B)
+- Viewer (no Site scope — assigned post-Site via B)
+
+### Post-Site POC fixture (B - application command)
+
+After Administrator creates the test Site, an authenticated Administrator command:
+
+- Locates or creates the deterministic test Site
+- Assigns Engineer, Operator, Manager and Viewer to that Site scope
+- Optionally assigns Area scope after Area exists
+- Optionally grants AUDIT_READ to Manager per seeded POC policy
+- Idempotent (re-run does not duplicate)
+- Uses application/IAM commands, not direct SQL
+
+This fixture is disabled or explicitly controlled outside development/POC.
 
 ## Events
 
-UserStatusChanged.v1, UserRoleAssignmentsChanged.v1 and UserScopesChanged.v1 are owner-versioned
-facts for session invalidation and Audit. Authorization-denied evidence includes actor, capability,
-scope snapshot, timestamp and correlation ID without leaking target details.
+UserStatusChanged.v1, UserRoleAssignmentsChanged.v1, UserCapabilitiesChanged.v1 and
+UserScopesChanged.v1 are owner-versioned facts for session invalidation and Audit.
+Authorization-denied evidence includes actor, capability, scope snapshot, timestamp and correlation
+ID without leaking target details.

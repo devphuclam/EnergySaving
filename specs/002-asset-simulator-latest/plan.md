@@ -13,8 +13,9 @@ code, create migrations or tests, or create `tasks.md`. Scope remains R1 / VS-01
 - Success criteria: **9** (`SC-001..SC-009`).
 - Included: Administrator-bootstrap Site, scoped Engineer hierarchy/configuration, minimal five-role
   IAM, Metric/Unit, Catalog-owned Simulator Source/Mapping, versioned Simulator configuration,
-  deterministic Constant/Normal generation, canonical internal Telemetry, Latest, Source Health,
-  server-side scope authorization, decommission guards, and immutable audit.
+  deterministic Constant/Normal generation, production-attempt checkpoint, pinned Run-Point snapshot,
+  canonical internal Telemetry, Latest, Source Health, server-side scope authorization, capability
+  model for AuditReview, decommission guards, and immutable audit.
 - Excluded: external REST/CSV ingestion, history explorer, aggregates, rules, alerts, notifications,
   reports, Modbus, Edge Collector, write-back, AI/ML, SSO, directory integration, password reset,
   complete user administration, replay, ramp/spike/advanced-noise/seasonal/ML scenarios, and any
@@ -27,8 +28,8 @@ PostgreSQL only. API and Worker remain separate composition roots in the modular
 
 **Architecture constraints**: CQRS-lite, module-owned schemas and writes, public module contracts,
 transactional outbox/inbox, database-backed jobs/leases, structured JSON logs, correlation/causation
-IDs, optimistic concurrency, restricted offline package policy, and no Docker/Redis/broker/alternate
-database/public download.
+IDs, optimistic concurrency, deterministic global lock order for strict cross-module invariants,
+restricted offline package policy, and no Docker/Redis/broker/alternate database/public download.
 
 **Environment classification**: Domain, authorization-policy, architecture and contract-shape tests
 are `RUNNABLE_NOW`. PostgreSQL migration/constraint/transaction/dedup/lease/E2E evidence is
@@ -112,17 +113,15 @@ mutates a version referenced by Running, Paused or historical Runs.
 ### P-012 - Deterministic algorithm
 
 `algorithm_id=IUMP-DETERMINISTIC-V1`, with an explicit `algorithm_version`, is part of the immutable
-configuration. Constant returns exactly `minimum_value` and consumes no PRNG state. Normal uses a
-repository-owned PCG32 integer PRNG with a documented Box-Muller normal-like transformation, seeded
-from the canonical configuration seed and a stable Point identity; each source sequence derives the
-bounded Box-Muller normal-like value with midpoint mean and range/6 sigma, clamped to
-`[minimum_value,maximum_value]`. Algorithm ID/version, seed, Point ID, configuration version and
-source sequence are the complete deterministic inputs; Worker restart, scheduling order, process and
-future implementation revisions cannot silently change the sequence.
+configuration. See the normative specification in `contracts/simulator.md` for the exact PCG32
+parameters, state derivation, Box-Muller transform, numeric precision, rounding, clamping, state
+serialization, UUID namespace (`02e993bb-c767-5ff6-963f-530e1dfdff6b`), measurement identity
+derivation, and golden test vector requirements.
 
 ### P-013 - Stable Measurement identity
 
-UUIDv5-style SHA-1 name derivation uses a repository-owned namespace UUID and UTF-8 canonical material:
+UUIDv5-style SHA-1 name derivation uses the repository namespace UUID
+`02e993bb-c767-5ff6-963f-530e1dfdff6b` and UTF-8 canonical material:
 `IUMP:SIMULATOR:V1|source_id|run_id|point_id|mapping_id|source_sequence|algorithm_version`.
 IDs and fields are lowercase canonical UUID strings, decimal sequence, and `|` separators with no
 whitespace. The namespace and serialization version are fixed contract constants. Same production
@@ -133,12 +132,54 @@ covered by identity tests.
 ### P-014 - Local POC session
 
 IAM uses ASP.NET Core PasswordHasher with framework-managed iteration/version metadata and a
-version metadata), a server-issued encrypted Secure/HttpOnly/SameSite cookie backed by revocable iam.user_session.
-The session has absolute and idle expiry, revocation/logout, server-side lookup and Disabled-user
-invalidation. Antiforgery is required for state-changing cookie requests and tokens never appear in
-query strings. Login errors are non-enumerating, failed attempts have bounded framework-backed rate
-limiting, and success/failure/revocation are auditable. Seed credentials are delivered through
-protected local environment instructions, never committed.
+server-issued encrypted Secure/HttpOnly/SameSite=Lax cookie (`.IUMP.Auth`) backed by revocable
+`iam.user_session`. The session has absolute (8h) and idle (20m) expiry, revocation/logout,
+server-side lookup and Disabled-user invalidation. Session token is 256-bit CSPRNG, stored as
+SHA-256 hash. Antiforgery (`.IUMP.Xsrf` cookie, `X-XSRF-TOKEN` header) is required for
+state-changing cookie requests and tokens never appear in query strings. Login errors are
+non-enumerating, failed attempts have bounded framework-backed rate limiting (5 per 15s window),
+and success/failure/revocation are auditable. Seed credentials are delivered through protected
+local environment instructions, never committed. Data Protection keys are persisted under
+`%ProgramData%/IUMP/DataProtection-Keys/` with DPAPI protection (`ProtectKeysWithDpapi()`).
+
+### P-015 - Production-attempt checkpoint
+
+Acquisition owns `acquisition.simulator_production_attempt` with primary key
+`(simulator_run_id, point_id, source_sequence)`. The Worker inserts a Pending row in the same
+transaction as PRNG state advancement, calls Telemetry outside that transaction, then finalizes
+idempotently. Crash recovery uses Duplicate response from Telemetry to finalize without
+double-counting. No in-memory checkpoint is used. See `contracts/simulator.md` and `data-model.md`.
+
+### P-016 - Cross-module lock order
+
+Strict cross-module invariants use a deterministic global lock order inside REPEATABLE READ
+transactions: (1) IAM user, (2) Organization hierarchy, (3) Catalog Metric/Unit/Source/Mapping,
+(4) Acquisition Run/dependency, (5) Telemetry identity/projection, (6) Integration outbox.
+`SELECT FOR UPDATE` in this order. Retry on serialization/deadlock: up to 3 immediate retries with
+exponential backoff (50ms, 150ms, 450ms). `lock_timeout` set to 2 seconds. Applied to Point
+activation, Mapping activation, Simulator Start, Point decommission vs Start, Asset decommission,
+Point decommission, canonical ingestion and Source/Mapping delete. See `contracts/README.md`.
+
+### P-017 - Capability model
+
+`iam.capability` seeds the fixed code `AUDIT_READ`. `iam.user_capability` assigns capabilities to
+users. Administrator has implicit `AUDIT_READ`. Viewer does not receive it automatically. Manager
+does not receive it automatically unless explicitly chosen by seeded POC policy. Data Owner never
+gains it implicitly. No full permission-management UI; minimal Administrator assign/revoke commands
+suffice. See `contracts/iam-authorization.md`.
+
+### P-018 - API concurrency semantics
+
+Create commands: Idempotency-Key required, no If-Match. Update/lifecycle/delete commands: both
+Idempotency-Key and If-Match required; stale version returns VERSION_CONFLICT. Login/logout/query:
+no aggregate If-Match. See `contracts/README.md`.
+
+### P-019 - Bootstrap split
+
+Foundation seed (A) creates fixed roles, five deterministic users (no Site scope), and catalog
+records. Post-Site fixture (B) uses application commands to assign scopes after Site exists, and
+optionally grants AUDIT_READ. Fixture is idempotent and disabled outside development/POC.
+See `contracts/iam-authorization.md`.
 
 ## Constitution gate
 
@@ -152,12 +193,12 @@ PostgreSQL and package blockers.
 
 | Module / schema | Owns in VS-01 |
 |---|---|
-| IAM / `iam` | users, five base roles, sessions, Site/Area scopes, principal and authorization contracts |
+| IAM / `iam` | users, five base roles, capabilities, user_capability, sessions, Site/Area scopes, principal and authorization contracts |
 | Organization / `organization` | Site, Area, Asset, Point, hierarchy lifecycle, code uniqueness, interval checks |
 | Catalog / `catalog` | Metric, Unit, compatibility, Data Source, Source-Point Mapping, effective periods and overlap |
-| Acquisition / `acquisition` | Simulator configuration head/versions, Runs, per-Point state, generation and counters |
-| Telemetry / `telemetry` | trusted internal ingestion, identity, raw Measurements, Latest, Source Health |
-| Audit / `audit` | immutable audit events and authorized audit query |
+| Acquisition / `acquisition` | Simulator configuration head/versions, Runs, per-Point state (pinned snapshot), production-attempt checkpoint, generation and counters |
+| Telemetry / `telemetry` | trusted internal ingestion, identity (validated, not generated), raw Measurements, Latest, Source Health |
+| Audit / `audit` | immutable audit events and authorized audit query (AUDIT_READ capability) |
 | Integration / `integration` | existing `outbox_event` and `inbox_message` delivery infrastructure |
 | Operations / `operations` | existing `job`, Worker leases, scheduling and health evaluation |
 
@@ -168,8 +209,9 @@ and Organization for Point operational eligibility before invoking Telemetry. No
 module's tables.
 
 Point decommission synchronously asks Acquisition whether any mapped Run is Running; the command
-fails before mutation when it is. Business modules publish committed events to Audit through the
-existing outbox/inbox; they never insert Audit rows across schemas.
+fails before mutation when it is. Both locks (Organization Point, then Acquisition Run) are acquired
+in global order. Business modules publish committed events to Audit through the existing outbox/inbox;
+they never insert Audit rows across schemas.
 
 ### Synchronous contracts
 
@@ -178,24 +220,26 @@ existing outbox/inbox; they never insert Audit rows across schemas.
 - Catalog: `IMetricUnitCompatibility`, `IActiveSimulatorMappingEligibility`, source/mapping snapshot.
 - Acquisition: configuration version, Run control/status, generated-measurement producer adapter.
 - Telemetry: `IngestMeasurement` accepted/rejected/duplicate result, Latest and Health query DTOs.
-- Audit: `AppendAuditEvent` and authorized audit query.
+- Audit: `AppendAuditEvent` and authorized audit query (AUDIT_READ gated).
 
 ### Asynchronous events
 
 Outbox-backed envelopes carry `eventId`, type/schema version, producer, aggregate/version,
 occurredAt, correlationId and causationId. Required events are `UserScopeChanged`,
-`OrganizationStatusChanged`, `CatalogSourceMappingChanged`, `SimulatorRunStateChanged`,
-`MeasurementAccepted`, `PointLatestAdvanced`, `PointSourceHealthChanged`, and audit-consumed control
-events. Consumers deduplicate through `inbox_message`; event delivery is at-least-once.
+`UserCapabilitiesChanged`, `OrganizationStatusChanged`, `CatalogSourceMappingChanged`,
+`SimulatorRunStateChanged`, `MeasurementAccepted`, `PointLatestAdvanced`,
+`PointSourceHealthChanged`, and audit-consumed control events. Consumers deduplicate through
+`inbox_message`; event delivery is at-least-once.
 
 ## Dependency-ordered phases
 
 ### Phase 1 - Minimal IAM and bootstrap
 
 Fixed roles, internal users, Active/Disabled, Administrator bootstrap/session, Site/Area scopes,
-principal resolution and server-side authorization. **Checkpoint**: fixed roles and Administrator
-exist; no pre-created Engineer Site-scope row is required; Administrator can authenticate and create
-the root Site; out-of-scope Engineer has no global bypass.
+principal resolution, capability model (iam.capability + user_capability), and server-side
+authorization. **Checkpoint**: fixed roles and Administrator exist; no pre-created Engineer
+Site-scope row is required; Administrator can authenticate and create the root Site; out-of-scope
+Engineer has no global bypass.
 
 ### Phase 2 - Catalog primitives
 
@@ -219,21 +263,25 @@ Point and ancestors are Active; overlap conflict is atomic.
 ### Phase 5 - Measurement Point activation
 
 Validate Active ancestors, Metric/Unit, Data Owner, intervals and exactly one mapping; activate Point
-with optimistic concurrency and audit. **Checkpoint**: every failed prerequisite returns a specific
+with optimistic concurrency, REPEATABLE READ transaction, global lock order and audit.
+**Checkpoint**: every failed prerequisite returns a specific
 error; an Active child prevents Asset decommission, and a Running source prevents Point
 decommission.
 
 ### Phase 6 - Simulator Run and Worker execution
 
-Start/Pause/Resume/Stop, immutable configuration reference, leases, restart, counters and
-deterministic generation. **Checkpoint**: Start fails unless Source/Mapping/Point/ancestors Active;
-Running-only restart recovery and per-Run+Point repeatability pass.
+Start/Pause/Resume/Stop, immutable configuration reference, leases, restart, counters,
+deterministic generation, production-attempt checkpoint, and pinned Run-Point input snapshot.
+**Checkpoint**: Start fails unless Source/Mapping/Point/ancestors Active;
+Running-only restart recovery, per-Run+Point repeatability, and crash recovery via production-attempt
+checkpoint pass.
 
 ### Phase 7 - Canonical Telemetry ingestion
 
-Validate trusted producer, identity, mapping/Point/catalog, timestamps, quality and lineage; persist
-accepted/rejected/duplicate outcomes and update Latest. **Checkpoint**: P-001/P-002 behavior,
-out-of-order storage, stable identity and counter semantics pass.
+Validate trusted producer, identity (Acquisition-provided measurement_id), mapping/Point/catalog,
+timestamps, quality and lineage; persist accepted/rejected/duplicate outcomes and update Latest.
+**Checkpoint**: P-001/P-002 behavior, out-of-order storage, stable identity and counter semantics,
+and duplicate returning original classification pass.
 
 ### Phase 8 - Latest and Source Health
 
@@ -242,9 +290,9 @@ and recovery. **Checkpoint**: no synthetic zero and no Latest regression under t
 
 ### Phase 9 - API and Web integration
 
-Versioned configuration journey, Simulator controls, Latest/Health, audit review, authorization,
-safe errors, loading/empty/blocked states. **Checkpoint**: SC-001..SC-009 journey works with Admin
-bootstrap and Engineer scoped access.
+Versioned configuration journey, Simulator controls, Latest/Health, audit review (AUDIT_READ
+capability-gated), authorization, safe errors, loading/empty/blocked states. **Checkpoint**:
+SC-001..SC-009 journey works with Admin bootstrap and Engineer scoped access.
 
 ### Phase 10 - Acceptance hardening
 
@@ -269,35 +317,37 @@ Migrations are immutable, forward-fix and dependency ordered:
 
 | ID | Owner | Capability |
 |---|---|---|
-| 0002 | IAM | identity, fixed roles, `user_session`, bootstrap/session indexes |
+| 0002 | IAM | identity, fixed roles, capability, user_capability, `user_session`, session/index additions |
 | 0003 | Catalog | Metric/Unit/compatibility and Data Source |
 | 0004 | Organization | Site/Area/Asset/Draft Point and hierarchy indexes |
 | 0005 | Acquisition | configuration head and immutable configuration versions |
 | 0006 | Catalog | Source-Point Mapping after Point exists, effective periods and overlap |
-| 0007 | Acquisition | Run, per-Point state, counters and leases |
+| 0007 | Acquisition | Run, per-Point state (extended with pinned snapshot), production-attempt checkpoint and leases |
 | 0008 | Telemetry | identity registry and raw Measurement |
 | 0009 | Telemetry | Latest and physical point_source_status projections/indexes |
 | 0010 | Audit | append-only audit storage and permissions |
-| 0011 | Integration/Operations | additive R1 changes to existing `integration.outbox_event`, `integration.inbox_message`, `operations.job` |
-| 0012 | IAM/Catalog | deterministic POC users/scopes after Site bootstrap strategy and catalog seeds |
+| 0011 | Integration/Operations | additive R1 changes to existing `integration.outbox_event`, `integration.inbox_message`, `operations.job` (only if proven necessary) |
+| 0012 | IAM/Catalog | deterministic POC users/scopes after Site bootstrap strategy and catalog seeds (does not create impossible pre-Site scope rows) |
 | 0013 | Owners | reconciliation and validation queries |
 
 No duplicate outbox table is introduced. The deterministic seed process creates fixed roles and an
 Administrator first; Site and Engineer scope are created by the bootstrap journey, not by a seed FK
-that points to a nonexistent Site.
+that points to a nonexistent Site. Capability seeds (`AUDIT_READ`) and user_capability assignments
+are part of 0002. Post-Site POC scope fixture is a separate application command, not part of any
+migration.
 
 ## Traceability
 
 | Phase / requirement group | Count | Owner / design phase | Evidence |
-|---|---:|---|---|
-| Phase 1: FR-IAM-001..008 | 8 | IAM / 1 | sessions, fixed roles, scopes, bootstrap negatives |
+|---|---|---:|---|---|
+| Phase 1: FR-IAM-001..008 | 8 | IAM / 1 | sessions, fixed roles, scopes, capabilities, bootstrap negatives |
 | Phase 2: FR-CAT-001..004, FR-DS-001..004 | 8 | Catalog / 2 | compatibility, seeds, mapping lifecycle/overlap/delete |
 | Phase 3: FR-001..007, FR-DC-001..005 | 12 | Organization / 3 | Draft hierarchy, codes, terminal non-cascade decommission |
 | Phase 4: FR-008..016 | 9 | Acquisition + Catalog / 4 | source, versioned configuration, mapping and Run readiness |
 | Phase 5: FR-AP-001..005, FR-DO-001..003 | 8 | Organization + IAM / 5 | Point activation and Data Owner eligibility |
 | Phase 7: FR-017..021 | 5 | Telemetry / 7 | identity, validation, quality, duplicate outcome |
 | Phase 8: FR-022..027 | 6 | Telemetry + Operations / 8 | Latest, Health, thresholds and recovery |
-| Phase 9: FR-028..039 | 12 | IAM, API, Audit / 9 | authorization/scope and append-only audit |
+| Phase 9: FR-028..039 | 12 | IAM, API, Audit / 9 | authorization/scope and append-only audit (AUDIT_READ) |
 | **Total** | **68** | | |
 
 **Explicit FR index**: `FR-001` through `FR-039`; `FR-AP-001` through `FR-AP-005`;
@@ -318,7 +368,7 @@ FR-DO-001, FR-DO-002, FR-DO-003, FR-DC-001, FR-DC-002, FR-DC-003, FR-DC-004, FR-
 | US2 Simulator | 2,4,6,7 | versioned configuration, mapping and deterministic Run |
 | US3 Latest/Health | 7-9 | scoped view and status recovery |
 | US4 authorization | 1,3,9,10 | no Engineer global bypass/no leakage |
-| US5 audit | 1,4-6,9 | capability-based audit review |
+| US5 audit | 1,4-6,9 | capability-based audit review (AUDIT_READ) |
 
 | Criterion | Verification |
 |---|---|
@@ -336,15 +386,16 @@ FR-DO-001, FR-DO-002, FR-DO-003, FR-DC-001, FR-DC-002, FR-DC-003, FR-DC-004, FR-
 
 Logical references have no database foreign key across module schemas. The owner validates them using
 versioned contracts; lookup indexes exist on the referenced ID and scope. Before commit, the owner
-rechecks the version/active state inside its transaction or rejects stale evidence. Events carry the
-validated snapshot/version; reconciliation jobs compare references and report drift. This applies to:
+rechecks the version/active state inside its REPEATABLE READ transaction using deterministic global
+lock order, or rejects stale evidence. Events carry the validated snapshot/version; reconciliation
+jobs compare references and report drift. This applies to:
 
 - IAM user -> Point Data Owner: IAM validates Active status/scope; Organization stores user ID plus
   owner version snapshot; disabled/deleted users cannot be newly assigned.
 - Site/Area scope -> Organization: IAM resolves scope; Organization supplies Site/Area ancestry
   snapshot; every command rechecks scope.
 - Point -> Metric/Unit: Catalog returns compatibility/status version; Organization stores IDs and
-  snapshot; activation revalidates.
+  snapshot; activation revalidates inside locked transaction.
 - Mapping -> Point: Catalog asks Organization readiness/scope; overlap transaction protects the
   effective period; deleted Points invalidate mapping activation.
 - Run -> Data Source: Acquisition stores source ID/version and asks Catalog before Start; deactivated
@@ -355,13 +406,14 @@ validated snapshot/version; reconciliation jobs compare references and report dr
 
 ## TDD and verification
 
-TDD covers lifecycle, bootstrap, sessions, role/scope, uniqueness, compatibility, Data Owner,
-configuration version immutability, mapping cardinality, deterministic algorithm, stable identity,
-Run state, decommission, quality, Latest ordering, Health, audit, concurrency, deduplication and
-cross-scope enumeration. Fast runs pure/architecture/contract checks. Full adds approved PostgreSQL
-migrations, atomicity, partitions/indexes, outbox/inbox, leases, API/Worker integration and E2E.
-When PostgreSQL/packages are unavailable, create no substitute database and do not claim end-to-end
-completion.
+TDD covers lifecycle, bootstrap, sessions, role/scope, capabilities, uniqueness, compatibility, Data
+Owner, configuration version immutability, mapping cardinality, deterministic algorithm (PCG32 +
+Box-Muller), stable identity (UUIDv5 namespace `02e993bb-c767-5ff6-963f-530e1dfdff6b`), Run state,
+production-attempt checkpoint, decommission, quality, Latest ordering, Health, audit, concurrency,
+global lock order, deduplication and cross-scope enumeration. Fast runs pure/architecture/contract
+checks. Full adds approved PostgreSQL migrations, atomicity, partitions/indexes, outbox/inbox,
+leases, API/Worker integration and E2E. When PostgreSQL/packages are unavailable, create no
+substitute database and do not claim end-to-end completion.
 
 ## Contradictions and resolution record
 
@@ -370,11 +422,31 @@ completion.
 - Draft Point + Active non-producing Mapping resolves Point/Mapping ordering.
 - Catalog owns Mapping; Organization never queries Acquisition for mapping eligibility.
 - Immutable configuration versions replace a mutable configuration row.
-- Exact algorithm and deterministic Measurement ID are normative contracts.
+- Exact algorithm (IUMP-DETERMINISTIC-V1) and deterministic Measurement ID are normative contracts.
+- UUID namespace `02e993bb-c767-5ff6-963f-530e1dfdff6b` is recorded as a literal constant.
+- Production-attempt checkpoint (`acquisition.simulator_production_attempt`) resolves crash-recovery
+  gap between Acquisition state advancement and Telemetry persistence.
+- Pinned Run-Point input snapshot prevents silent Mapping/identity drift during Running Run.
+- Cross-module transaction and global lock order resolve stale-checks race between Point activation,
+  decommission and Simulator Start.
+- POC seed/bootstrap split into foundation seed (no Site scope) and post-Site application fixture
+  resolves FR-IAM-006 scope circularity. Migration 0012 does not claim pre-Site scope rows.
+- AuditReview capability model (`iam.capability`/`iam.user_capability`) resolves the missing
+  capability mechanism for AUDIT_READ.
+- API concurrency semantics split (create no If-Match, update requires If-Match) is applied to all
+  contracts.
+- Session working defaults are concrete (cookie name `.IUMP.Auth`, 256-bit CSPRNG, DPAPI key
+  protection, rate-limit 5/15s, etc.) and P-014 malformed sentence fixed.
 - Reviewer is a capability/policy, not a base role; Manager and Viewer remain separate.
 - Audit snapshots do not block Draft-unused delete; operational dependencies do.
 - Asset/Point decommission is terminal, explicit, atomic and non-cascading.
 - R0 infrastructure names are `outbox_event`, `inbox_message`, and `job`.
+- source_sequence alone is never sufficient without the persisted PCG32 state/spare for
+  reproducibility; all retries use the production-attempt value and do not consume PRNG state again.
+- No "rejection/clamping" ambiguity: deterministic clamping on rounded float64 is the only
+  bounding policy.
+- No encrypted cookie without persistent key-ring design: DPAPI `ProtectKeysWithDpapi()` under
+  `%ProgramData%/IUMP/DataProtection-Keys/`.
 
 ## Readiness
 

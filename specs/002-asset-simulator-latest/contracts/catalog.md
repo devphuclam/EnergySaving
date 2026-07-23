@@ -9,9 +9,9 @@
 - GET|POST /api/v1/source-point-mappings; GET|PUT|DELETE
   /api/v1/source-point-mappings/{id}; activate, inactivate and supersede commands
 
-Administrator or Engineer with an existing Site scope may mutate. All commands require If-Match,
-idempotency key and correlation ID. Source and Mapping are Catalog-owned; no Catalog command writes
-Organization tables.
+Administrator or Engineer with an existing Site scope may mutate. Create commands require
+Idempotency-Key but no If-Match. Update/lifecycle/delete commands require both Idempotency-Key
+and If-Match. Source and Mapping are Catalog-owned; no Catalog command writes Organization tables.
 
 ## Compatibility and mapping ports
 

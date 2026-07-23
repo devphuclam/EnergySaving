@@ -21,6 +21,8 @@
 | `user_role` | IAM/`iam` | `(user_id,role_id)` | composite unique and lookup indexes | assignment version; n/a | revoke and audit |
 | `user_scope` | IAM/`iam` | `(user_id,scope_type,scope_id)` | `scope_type` SITE/AREA, logical `scope_id`, access level, effective dates; unique/indexed | assignment version; `[from,to)` | revoke and audit; Site must exist before Engineer row |
 | `user_session` | IAM/`iam` | `session_id` / session hash | hashed server session, user, issue/idle/absolute expiry, revocation, status; unique hash/expiry indexes | immutable issue + revocation version | logout/expiry/revoke; no credential exposure |
+| `capability` | IAM/`iam` | `capability_id` / code | fixed seeded code: `AUDIT_READ`; name; unique code | seed version; n/a | no runtime delete |
+| `user_capability` | IAM/`iam` | `(user_id,capability_id)` / active assignment | user, capability, assigned_by, assigned_at, revoked_at nullable, version; unique active index where revoked_at IS NULL | assignment version; n/a | revoke set revoked_at, audit |
 | `metric` | Catalog/`catalog` | `metric_id` / code | code/name/status; unique code/status index | `version`; n/a | inactivate when safe; audit |
 | `unit` | Catalog/`catalog` | `unit_id` / code | code/symbol/status; unique code lookup | `version`; n/a | inactivate when safe; audit |
 | `metric_unit_compatibility` | Catalog/`catalog` | `(metric_id,unit_id)` | unique pair; at most one canonical unit per Metric; pair indexes | assignment version; n/a | remove only if unused; audit |
@@ -34,7 +36,8 @@
 | `simulator_configuration` | Acquisition/`acquisition` | config ID / source aggregate | source ID, current version, metadata; source/current index | `version`; head only | retain; audit version change |
 | `simulator_configuration_version` | Acquisition/`acquisition` | `(config_id,configuration_version)` | scenario, interval, min/max, seed, `algorithm_id`, `algorithm_version`; Constant min=max, Normal min<max | immutable; version identity | never delete if Run references; audit |
 | `simulator_run` | Acquisition/`acquisition` | `run_id` / source+run | source/config/version, Running/Paused/Stopped, counters, error, lease; status/lease indexes | `version`, idempotency; run lifetime | retain after production; stop terminal; audit |
-| `simulator_run_point_state` | Acquisition/`acquisition` | `(run_id,point_id)` | next sequence, PRNG state, next due; nonnegative/indexed | version; Run lifetime | retain with Run; operational evidence |
+| `simulator_run_point_state` | Acquisition/`acquisition` | `(run_id,point_id)` | pinned snapshot: point_id, point_version_at_start, mapping_id, mapping_version, metric_id, unit_id, unit_code, source_version, next_source_sequence, prng_state (bytea 25), next_due_at; nonnegative/indexed | version; Run lifetime | retain with Run; operational evidence |
+| `simulator_production_attempt` | Acquisition/`acquisition` | `(run_id,point_id,source_sequence)` | measurement_id, mapping/config/algorithm snapshots, source_timestamp, numeric_value, unit_code, status Pending/Completed, telemetry_outcome Accepted/Rejected/Duplicate, original_classification, latest_advanced, error_code, created_at, completed_at, version | version; unique per sequence | immutable record; never delete |
 | `measurement_identity` | Telemetry/`telemetry` | `measurement_id` / dedup identity | stable identity, source/run/point/mapping/sequence/algorithm; PK + dedup unique/index | immutable | never delete within retention; trace |
 | `measurement_raw` | Telemetry/`telemetry` | `measurement_id` / same | point/source/mapping, source/received/processing time, value/unit/quality/reason/lineage; time partition + Point/time index | immutable; source time | retention policy; trace |
 | `point_latest` | Telemetry/`telemetry` | `point_id` / same | value/unit/timestamps/quality/reason and full ordering tuple; Point PK | atomic compare/version; current | projection rebuild/update; trace |
@@ -44,9 +47,10 @@
 | `inbox_message` | Integration/`integration` | existing `(consumer_name,event_id)` | existing hash/status/error/dedup columns | existing claim state | operations retention |
 | `job` | Operations/`operations` | existing job ID / `(job_type,idempotency_key)` | existing payload/status/availability/lease/attempt fields | existing lease/version | retain execution history |
 
-`metric_unit_compatibility`, `simulator_configuration*`, `simulator_run_point_state`, and
-`point_lifecycle_history` are explicit VS-01 additions where DOC-06 does not provide an equivalent;
-they do not replace R0 structures.
+`metric_unit_compatibility`, `simulator_configuration*`, `simulator_run_point_state`,
+`simulator_production_attempt`, `point_lifecycle_history`, `capability`, and `user_capability`
+are explicit VS-01 additions where DOC-06 does not provide an equivalent; they do not replace R0
+structures.
 
 ## IAM and session model
 
@@ -56,15 +60,19 @@ Administrator credential injected from protected environment, Administrator crea
 Administrator assigns Engineer scope. Deterministic seeds never insert a scope to a nonexistent Site.
 
 ASP.NET Core `PasswordHasher<T>` stores framework-versioned hashes. Login sets a server-issued
-encrypted Secure/HttpOnly/SameSite cookie; the server resolves `user_session` and Active user/roles/
-scopes on every request. State-changing cookie requests require antiforgery. Logout/revocation,
-expiry, Disabled status and scope revocation invalidate access. No token/hash is returned or placed in
-a query string. Successful/failed authentication is auditable with non-enumerating errors and a
-bounded framework-backed rate limit.
+encrypted Secure/HttpOnly/SameSite Lax cookie (`.IUMP.Auth`); the server resolves `user_session`
+and Active user/roles/scopes on every request. State-changing cookie requests require antiforgery
+(`.IUMP.Xsrf` cookie, `X-XSRF-TOKEN` header). Logout/revocation, expiry, Disabled status and scope
+revocation invalidate access. No token/hash is returned or placed in a query string. Successful/
+failed authentication is auditable with non-enumerating errors and a bounded framework-backed rate
+limit (5 attempts per 15-second window). Data Protection keys are persisted under
+`%ProgramData%/IUMP/DataProtection-Keys/` with DPAPI protection.
 
-Base roles are exactly Administrator, Engineer, Operator, Manager and Viewer. `AuditReview` is a
-capability/responsibility assignable under approved policy; it is not a role and is not automatic for
-Viewer. Data Owner assignment grants no permission.
+Base roles are exactly Administrator, Engineer, Operator, Manager and Viewer. `AUDIT_READ` is a
+capability seeded into `iam.capability` and assigned via `iam.user_capability`. Administrator has
+implicit `AUDIT_READ` without a row. Viewer does not receive `AUDIT_READ` automatically. Manager
+does not receive it automatically unless explicitly chosen by the seeded POC policy. Data Owner
+assignment grants no permission.
 
 ## Catalog and Organization rules
 
@@ -74,9 +82,15 @@ may be prepared beneath an existing Draft or Active parent. Activation is top-do
 asks IAM for Data Owner eligibility, Catalog for Metric/Unit compatibility and exactly one effective
 Active Mapping, and Organization for ancestors/intervals. It never asks Acquisition for Mapping.
 
+Point activation uses a REPEATABLE READ transaction with row locks in global order (IAM user,
+Organization Point/ancestor, Catalog Metric/Unit/Mapping). Activation MUST NOT commit if Data Owner,
+Metric, Unit or Mapping can change between validation and commit — the transaction rechecks provider
+version snapshots before commit and rolls back on mismatch.
+
 Asset decommission is rejected atomically if any child Point is Active; no child cascade occurs.
-Point decommission asks Acquisition for Running Simulator status, fails while any mapped Run is
-Running, requires explicit stop/inactivation, triggers Health reconciliation, and is terminal.
+Point decommission asks Acquisition for Running Simulator status (with Organization Point locked
+first, then Acquisition Run locked in global order), fails while any mapped Run is Running, requires
+explicit stop/inactivation, triggers Health reconciliation, and is terminal.
 
 ## Simulator version and algorithm
 
@@ -84,21 +98,47 @@ Running, requires explicit stop/inactivation, triggers Health reconciliation, an
 `simulator_configuration_version`; a Run stores `simulator_configuration_id` and exact
 `configuration_version`. Running/Paused/historical Runs never change when a future version is made.
 
-Algorithm contract: `IUMP-DETERMINISTIC-V1`, with fixed `algorithm_version`. Constant emits the exact
-minimum/maximum value and consumes no PRNG state. Normal uses repository-owned PCG32 state and a
-Box-Muller normal-like transformation with mean at the range midpoint, sigma equal to range/6,
-rejection/clamping into `[minimum_value,maximum_value]`, and a persisted cached spare value. The
-complete stream input is algorithm version, seed, stable Point ID, configuration version and source
-sequence; state is independent per Run+Point. New Start resets state, Resume continues it. No
-platform-default Random, third-party statistics package, system randomness or current-time seed is
-allowed.
+Algorithm contract: `IUMP-DETERMINISTIC-V1`, with fixed `algorithm_version`. PCG32
+(multiplier `6364136223846793005`, increment `1442695040888963407`, unsigned 64-bit overflow,
+`pcg_output_rxs_m_xs_64_32`). Initial state derived from seed, stable Point ID, configuration
+ID/version and algorithm version. Constant emits exact min=max value. Normal uses Box-Muller polar
+form, midpoint mean, range/6 sigma, IEEE 754 float64, 4-decimal rounding, deterministic clamping
+to bounds, cached spare. State serialized as 25 bytes (state, increment, spare_valid, spare_value).
+No platform-default Random, third-party statistics package, system randomness or current-time seed
+is allowed. Three golden test vectors defined (Constant, first Normal, restart Normal).
 
-Simulator Measurement identity is a UUIDv5-style SHA-1 name under a repository namespace UUID using
-UTF-8 canonical bytes:
+Simulator Measurement identity is UUIDv5 under the repository namespace UUID
+`02e993bb-c767-5ff6-963f-530e1dfdff6b` (derived from DNS namespace + "iump.idea-technology.com")
+using UTF-8 canonical bytes:
 `IUMP:SIMULATOR:V1|source_id|run_id|point_id|mapping_id|source_sequence|algorithm_version`.
-UUIDs are lowercase canonical strings, sequence is decimal, separators are literal `|`, and no
-received/processing time is included. Same slot retries to the same ID; different Run/Point/Mapping/
-sequence differs. Namespace and serialization versions are contract constants.
+UUIDs are lowercase canonical strings with dashes, sequence is decimal, separators are literal `|`,
+and no received/processing time is included. Same slot retries to the same ID; different
+Run/Point/Mapping/sequence differs. Namespace and serialization versions are contract constants.
+
+### Production-attempt checkpoint
+
+`acquisition.simulator_production_attempt` provides a durable checkpoint for each production slot
+`(simulator_run_id, point_id, source_sequence)`. The Worker inserts a Pending row in the same
+Acquisition transaction as PRNG state advancement, calls Telemetry outside that transaction, then
+finalizes idempotently. Crash recovery uses Duplicate detection to finalize without double-counting.
+The entity stores measurement_id, mapping/config/algorithm snapshots, source_timestamp, numeric_value,
+unit_code, status, telemetry_outcome, original_classification (populated on Duplicate), error_code,
+created_at, completed_at and version. No in-memory checkpoint is used.
+
+### Run-point pinned snapshot
+
+`simulator_run_point_state` is extended to include:
+- `point_version_at_start` — concurrency version at Start
+- `mapping_id` / `mapping_version` — the active Catalog mapping
+- `metric_id` / `unit_id` / `unit_code` — resolved Metric/Unit
+- `source_version` — Catalog Data Source version at Start
+- `next_source_sequence` — first sequence number
+- `prng_state` (bytea 25 bytes) — PCG32 state and cached spare
+- `next_due_at` — calculated next due timestamp
+
+These pinned identities bind the Run to the exact Catalog and Organization state at creation.
+Changing or inactivating a mapping does not change already-reserved production attempt identity.
+A replacement Mapping requires an explicit new Run.
 
 ## Telemetry quality, Latest and status
 
@@ -133,12 +173,14 @@ reconciliation path:
 | Site Draft -> Active; Active <-> Inactive | Administrator only | required fields; Site scope context | expected version; outbox then Audit; no Engineer bypass | forbidden/validation |
 | Area/Asset Draft -> Active; Active <-> Inactive | Admin or scoped Engineer | Active parent for activation | expected version; lifecycle/audit | parent/scope conflict |
 | Asset nonterminal -> Decommissioned | Admin/scoped Engineer | no Active child Point | atomic expected version; no cascade; audit | `ACTIVE_CHILD_POINT` |
-| Point Draft -> Active; Active <-> Inactive | Admin/scoped Engineer | all IAM/Catalog/Organization checks | expected version; health reconcile; audit | specific prerequisite |
-| Point nonterminal -> Decommissioned | Admin/scoped Engineer | no Running mapped Run | Acquisition status contract; terminal audit/health | `RUNNING_SIMULATOR` |
+| Point Draft -> Active; Active <-> Inactive | Admin/scoped Engineer | all IAM/Catalog/Organization checks, REPEATABLE READ + global lock order | expected version; health reconcile; audit | specific prerequisite |
+| Point nonterminal -> Decommissioned | Admin/scoped Engineer | no Running mapped Run | lock Order Point then Acquisition Run; audit | `RUNNING_SIMULATOR` |
 | Source Draft -> Active; Active <-> Suspended; nonterminal -> Decommissioned | Admin/scoped Engineer | config/scope checks | expected version; schedule/health event + audit | lifecycle/history conflict |
 | Mapping Draft -> Active; Active -> Inactive/Superseded | Admin/scoped Engineer | Point readiness port, no overlap | exclusion/serializable lock; Catalog event + audit | mapping conflict |
-| Run Start/Pause/Resume/Stop | scoped Engineer/Admin | Start requires active Source/Mapping/Point/ancestors; idempotency key | expected version; new Run or continued state, lease/job/event/audit | invalid transition |
+| Run Start/Pause/Resume/Stop | scoped Engineer/Admin | Start requires active Source/Mapping/Point/ancestors; idempotency key; global lock order | expected version; new Run or continued state, lease/job/event/audit | invalid transition |
 | Source status evaluation | Worker/System | owner snapshot/version still valid | idempotent projection; event only on real change | stale snapshot ignored |
+| Capability assign/revoke | Administrator | user exists, capability exists | user_capability version; audit | not found |
+| Production attempt Pending -> Completed | Worker (system) | Pending row, stable Telemetry outcome | idempotent finalize; Duplicate returns original_classification | state conflict |
 
 ## Existing R0 infrastructure
 
@@ -149,18 +191,23 @@ tables.
 
 ## Ordered migration design
 
-1. `0002_iam_foundation.sql`
-2. `0003_catalog_foundation.sql`
-3. `0004_organization_hierarchy.sql`
-4. `0005_acquisition_configuration.sql`
-5. `0006_catalog_source_mapping.sql`
-6. `0007_acquisition_run.sql`
-7. `0008_telemetry_measurement.sql`
-8. `0009_telemetry_latest_status.sql`
-9. `0010_audit_event.sql`
-10. `0011_r1_infrastructure_expand.sql` (only approved additive changes to R0 tables)
-11. `0012_r1_idempotent_seeds.sql`
-12. `0013_r1_validation_reconciliation.sql`
+1. `0002_iam_foundation.sql` — identity, fixed roles, capability, user_capability, `user_session`,
+   session/index additions
+2. `0003_catalog_foundation.sql` — Metric/Unit/compatibility and Data Source
+3. `0004_organization_hierarchy.sql` — Site/Area/Asset/Draft Point and hierarchy indexes
+4. `0005_acquisition_configuration.sql` — configuration head and immutable configuration versions
+5. `0006_catalog_source_mapping.sql` — Source-Point Mapping after Point exists, effective periods
+   and overlap
+6. `0007_acquisition_run.sql` — Run, per-Point state (extended with pinned snapshot), production
+   attempt checkpoint and leases
+7. `0008_telemetry_measurement.sql` — identity registry and raw Measurement
+8. `0009_telemetry_latest_status.sql` — Latest and physical point_source_status projections/indexes
+9. `0010_audit_event.sql` — append-only audit storage and permissions
+10. `0011_r1_infrastructure_expand.sql` — only approved additive changes to R0 tables (if proven
+    necessary; no recreation)
+11. `0012_r1_idempotent_seeds.sql` — deterministic POC users/scopes after Site bootstrap strategy
+    and catalog seeds. Does NOT claim to create impossible pre-Site scope rows.
+12. `0013_r1_validation_reconciliation.sql` — reconciliation and validation queries
 
 Each has owner, checksum/ledger evidence, forward behavior, lock/time estimate, clean/N-1 validation,
 and forward-fix notes. Mapping is placed after the Point table exists even though Catalog owns it;
