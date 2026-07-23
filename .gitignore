@@ -50,7 +50,6 @@ verification-results.json
 # Local assistant tooling
 .agents/
 .opencode/
-AGENTS.md
 docs/agents/
 .specify/integrations/codex.manifest.json
 .specify/integrations/opencode.manifest.json
