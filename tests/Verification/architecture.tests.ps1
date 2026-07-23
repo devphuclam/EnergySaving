@@ -36,7 +36,7 @@ Get-ChildItem -LiteralPath $ModuleRoot -Recurse -Filter '*.csproj' | ForEach-Obj
 if ($isCanonicalModuleRoot) {
     $ownership = Get-Content -LiteralPath $OwnershipManifest -Raw | ConvertFrom-Json
     if (@($ownership.modules).Count -ne 13) {
-        throw 'The canonical ownership manifest must contain exactly 13 R0 modules.'
+        throw 'The canonical ownership manifest must contain exactly 13 owned modules.'
     }
     foreach ($entry in $ownership.modules) {
         $contractPath = Join-Path $ModuleRoot "$($entry.name)\Contracts\ModuleContract.cs"
@@ -51,18 +51,7 @@ if ($isCanonicalModuleRoot) {
 
     $buildingBlocks = Get-Content -LiteralPath $BuildingBlocksProject -Raw
     if ($buildingBlocks -match '<(PackageReference|ProjectReference)\b') {
-        throw 'BuildingBlocks must remain framework-light and dependency-free in R0.'
-    }
-}
-
-Get-ChildItem -LiteralPath $ModuleRoot -Directory | ForEach-Object {
-    $unexpected = Get-ChildItem -LiteralPath $_.FullName -Recurse -File | Where-Object {
-        $_.Extension -eq '.cs' -and
-        $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and
-        $_.FullName -notmatch '[\\/]Contracts[\\/]'
-    }
-    if ($unexpected) {
-        throw "R0 module exposes implementation outside Contracts: $($unexpected.FullName -join ', ')"
+        throw 'BuildingBlocks must remain framework-light and dependency-free.'
     }
 }
 

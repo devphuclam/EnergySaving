@@ -25,4 +25,26 @@ Assert-ArchitectureFailure { & $architectureTest -HostSourceRoot (Join-Path $fix
 Assert-ArchitectureFailure { & $architectureTest -ContractSourceRoot (Join-Path $fixtureRoot 'Contracts') } `
     'Prohibited command/write-back contract surface*' 'command-contract'
 
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$positiveRoot = [IO.Path]::GetFullPath((Join-Path $tempRoot "iump-architecture-$([guid]::NewGuid())"))
+if (-not $positiveRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Unsafe fixture path: $positiveRoot"
+}
+try {
+    $domainRoot = Join-Path $positiveRoot 'AllowedModule\Domain'
+    New-Item -ItemType Directory -Path $domainRoot -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $domainRoot 'AllowedEntity.cs') `
+        -Value 'namespace AllowedModule.Domain; public sealed class AllowedEntity { }' -Encoding UTF8
+    & $architectureTest -ModuleRoot $positiveRoot
+}
+catch {
+    throw "Valid internal module implementation was rejected: $($_.Exception.Message)"
+}
+finally {
+    if ((Test-Path -LiteralPath $positiveRoot) -and
+        $positiveRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $positiveRoot -Recurse -Force
+    }
+}
+
 Write-Output 'PASS: all forbidden architecture fixtures are red-capable'
