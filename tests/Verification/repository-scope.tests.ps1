@@ -1,19 +1,29 @@
 [CmdletBinding()]
-param()
+param([string[]]$ScanRoots)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$scopeRoots = @('src', 'database', 'scripts')
+$scopeRoots = if ($null -eq $ScanRoots -or $ScanRoots.Count -eq 0) {
+    @('src', 'database', 'scripts')
+}
+else {
+    @($ScanRoots)
+}
 $patterns = @(
-    '(?i)Modbus',
-    '(?i)write[- ]?back',
-    '(?i)docker(?:file|[- ]compose|\s+build)',
-    '(?i)Testcontainers',
+    '(?i)\bModbus\b',
+    '(?i)\bWriteBack|write[- ]back',
+    '(?i)\bSetpoint\b|\bActuat(?:e|or|ion)\b',
+    '(?i)\bEquipmentCommand\b|\bControlCommand\b',
     '(?i)\bAI/ML\b'
 )
 
 foreach ($root in $scopeRoots) {
-    $path = Join-Path $repoRoot $root
+    $path = if ([IO.Path]::IsPathRooted($root)) {
+        [IO.Path]::GetFullPath($root)
+    }
+    else {
+        [IO.Path]::GetFullPath((Join-Path $repoRoot $root))
+    }
     if (-not (Test-Path -LiteralPath $path)) { continue }
     Get-ChildItem -LiteralPath $path -Recurse -File | Where-Object {
         $_.FullName -notmatch '[\\/](node_modules|bin|obj)[\\/]' -and
@@ -22,10 +32,10 @@ foreach ($root in $scopeRoots) {
         $content = Get-Content -LiteralPath $_.FullName -Raw
         foreach ($pattern in $patterns) {
             if ($content -match $pattern) {
-                throw "Out-of-scope surface '$pattern' found in $($_.FullName)"
+                throw "Permanent product invariant violated by '$pattern' in $($_.FullName)"
             }
         }
     }
 }
 
-Write-Output 'PASS: repository scope contract'
+Write-Output 'PASS: permanent repository scope invariants'

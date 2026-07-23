@@ -5,8 +5,10 @@ $ErrorActionPreference = 'Continue'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $tests = @(
     'tests\Verification\verification-contract.tests.ps1',
+    'tests\Verification\repository-harness.tests.ps1',
     'tests\Verification\repository-policy.tests.ps1',
     'tests\Verification\repository-scope.tests.ps1',
+    'tests\Verification\repository-scope-red-fixture.tests.ps1',
     'tests\Verification\architecture.tests.ps1',
     'tests\Verification\architecture-red-fixture.tests.ps1'
 )
