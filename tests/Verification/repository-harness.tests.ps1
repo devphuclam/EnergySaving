@@ -14,6 +14,28 @@ if (-not (Test-Path -LiteralPath $harnessPath)) {
 
 . $harnessPath
 
+$entry = Join-Path $repoRoot 'scripts\harness.ps1'
+if (-not (Test-Path -LiteralPath $entry)) {
+    throw "RED: public harness command is missing at $entry"
+}
+
+$entryText = Get-Content -LiteralPath $entry -Raw
+foreach ($requiredText in @(
+    '[ValidateSet(''Fast'', ''Full'')]',
+    'verification-results.json',
+    'Get-VerificationExitCode',
+    'Resolve-HarnessFeature'
+)) {
+    if ($entryText -notmatch [regex]::Escape($requiredText)) {
+        throw "Public harness command is missing '$requiredText'."
+    }
+}
+
+$verifyText = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts\verify.ps1') -Raw
+if ($verifyText -notmatch 'harness\.ps1' -or $verifyText -notmatch 'Full') {
+    throw 'verify.ps1 must delegate to Full harness mode.'
+}
+
 function Assert-Equal {
     param(
         [AllowNull()]$Actual,
