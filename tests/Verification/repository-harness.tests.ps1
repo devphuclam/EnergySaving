@@ -36,6 +36,34 @@ if ($verifyText -notmatch 'harness\.ps1' -or $verifyText -notmatch 'Full') {
     throw 'verify.ps1 must delegate to Full harness mode.'
 }
 
+$knowledgeMap = Join-Path $repoRoot 'docs\repository-harness.md'
+if (-not (Test-Path -LiteralPath $knowledgeMap)) {
+    throw 'Repository harness knowledge map is missing.'
+}
+$knowledgeText = Get-Content -LiteralPath $knowledgeMap -Raw
+foreach ($required in @(
+    'Business Docs',
+    'CONTEXT.md',
+    'docs/source-register.md',
+    'spec.md',
+    'plan.md',
+    'tasks.md',
+    'scripts/harness.ps1 -Mode Fast',
+    'scripts/harness.ps1 -Mode Full'
+)) {
+    if ($knowledgeText -notmatch [regex]::Escape($required)) {
+        throw "Knowledge map is missing '$required'."
+    }
+}
+
+$agentsText = Get-Content -LiteralPath (Join-Path $repoRoot 'AGENTS.md') -Raw
+if ($agentsText -notmatch 'docs/repository-harness\.md') {
+    throw 'AGENTS.md does not point to the repository harness.'
+}
+if ($agentsText -notmatch 'Full') {
+    throw 'AGENTS.md does not require Full verification before completion.'
+}
+
 function Assert-Equal {
     param(
         [AllowNull()]$Actual,

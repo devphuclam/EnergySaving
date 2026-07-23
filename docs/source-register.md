@@ -1,6 +1,6 @@
 # Source Register
 
-| Priority | Source | Version/status | Use in R0 |
+| Priority | Source | Version/status | Repository use |
 |---:|---|---|---|
 | 1 | DOC-01 Product Vision and Scope | v0.3, In Review | Product boundary, roles, MVP/POC, retention, read-only OT |
 | 2 | DOC-03 Business Requirements | v0.1, Draft | Workflow, Missing semantics, rule/Alert/report responsibilities |
@@ -10,7 +10,8 @@
 | 6 | DOC-07 MVP Roadmap and Delivery Plan | v0.1, Draft | R0 boundary, DoR/DoD, gates, dependencies and evidence |
 | Supporting | DOC-02 Feasibility Assessment | v0.1, Draft | GO/conditional gates, feasibility assumptions and ownership gaps |
 | 7 | Repository ADRs | Current | Implementation decisions; cannot override DOC-01..DOC-07 |
-| 8 | `specs/001-r0-engineering-foundation/` | Current | Canonical R0 feature artifacts |
+| 8 | Active feature under `specs/` | Current | Canonical delivery specification, plan, tasks, and evidence |
+| Historical | `specs/001-r0-engineering-foundation/` | Complete | R0 foundation artifacts and historical evidence |
 | 9 | `CONTEXT.md` | Current | Ubiquitous language only |
 | 10 | Source and automated tests | Current | Executable evidence, subordinate to documented decisions |
 
