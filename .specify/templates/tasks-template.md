@@ -119,13 +119,14 @@ stop.
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 [BLOCKED_BY_DATABASE_ACCESS] Setup database schema and migrations framework in `[exact path]`; Depends: T002; Verify: database evidence records PASS/FAIL/BLOCKED with blocker ID.
+- [ ] T004 [RUNNABLE_NOW] Define and review database schema or migration source in `[exact path]`; Depends: T002; Verify: source review, static validation, or permitted compile checks record PASS/FAIL; no live database is required.
+- [ ] T004B [BLOCKED_BY_DATABASE_ACCESS] Execute the reviewed schema/migration source against approved PostgreSQL; Depends: T004; Verify: execution records PASS/FAIL/BLOCKED with blocker ID and evidence.
 - [ ] T005 [P] [RUNNABLE_NOW] Implement authentication/authorization framework in `[exact path]`; Depends: T002; Verify: focused checks record PASS/FAIL.
 - [ ] T006 [P] [RUNNABLE_NOW] Setup API routing and middleware structure in `[exact path]`; Depends: T002; Verify: route/port checks record PASS/FAIL.
-- [ ] T007 [RUNNABLE_NOW] Create base models/entities that all stories depend on in `[exact path]`; Depends: T004; Verify: model checks record PASS/FAIL/BLOCKED.
+- [ ] T007 [RUNNABLE_NOW] Create base models/entities that all stories depend on in `[exact path]`; Depends: T004; Verify: model checks record PASS/FAIL.
 - [ ] T008 [RUNNABLE_NOW] Configure error handling and logging infrastructure in `[exact path]`; Depends: T002; Verify: failure-path checks record PASS/FAIL.
 - [ ] T009 [RUNNABLE_NOW] Setup environment configuration management in `[exact path]`; Depends: T002; Verify: configuration checks record PASS/FAIL.
-- [ ] T009A [RUNNABLE_NOW] Record approved tool/package/database/CI evidence and blocker classifications in `docs/[evidence-file]`; Depends: T004-T009; Verify: evidence record is complete and status-coded.
+- [ ] T009A [RUNNABLE_NOW] Inspect and record database, package, tool, CI, and approval capability states in `docs/[evidence-file]`, referencing blocked executions such as T004B without depending on them; Depends: T002, T004, T005, T006, T007, T008, T009; Verify: exact blocker IDs and evidence are recorded without requiring blocked execution to complete.
 - [ ] T009B [RUNNABLE_NOW] Add structured logging, correlation, health, and explicit failure-state foundations in `[exact path]`; Depends: T008-T009; Verify: observability checks record PASS/FAIL.
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
@@ -243,22 +244,28 @@ success criteria; measurable or timed acceptance criteria; Standards and Spec-co
 Fast verification; mandatory Full verification with database access; package-policy, tool, and
 company-approval evidence; architecture and repository-policy checks; and a final checkpoint.
 
-- [ ] TXXX [RUNNABLE_NOW] Record requirements traceability in `specs/[###-feature-name]/checklists/[acceptance].md`; Depends: all implementation checkpoints; Verify: requirements map is complete and records PASS/FAIL.
+- [ ] TXXX [RUNNABLE_NOW] Record requirements traceability in `specs/[###-feature-name]/checklists/[acceptance].md`; Depends: runnable implementation checkpoints; References/Inspect: blocked implementation evidence; Verify: requirements map is complete and records PASS/FAIL.
 - [ ] TXXX [RUNNABLE_NOW] Record user-story traceability in `specs/[###-feature-name]/checklists/[acceptance].md`; Depends: requirements traceability; Verify: story map is complete and records PASS/FAIL.
 - [ ] TXXX [RUNNABLE_NOW] Record success-criteria traceability in `specs/[###-feature-name]/checklists/[acceptance].md`; Depends: user-story traceability; Verify: criteria map is complete and records PASS/FAIL.
-- [ ] TXXX [RUNNABLE_NOW] Execute timed/measurable acceptance criteria in `[exact test/evidence path]`; Depends: success-criteria traceability; Verify: criteria record PASS/FAIL/BLOCKED with evidence.
-- [ ] TXXX [RUNNABLE_NOW] Run Standards and Spec-compliance review in `docs/[review-file]`; Depends: acceptance task; Verify: review records no unresolved Critical/High findings.
-- [ ] TXXX [RUNNABLE_NOW] Run Fast verification; Depends: review task; Verify: Fast evidence records PASS/FAIL/BLOCKED.
+- [ ] TXXX [RUNNABLE_NOW] Define the deterministic timed acceptance journey, timer boundaries, inputs, expected results, and evidence path in `[exact test/evidence path]`; Depends: success-criteria traceability; Verify: source review or permitted compile evidence records PASS/FAIL; no live database is required.
+- [ ] TXXX [BLOCKED_BY_DATABASE_ACCESS] Execute the timed acceptance journey and record runtime evidence; Depends: timed acceptance source task; Verify: applicable execution records PASS/FAIL/BLOCKED with blocker ID; never report timing PASS when a prerequisite is blocked.
+
+> **Execution classification rule**: Use the applicable database, package, tool, or
+> company-approval classification for each timed or environment-dependent execution task. If a
+> prerequisite is unavailable, record BLOCKED with its classification and blocker evidence rather
+> than reporting timing PASS.
+- [ ] TXXX [RUNNABLE_NOW] Run Standards and Spec-compliance review in `docs/[review-file]`; Depends: success-criteria traceability; References/Inspect: timed and environment evidence; Verify: review records no unresolved Critical/High findings.
+- [ ] TXXX [RUNNABLE_NOW] Run Fast verification; Depends: Standards/Spec review task; References/Inspect: timed, Full, package, tool, and approval evidence; Verify: Fast evidence records PASS/FAIL/BLOCKED.
 - [ ] TXXX [BLOCKED_BY_DATABASE_ACCESS] Run mandatory Full verification with database access; Depends: Fast task; Verify: Full evidence records PASS/FAIL/BLOCKED with blocker ID when unavailable.
-- [ ] TXXX [BLOCKED_BY_PACKAGE_POLICY] Record package-policy evidence; Depends: Fast task; Verify: package evidence records PASS/FAIL/BLOCKED.
-- [ ] TXXX [BLOCKED_BY_MISSING_TOOL] Record required tool evidence; Depends: Fast task; Verify: tool evidence records PASS/FAIL/BLOCKED.
-- [ ] TXXX [BLOCKED_BY_COMPANY_APPROVAL] Record company-approval evidence; Depends: Fast task; Verify: approval evidence records PASS/FAIL/BLOCKED.
-- [ ] TXXX [RUNNABLE_NOW] Run architecture and repository-policy checks in `docs/[checkpoint-file]`; Depends: Full and policy evidence tasks; Verify: checks record PASS/FAIL/BLOCKED.
-- [ ] TXXX [RUNNABLE_NOW] Record the final Release-ready checkpoint and stop; Depends: all final evidence tasks; Verify: counts PASS/FAIL/BLOCKED by classification and NOT_RUN, capability completeness, progression, and release decision; blocked evidence keeps Release-ready NO.
+- [ ] TXXX [BLOCKED_BY_PACKAGE_POLICY] Record package-policy execution evidence; Depends: Fast task; Verify: package evidence records PASS/FAIL/BLOCKED.
+- [ ] TXXX [BLOCKED_BY_MISSING_TOOL] Record tool-dependent execution evidence; Depends: Fast task; Verify: tool evidence records PASS/FAIL/BLOCKED.
+- [ ] TXXX [BLOCKED_BY_COMPANY_APPROVAL] Record company-approval/release execution evidence; Depends: Fast task; Verify: approval evidence records PASS/FAIL/BLOCKED.
+- [ ] TXXX [RUNNABLE_NOW] Run architecture and repository-policy checks in `docs/[checkpoint-file]`; Depends: Standards/Spec review task, Fast task; References/Inspect: Full, package, tool, approval, and timed evidence; Verify: checks record PASS/FAIL/BLOCKED.
+- [ ] TXXX [RUNNABLE_NOW] Record the final Release-ready checkpoint and stop; Depends: requirements traceability, user-story traceability, success-criteria traceability, Standards/Spec review task, Fast task, architecture/policy verification task; References/Inspect: timed runtime, Full, package, tool, and company-approval evidence; Verify: record each mandatory item as PASS/FAIL/BLOCKED/NOT_RUN with classification and blocker ID, block progression/release on FAIL, and keep Release-ready NO for BLOCKED or NOT_RUN.
 
 The final checkpoint remains runnable when an environment task is blocked, but it MUST NOT report
 Release-ready or permit release until every mandatory blocker is resolved and Full verification
-passes.
+passes. Blocked runtime evidence is inspected, never treated as a pass-required dependency.
 
 ---
 
@@ -269,6 +276,9 @@ passes.
 - Generated task IDs are unique and sequential; dependencies are valid and every `Depends:`
   reference names an existing earlier task. No forward dependency is allowed unless the repository
   explicitly supports and validates it, and the graph must contain no dependency cycle.
+- Zero `RUNNABLE_NOW` tasks may transitively depend on a blocked evidence-leaf task. Task
+  classification MUST match actual executability; source creation and runtime execution are
+  separated whenever their environment requirements differ.
 - Red tests or red evidence precede green implementation. Green tasks depend on the final Phase 0
   governance checkpoint and may not bypass it.
 - A blocked execution task normally remains an evidence leaf. It must not unnecessarily block
@@ -276,6 +286,8 @@ passes.
 - Checkpoints inspect blocked evidence and never convert it to PASS. A runnable checkpoint remains
   runnable when an environment task is blocked unless that capability is required for the
   checkpoint decision.
+- Checkpoints remain runnable so they can record incomplete capability truthfully; blocked evidence
+  is listed under `References/Inspect`, not as a pass-required dependency.
 - Full verification and release cannot pass while mandatory evidence is BLOCKED or NOT_RUN.
 
 ### Checkpoint Evidence Contract

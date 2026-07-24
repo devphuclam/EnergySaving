@@ -8,11 +8,15 @@
 
 **Governing Constitution Version**: [e.g., 1.1.0]
 
-**Planning Readiness**: **Planning-ready** — determined by completed specification and design inputs.
+**Planning Readiness**: **NOT_RUN / NO** — assigned **Planning-ready** only after the Planning
+gate records PASS. Creating or populating `plan.md` alone does not establish Planning-ready.
 
 **Implementation Readiness**: **NO** — remains NO until all implementation gates pass.
 
 **Release Readiness**: **NO** — remains NO until required release evidence passes.
+
+Planning-ready does not authorize green implementation or release. Implementation-ready and
+Release-ready remain independently gated states.
 
 **Constitution Amendment Required**: [YES/NO]
 

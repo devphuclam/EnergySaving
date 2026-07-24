@@ -65,7 +65,7 @@ When sources disagree, use this exact order:
 10. `CONTEXT.md`.
 11. Source code and automated tests.
 
-DOC-02 Feasibility Study is supporting evidence for feasibility and environment constraints; it
+DOC-02 Feasibility Assessment is supporting evidence for feasibility and environment constraints; it
 does not override the ordered sources above. Repository ADRs implement but do not override the
 Business Docs; active Spec Kit artifacts provide feature-level delivery detail. Raise a
 contradiction instead of silently choosing a lower-priority source, and keep
