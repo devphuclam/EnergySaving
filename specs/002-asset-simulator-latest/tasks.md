@@ -1,290 +1,352 @@
 # Tasks: Asset Simulator Latest
 
-**Input**: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`,
-`CONTEXT.md`, accepted ADRs, the R0 implementation, and DOC-04 through DOC-08.
+**Authoritative inputs**: `spec.md` -> `plan.md` -> `research.md` -> `data-model.md` ->
+`contracts/` -> `quickstart.md` -> `CONTEXT.md` -> ADRs -> R0 repository -> DOC-04..DOC-08.
 
-**Scope**: R1 / VS-01 only. These tasks implement 68 functional requirements, five user stories and
-nine success criteria through the ten implementation phases defined in `plan.md`.
+**Scope**: R1 / VS-01; 68 functional requirements, five user stories, nine success criteria,
+Phase 0 governance plus ten implementation phases. Rules, Alerts, Reports, external REST/CSV,
+Modbus, Edge Collector, write-back, and AI/ML remain excluded.
 
-**Execution rule**: Run one phase per `/speckit.implement` invocation. At every phase checkpoint,
-record PASS, FAIL and BLOCKED evidence, complete Standards and Spec reviews, and stop for approval
-before the next phase. Every checkpoint executes
-`.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest` plus the exact
-phase-specific test commands named by that phase; Phase 10 also executes Full mode.
+**Execution**: one phase per implementation invocation. Red tests precede green behavior.
+PostgreSQL means approved PostgreSQL only; no substitute database or container. Every phase ends
+with review, an evidence checkpoint, and a stop.
 
-**Test rule**: Executable behavior follows red -> green -> refactor -> review -> checkpoint.
-PostgreSQL behavior uses approved PostgreSQL only; SQLite, EF Core InMemory, Testcontainers and
-substitute databases are prohibited.
+**Evidence states**: PASS = executed and verified; FAIL = executed and failed; BLOCKED = runnable
+artifact produced where possible and exact external dependency/check ID/blocker ID/evidence
+recorded, never passing; NOT_RUN = unattempted. A phase may progress incompletely only when every
+RUNNABLE_NOW task passed, blockers are external/classified, no runnable dependent needs blocked
+behavior, and the checkpoint says capability incomplete. FAIL or runnable NOT_RUN stops
+progression. Full/release never passes with mandatory BLOCKED/NOT_RUN evidence.
 
-**Task format**: `[ID] [P?] [Story?] [environment] action; References; Depends; Verify`.
+## Phase 0: Governance and environment evidence
 
-## Phase 0: Pre-implementation governance and environment gates
+**Goal**: correct source precedence, record blockers, analyze this repaired graph, then process the
+governed constitution change. No green application-source task may begin until analysis is clean,
+the approved amendment is applied, dependent guidance is synchronized, and this checkpoint permits
+progression.
 
-**Goal**: Establish current source precedence, amend the historical R0-only governance language,
-record blockers truthfully, and pass `/speckit.analyze` before source implementation.
-
-- [ ] T001 [RUNNABLE_NOW] Update DOC-05 to v0.2, DOC-07 to v0.2 and add DOC-08 v0.1 in `docs/source-register.md`; References: plan Constitution gate, DOC-05/07/08; Depends: none; Verify: `rg -n "DOC-05.*v0.2|DOC-07.*v0.2|DOC-08.*v0.1" docs/source-register.md` returns all three registrations.
-- [ ] T002 [RUNNABLE_NOW] Draft the governed active-feature/release-lifecycle amendment and impact list in `docs/decision-log.md`, preserving product boundary, modular monolith, test-first evidence, restricted execution, PostgreSQL-only, no-Docker/no-public-download, operability and traceability; References: constitution I-VI and Governance, plan Constitution gate; Depends: T001; Verify: review records affected templates, ADRs, active feature and approval owners.
-- [ ] T003 [REQUIRES_COMPANY_APPROVAL] Amend `.specify/memory/constitution.md` to replace R0-only/feature-001 implementation wording with the active-feature release lifecycle, bump the semantic version and update the Sync Impact Report without weakening principles; References: T002, constitution Governance; Depends: T002 and Product Owner/Tech Lead governance approval; Verify: `rg -n "002-asset-simulator-latest|Version|Sync Impact Report" .specify/memory/constitution.md` and a diff review show the approved scope only.
-- [ ] T004 [P] [RUNNABLE_NOW] Synchronize constitution-dependent guidance in `.specify/templates/plan-template.md`, `.specify/templates/tasks-template.md` and `docs/repository-harness.md` only where the approved amendment requires it; References: T003 Sync Impact Report; Depends: T003; Verify: `git diff --check` and constitution/template terminology agree.
-- [ ] T005 [P] [RUNNABLE_NOW] Record installed .NET/Node/package-cache and non-container restrictions in `docs/environment-inventory.md`; References: ADR-002, ADR-016, constitution V; Depends: none; Verify: inventory contains exact commands and no public restore/install action.
-- [ ] T006 [BLOCKED_BY_ENVIRONMENT] Record approved PostgreSQL host/profile and `psql` absence or availability in `docs/database-access-request.md` and `docs/blocker-report.md`; References: ADR-003, ADR-015, plan Technical context; Depends: none; Verify: `Get-Command psql -ErrorAction SilentlyContinue` evidence is classified, never converted to PASS when absent.
-- [ ] T007 [BLOCKED_BY_PACKAGE_POLICY] Record approved Npgsql/EF Core source and locked-version availability in `docs/blocker-report.md`; References: ADR-002, ADR-016; Depends: T005; Verify: configured package sources/cache are inspected without contacting a public source.
-- [ ] T008 [P] [BLOCKED_BY_ENVIRONMENT] Record the pre-provisioned Data Protection directory decision and writable-service-account evidence in `docs/blocker-report.md`; References: plan P-014, `contracts/iam-authorization.md`; Depends: none; Verify: evidence contains no key material and unavailable storage remains BLOCKED_BY_ENVIRONMENT.
-- [ ] T009 [P] [REQUIRES_COMPANY_APPROVAL] Record company CI runner/template and target-host approvals in `docs/ci-readiness.md` and `docs/blocker-report.md`; References: ADR-016, constitution V; Depends: none; Verify: no public action, container workflow or unapproved runner is proposed.
-- [ ] T010 [RUNNABLE_NOW] Run `/speckit.analyze` against `specs/002-asset-simulator-latest/spec.md`, `plan.md` and `tasks.md`, resolve every Critical conflict in `tasks.md`, and record the result in `specs/002-asset-simulator-latest/checklists/analysis.md`; References: repository workflow step 7; Depends: T001-T009; Verify: analysis reports 0 unresolved Critical conflicts.
-- [ ] T011 [RUNNABLE_NOW] Execute the governance checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-00-governance.md`; References: constitution, 68/5/9 scope; Depends: T003 and T010; Verify: `.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest`, architecture boundary, Standards review, Spec review, code-review checkpoint and blocker classifications are recorded before Phase 1.
-
-**Hard gate**: No application-source implementation task below may start until T003 and T010 are
-complete. Test-source tasks may be prepared, but green implementation is forbidden before this gate.
+- [ ] T001 [RUNNABLE_NOW] Correct DOC-05 to v0.2, DOC-07 to v0.2, and add DOC-08 v0.1 in `docs/source-register.md`; References: authoritative-input order, DOC-05/07/08; Depends: none; Verify: `rg -n "DOC-05.*v0.2|DOC-07.*v0.2|DOC-08.*v0.1" docs/source-register.md` finds all entries, expected PASS or FAIL.
+- [ ] T002 [BLOCKED_BY_DATABASE_ACCESS] Record approved PostgreSQL endpoint/profile/access status in `docs/blocker-report.md`; References: ADR-003, ADR-015, plan environment classification; Depends: none; Verify: approved access evidence yields PASS, otherwise BLOCKED with check/blocker IDs and no substitute database.
+- [ ] T003 [BLOCKED_BY_PACKAGE_POLICY] Record locked Npgsql/EF package-source/cache availability in `docs/blocker-report.md`; References: ADR-002, ADR-016; Depends: none; Verify: approved offline source evidence yields PASS, otherwise BLOCKED without public restore.
+- [ ] T004 [BLOCKED_BY_MISSING_TOOL] Record `psql`, migration-runner, API/Worker smoke-tool availability in `docs/blocker-report.md`; References: repository harness; Depends: none; Verify: `Get-Command psql -ErrorAction SilentlyContinue` and tool inventory yield PASS or exact BLOCKED evidence.
+- [ ] T005 [BLOCKED_BY_COMPANY_APPROVAL] Record Data Protection provisioning, company CI runner/template, and target-host approvals in `docs/blocker-report.md`; References: P-014, ADR-016, IAM contract; Depends: none; Verify: approvals yield PASS, otherwise BLOCKED without key material or unapproved runner.
+- [ ] T006 [RUNNABLE_NOW] Run `/speckit.analyze` on `specs/002-asset-simulator-latest/spec.md`, `plan.md`, and repaired `tasks.md`, recording findings in `specs/002-asset-simulator-latest/checklists/analysis.md`; References: repository workflow step 7; Depends: T001; Verify: command executes without depending on T002-T005, expected PASS when report is produced or FAIL on tool/content error.
+- [ ] T007 [RUNNABLE_NOW] Resolve all Critical and High analysis findings only in `specs/002-asset-simulator-latest/tasks.md`; References: T006 findings; Depends: T006; Verify: each finding maps to an edited task/dependency or documented non-conflict, expected PASS or FAIL.
+- [ ] T008 [RUNNABLE_NOW] Re-run `/speckit.analyze` and record zero unresolved Critical/High findings in `specs/002-asset-simulator-latest/checklists/analysis.md`; References: repository workflow gate; Depends: T007; Verify: zero Critical/High yields PASS, any remaining finding yields FAIL.
+- [ ] T009 [RUNNABLE_NOW] Draft the active-feature/release-lifecycle constitution amendment and Sync Impact Report in `docs/decision-log.md`; References: constitution Governance, plan Constitution gate; Depends: T008; Verify: draft preserves principles/product boundary and lists affected templates/guidance, expected PASS or FAIL.
+- [ ] T010 [BLOCKED_BY_COMPANY_APPROVAL] Obtain governed approval and apply the approved semantic-versioned amendment in `.specify/memory/constitution.md`; References: T009, constitution Governance; Depends: T009; Verify: approved diff yields PASS; absent approval is BLOCKED and no amendment is applied.
+- [ ] T011 [RUNNABLE_NOW] Synchronize only Sync Impact Report-identified guidance in `.specify/templates/plan-template.md`, `.specify/templates/tasks-template.md`, and `docs/repository-harness.md`; References: T009-T010; Depends: T010; Verify: `git diff --check` and terminology review yield PASS/FAIL; if T010 is BLOCKED this remains NOT_RUN.
+- [ ] T012 [RUNNABLE_NOW] Record Phase 0 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-00-governance.md`; References: Phase 0 gate, evidence semantics; Depends: T008,T009; Verify: record runnable PASS, FAIL, each BLOCKED classification, NOT_RUN, capability status, progression decision, and release blocker; T010/T011 incomplete means progression NO, not checkpoint failure.
 
 ## Phase 1: Minimal IAM and bootstrap
 
-**Stories**: US4 authorization foundation; US1 Administrator bootstrap; US5 authentication/audit.
+**Stories**: US1, US4, US5. **Independent test**: local identities, sessions, authorization,
+Data Owner eligibility, deterministic bootstrap definitions, and no pre-Site scope work without a
+database adapter.
 
-**Independent test**: Administrator can authenticate and create the root Site; scoped identities are
-resolved server-side; an Engineer without scope cannot create a root Site; logout, disable and
-revoke-all invalidate the required sessions.
-
-- [ ] T012 [P] [US4] [RUNNABLE_NOW] Add failing IAM domain tests for User Account status, five base roles, User Role, User Scope, Capability, User Capability and User Session in `tests/Unit/IAM/IamDomainTests.cs`; References: FR-IAM-001..008, `data-model.md`; Depends: T011; Verify: `dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-restore` fails for missing IAM behavior.
-- [ ] T013 [P] [US4] [RUNNABLE_NOW] Add failing authorization policy tests for Administrator global access, Engineer Site scope, Operator/Manager/Viewer reads and out-of-scope NOT_FOUND in `tests/Unit/IAM/AuthorizationPolicyTests.cs`; References: US4, FR-028..034, `contracts/iam-authorization.md`; Depends: T011; Verify: unit command fails with each named denial scenario.
-- [ ] T014 [US4] [RUNNABLE_NOW] Capture Phase 1 red evidence, including exact failing assertions, in `specs/002-asset-simulator-latest/checklists/phase-01-red.md`; References: constitution IV; Depends: T012-T013; Verify: evidence includes command, exit code and failures, not a claimed PASS.
-- [ ] T015 [P] [US4] [RUNNABLE_NOW] Implement IAM domain records, status transitions, five-role constants and `AUDIT_READ` capability in `src/Modules/IAM/Domain/IamModel.cs`; References: FR-IAM-001..005, plan P-017; Depends: T003, T010, T014; Verify: IAM domain tests compile and pass.
-- [ ] T016 [P] [US4] [RUNNABLE_NOW] Implement `ICallerContext`, principal resolution, `IAuthorizationDecision` and scope-safe NOT_FOUND policy in `src/Modules/IAM/Application/Authorization.cs`; References: FR-028..034, `contracts/iam-authorization.md`; Depends: T014-T015; Verify: authorization policy tests pass without UI claims acting as authority.
-- [ ] T017 [P] [US1] [RUNNABLE_NOW] Implement `IActiveUserEligibility` for Data Owner Active/scope checks in `src/Modules/IAM/Contracts/EligibilityContracts.cs`; References: FR-DO-001..003, plan synchronous contracts; Depends: T015; Verify: deterministic contract tests in `tests/Unit/IAM/ActiveUserEligibilityTests.cs` pass.
-- [ ] T018 [P] [US4] [RUNNABLE_NOW] Add failing session tests for 256-bit opaque tokens, SHA-256 hash-only storage, multiple sessions, idle/absolute expiry, logout, Disabled user and revoke-all in `tests/Unit/IAM/SessionPolicyTests.cs`; References: plan P-014, IAM Session table; Depends: T011; Verify: unit command fails before session implementation.
-- [ ] T019 [US4] [RUNNABLE_NOW] Implement token generation, hashing, session validation and invalidation policies in `src/Modules/IAM/Application/SessionManager.cs`; References: FR-IAM-001..008, plan P-014; Depends: T003, T010, T018; Verify: T018 tests pass and no raw token is persisted or logged.
-- [ ] T020 [P] [US4] [RUNNABLE_NOW] Add failing login/logout/antiforgery/`/me` contract tests in `tests/Unit/Api/AuthContractTests.cs`; References: `contracts/iam-authorization.md`; Depends: T016 and T018; Verify: unit command records red endpoint-contract evidence.
-- [ ] T021 [US4] [RUNNABLE_NOW] Implement ASP.NET Core PasswordHasher authentication, cookie session, antiforgery and `/api/v1/auth/*` plus `/api/v1/me` endpoints in `src/Api/AuthEndpoints.cs`; References: FR-IAM-001..008, plan P-014/P-018; Depends: T003, T010, T016 and T019-T020; Verify: contract tests pass using installed framework packages only.
-- [ ] T022 [P] [US4] [RUNNABLE_NOW] Configure non-enumerating login errors and framework rate limiting at five failures per 15 seconds in `src/Api/AuthSecurityOptions.cs`; References: IAM contract Session defaults; Depends: T020; Verify: `tests/Unit/Api/AuthSecurityPolicyTests.cs` passes for threshold and redaction.
-- [ ] T023 [P] [US4] [BLOCKED_BY_ENVIRONMENT] Configure pre-provisioned Data Protection directory/DPAPI behavior and explicit blocked readiness in `src/Api/DataProtectionConfiguration.cs`; References: plan P-014, T008; Depends: T008 and T021; Verify: unavailable directory produces BLOCKED_BY_ENVIRONMENT without elevation or key creation in the repository.
-- [ ] T024 [US1] [RUNNABLE_NOW] Implement deterministic bootstrap Administrator and four non-scoped POC user definitions in `src/Modules/IAM/Application/PocIdentityDefinitions.cs`; References: plan P-019, research Bootstrap split; Depends: T015 and T019; Verify: `tests/Unit/IAM/PocIdentityDefinitionTests.cs` proves exactly five users and no pre-Site scope.
-- [ ] T025 [US1] [RUNNABLE_NOW] Implement the idempotent post-Site scope/capability fixture command against an `ISiteScopeTarget` port in `src/Modules/IAM/Application/PostSitePocFixture.cs`; References: FR-IAM-006, `contracts/iam-authorization.md`; Depends: T016 and T024; Verify: deterministic port test rerun produces no duplicate scope/capability assignment, with Phase 3 wiring deferred explicitly to T054.
-- [ ] T026 [US4] [RUNNABLE_NOW] Create ordered IAM migration source `database/migrations/0002_iam_foundation.sql` for accounts, roles, capabilities, scopes and sessions without credentials; References: data model, migration design 0002; Depends: T015-T019; Verify: SQL review confirms owner schema, constraints, indexes and no plaintext secret.
-- [ ] T027 [US4] [REQUIRES_APPROVED_POSTGRESQL] Add IAM PostgreSQL migration/session repository tests in `tests/Integration/IAM/IamPersistenceTests.cs`; References: ADR-003/015, 0002; Depends: T006-T007 and T026; Verify: approved PostgreSQL run proves hashing, uniqueness, revocation and rollback; otherwise record BLOCKED.
-- [ ] T028 [US4] [REQUIRES_APPROVED_POSTGRESQL] Execute 0002 through the approved migration harness and record clean/N-1/rollback evidence in `specs/002-asset-simulator-latest/checklists/migration-0002.md`; References: ADR-015; Depends: T027; Verify: approved PostgreSQL evidence only.
-- [ ] T029 [US4] [RUNNABLE_NOW] Refactor IAM so callers use the public contracts rather than internal types and add dependency checks in `tests/Verification/architecture.tests.ps1`; References: constitution III, ADR-007; Depends: T015-T025; Verify: Fast architecture checks pass.
-- [ ] T030 [US1] [RUNNABLE_NOW] Complete the Phase 1 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-01-iam.md`; References: US1/US4/US5 independent tests; Depends: T014-T029; Verify: unit/contract results, blocked evidence, architecture boundary, Standards/Spec reviews and code-review checkpoint are recorded before Phase 2.
+- [ ] T013 [P] [US4] [RUNNABLE_NOW] Add failing User/Role/Scope/Capability/Session and Active User/Data Owner eligibility tests in `tests/Unit/IAM/IamDomainTests.cs`; References: FR-IAM-001..005, FR-DO-001..003; Depends: T012; Verify: expected FAIL before green and PASS after implementation.
+- [ ] T014 [P] [US4] [RUNNABLE_NOW] Add failing Administrator-global, scoped-role, server-principal, and out-of-scope NOT_FOUND authorization tests in `tests/Unit/IAM/AuthorizationPolicyTests.cs`; References: FR-028..034, FR-IAM-004/005; Depends: T012; Verify: expected FAIL before implementation and PASS after.
+- [ ] T015 [P] [US4] [RUNNABLE_NOW] Add failing authentication rate-limit and non-enumerating-error tests in `tests/Unit/Api/AuthSecurityPolicyTests.cs`; References: IAM contract; Depends: T012; Verify: expected FAIL for five-per-15-second/redaction behavior before green.
+- [ ] T016 [P] [US1] [RUNNABLE_NOW] Add failing deterministic five-user/no-pre-Site-scope and post-Site fixture tests in `tests/Unit/IAM/PocIdentityFixtureTests.cs`; References: FR-IAM-006, P-019; Depends: T012; Verify: expected FAIL before definitions/fixture, later PASS.
+- [ ] T017 [P] [US4] [RUNNABLE_NOW] Add failing session hashing, expiry, Disabled-user invalidation, logout, multiple-session, and revoke-all tests in `tests/Unit/IAM/SessionPolicyTests.cs`; References: P-014, IAM contract; Depends: T012; Verify: expected FAIL before green and no raw token in evidence.
+- [ ] T018 [US4] [RUNNABLE_NOW] Capture Phase 1 red command/exit/assertion evidence in `specs/002-asset-simulator-latest/checklists/phase-01-red.md`; References: constitution test-first principle; Depends: T013,T014,T015,T016,T017; Verify: missing behavior is FAIL evidence, never PASS.
+- [ ] T019 [US4] [RUNNABLE_NOW] Define `IIamCommandRepository` in `src/Modules/IAM/Contracts/IamPersistenceContracts.cs`; References: persistence-adapters contract; Depends: T018; Verify: contract exposes users/roles/scopes/capabilities writes and transaction handle without SQL details, expected PASS/FAIL compile.
+- [ ] T020 [US4] [RUNNABLE_NOW] Define `IIamPrincipalSessionRepository` in `src/Modules/IAM/Contracts/IamSessionContracts.cs`; References: persistence-adapters and IAM contracts; Depends: T018; Verify: lookup/revoke/revoke-all surfaces compile, expected PASS/FAIL.
+- [ ] T021 [P] [US4] [RUNNABLE_NOW] Implement deterministic IAM repository fakes in `tests/Unit/Fakes/FakeIamRepositories.cs`; References: T019-T020; Depends: T019,T020; Verify: fake contract tests pass with deterministic optimistic versions.
+- [ ] T022 [US4] [RUNNABLE_NOW] Implement IAM domain, Active User/Data Owner eligibility, and five-role/capability policy in `src/Modules/IAM/Domain/IamModel.cs`; References: FR-IAM-001..005, FR-DO-001..003, P-017; Depends: T011,T018,T021; Verify: T013 passes, expected PASS/FAIL.
+- [ ] T023 [US4] [RUNNABLE_NOW] Implement server-side caller resolution and authorization decisions in `src/Modules/IAM/Application/Authorization.cs`; References: FR-028..034, FR-IAM-004/005; Depends: T011,T014,T022; Verify: T014 passes with no client claims as authority for PASS or reports FAIL.
+- [ ] T024 [US4] [RUNNABLE_NOW] Implement opaque-token session/authentication policy and revoke-all in `src/Modules/IAM/Application/SessionManager.cs`; References: P-014, IAM contract; Depends: T011,T017,T020,T022; Verify: T017 passes and persisted/logged values exclude raw tokens for PASS or reports FAIL.
+- [ ] T025 [US4] [RUNNABLE_NOW] Implement non-enumerating authentication and framework rate-limit configuration in `src/Api/AuthSecurityOptions.cs`; References: IAM contract; Depends: T011,T015,T024; Verify: T015 passes, expected PASS/FAIL.
+- [ ] T026 [US1] [RUNNABLE_NOW] Implement deterministic POC identity definitions and idempotent post-Site fixture command in `src/Modules/IAM/Application/PocIdentityFixture.cs`; References: FR-IAM-006, P-019; Depends: T011,T016,T019,T022,T023; Verify: T016 passes and no scope references a nonexistent Site for PASS or reports FAIL.
+- [ ] T027 [US4] [RUNNABLE_NOW] Create reviewed migration source `database/migrations/0002_iam_foundation.sql`; References: migration order 0002, data model; Depends: T019,T020,T022,T024; Verify: SQL review covers users/roles/scopes/capabilities/sessions, indexes, no credentials; expected PASS/FAIL.
+- [ ] T028 [US4] [RUNNABLE_NOW] Add PostgreSQL IAM adapter integration-test source in `tests/Integration/IAM/IamRepositoryTests.cs`; References: persistence-adapters contract, 0002; Depends: T019,T020,T027; Verify: test project/source compiles when approved packages exist; source review PASS/FAIL.
+- [ ] T029 [US4] [BLOCKED_BY_PACKAGE_POLICY] Implement the Integration-tested PostgreSQL IAM adapters in `src/Modules/IAM/Infrastructure/PostgresIamRepositories.cs`; References: T019-T020,T028; Depends: T027,T028; Verify: approved locked packages compile and tests can run for PASS/FAIL, otherwise BLOCKED.
+- [ ] T030 [US4] [BLOCKED_BY_PACKAGE_POLICY] Register IAM PostgreSQL adapters in `src/Api/Program.cs` and add required project references in `src/Api/IUMP.Api.csproj`; References: persistence-adapters contract; Depends: T029; Verify: API build and reachability yield PASS/FAIL, otherwise BLOCKED.
+- [ ] T031 [US4] [BLOCKED_BY_DATABASE_ACCESS] Execute 0002 and IAM repository tests against approved PostgreSQL, recording `specs/002-asset-simulator-latest/checklists/migration-0002.md`; References: ADR-003/015; Depends: T027,T028,T029,T030; Verify: uniqueness, session hash lookup, revocation, rollback+outbox PASS/FAIL or exact BLOCKED.
+- [ ] T032 [US4] [RUNNABLE_NOW] Add failing auth/login/logout/antiforgery/`/me` endpoint tests in `tests/Unit/Api/AuthEndpointTests.cs`; References: IAM HTTP contract; Depends: T024,T025; Verify: endpoint group is red before implementation and later PASS.
+- [ ] T033 [US4] [RUNNABLE_NOW] Implement login/logout/antiforgery/`/me` endpoints without command-idempotency registry in `src/Api/AuthEndpoints.cs`; References: P-018, IAM HTTP contract; Depends: T011,T032; Verify: T032 passes and login/logout/query never invoke `ICommandIdempotencyStore` for PASS or reports FAIL.
+- [ ] T034 [US4] [BLOCKED_BY_COMPANY_APPROVAL] Configure approved Data Protection/DPAPI storage in `src/Api/DataProtectionConfiguration.cs`; References: P-014,T005; Depends: T033; Verify: provisioned path behavior PASS/FAIL; absent approval BLOCKED without elevation/key disclosure.
+- [ ] T035 [US4] [RUNNABLE_NOW] Refactor IAM seams and extend ownership checks in `tests/Verification/architecture.tests.ps1`; References: ADR-007, persistence-adapters; Depends: T022,T023,T024,T026,T033; Verify: Fast architecture PASS/FAIL and no consumer writes `iam`.
+- [ ] T036 [US1] [RUNNABLE_NOW] Run Standards and Spec reviews for Phase 1 in `specs/002-asset-simulator-latest/checklists/phase-01-review.md`; References: US1/US4/US5; Depends: T035; Verify: Critical/High count zero for PASS, otherwise FAIL.
+- [ ] T037 [US1] [RUNNABLE_NOW] Record Phase 1 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-01-iam.md`; References: Phase 1 independent test; Depends: T036; Verify: counts PASS/FAIL/BLOCKED by class/NOT_RUN, capability completeness, progression and release blockers; blocked T029-T031/T034 never count PASS.
 
 ## Phase 2: Catalog primitives
 
-**Stories**: US1 Metric/Unit readiness; US2 Simulator Data Source and Source Mapping.
+**Stories**: US1, US2, US4, US5. **Independent test**: Metric/Unit compatibility and Source/Mapping
+lifecycle, authorization, events, seeds, overlap, and deletion policy pass with a deterministic fake.
 
-**Independent test**: Compatible Metric/Unit seeds are idempotent; Source/Mapping lifecycle and
-overlap/delete policies work without activating a Point.
-
-- [ ] T031 [P] [US1] [RUNNABLE_NOW] Add failing Metric, Unit and compatibility domain tests in `tests/Unit/Catalog/MetricUnitTests.cs`; References: FR-CAT-001..004; Depends: T030; Verify: unit command fails for compatibility/status invariants.
-- [ ] T032 [P] [US2] [RUNNABLE_NOW] Add failing Data Source and Source Mapping lifecycle/effective-period tests in `tests/Unit/Catalog/SourceMappingTests.cs`; References: FR-DS-001..004, US2; Depends: T030; Verify: red evidence covers Draft/Active/Inactive/Superseded and half-open periods.
-- [ ] T033 [P] [US2] [RUNNABLE_NOW] Add failing overlap and Draft-unused/dependent-history deletion tests in `tests/Unit/Catalog/MappingConflictTests.cs`; References: plan P-008/P-010; Depends: T030; Verify: overlapping Active periods and dependency deletion fail as specified.
-- [ ] T034 [US1] [RUNNABLE_NOW] Record Phase 2 red evidence in `specs/002-asset-simulator-latest/checklists/phase-02-red.md`; References: constitution IV; Depends: T031-T033; Verify: exact command/exit/failures recorded.
-- [ ] T035 [P] [US1] [RUNNABLE_NOW] Implement Metric, Unit and compatibility domain types in `src/Modules/Catalog/Domain/MetricUnitModel.cs`; References: FR-CAT-001..004, `data-model.md`; Depends: T003, T010, T034; Verify: T031 passes.
-- [ ] T036 [P] [US2] [RUNNABLE_NOW] Implement Data Source lifecycle and safe credential-reference handling in `src/Modules/Catalog/Domain/DataSource.cs`; References: FR-DS-001..004, `contracts/catalog.md`; Depends: T034; Verify: lifecycle tests pass and secrets never appear in audit snapshots.
-- [ ] T037 [US2] [RUNNABLE_NOW] Implement Source Mapping lifecycle, effective-period overlap decision and conditional deletion policy in `src/Modules/Catalog/Domain/SourcePointMapping.cs`; References: plan P-008/P-010; Depends: T035-T036; Verify: T032-T033 pass.
-- [ ] T038 [P] [US1] [RUNNABLE_NOW] Implement idempotent Electric Power/kW and Electrical Energy/kWh definitions in `src/Modules/Catalog/Application/PocCatalogDefinitions.cs`; References: plan P-019, research seed split; Depends: T035; Verify: `tests/Unit/Catalog/PocCatalogDefinitionTests.cs` proves stable IDs and rerun idempotency.
-- [ ] T039 [P] [US1] [RUNNABLE_NOW] Define `IMetricUnitCompatibility` and Catalog query DTOs in `src/Modules/Catalog/Contracts/MetricUnitContracts.cs`; References: plan synchronous contracts; Depends: T035; Verify: contract surface exposes facts, not Catalog internals.
-- [ ] T040 [P] [US2] [RUNNABLE_NOW] Define Source/Mapping snapshot, readiness and dependency ports in `src/Modules/Catalog/Contracts/SourceMappingContracts.cs`; References: `contracts/catalog.md`, ADR-007; Depends: T036-T037; Verify: contract tests use a deterministic Organization adapter.
-- [ ] T041 [US2] [RUNNABLE_NOW] Add authorization and outbox/audit event construction for Source/Mapping changes in `src/Modules/Catalog/Application/SourceMappingCommands.cs`; References: US5, plan asynchronous events; Depends: T016, T037, T040; Verify: `tests/Unit/Catalog/SourceMappingCommandTests.cs` passes scope and redaction cases.
-- [ ] T042 [US1] [RUNNABLE_NOW] Create `database/migrations/0003_catalog_foundation.sql` for Metric, Unit, compatibility and Data Source; References: migration design 0003; Depends: T035-T038; Verify: SQL review confirms Catalog ownership and idempotent seed support.
-- [ ] T043 [US2] [REQUIRES_APPROVED_POSTGRESQL] Add PostgreSQL compatibility, lifecycle and dependency tests in `tests/Integration/Catalog/CatalogPersistenceTests.cs`; References: 0003, ADR-003; Depends: T006-T007 and T042; Verify: approved PostgreSQL only or BLOCKED evidence.
-- [ ] T044 [US2] [RUNNABLE_NOW] Refactor Catalog module depth and verify public-contract-only dependencies in `tests/Verification/architecture.tests.ps1`; References: constitution III, codebase-design; Depends: T035-T041; Verify: Fast architecture check passes.
-- [ ] T045 [US2] [RUNNABLE_NOW] Complete the Phase 2 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-02-catalog.md`; References: US1/US2 independent checkpoint; Depends: T034-T044; Verify: red/green/refactor, architecture boundary, Standards/Spec reviews, code-review checkpoint and DB blocker evidence are recorded before Phase 3.
+- [ ] T038 [P] [US1] [RUNNABLE_NOW] Add failing Metric/Unit/compatibility and deterministic seed tests in `tests/Unit/Catalog/MetricUnitTests.cs`; References: FR-CAT-001..004; Depends: T037; Verify: expected FAIL before green, later PASS.
+- [ ] T039 [P] [US2] [RUNNABLE_NOW] Add failing Source/Mapping lifecycle, overlap, and dependency-delete tests in `tests/Unit/Catalog/SourceMappingTests.cs`; References: FR-DS-001..004, SC-007/008; Depends: T037; Verify: expected FAIL before green, later PASS.
+- [ ] T040 [P] [US4] [RUNNABLE_NOW] Add failing Catalog command authorization and owner-event payload/redaction tests in `tests/Unit/Catalog/CatalogCommandTests.cs`; References: FR-028/031/035/036, Catalog events; Depends: T037; Verify: expected FAIL before commands/events.
+- [ ] T041 [US1] [RUNNABLE_NOW] Capture Phase 2 red evidence in `specs/002-asset-simulator-latest/checklists/phase-02-red.md`; References: test-first; Depends: T038,T039,T040; Verify: expected red FAIL evidence recorded.
+- [ ] T042 [US1] [RUNNABLE_NOW] Define `ICatalogCommandRepository` in `src/Modules/Catalog/Contracts/CatalogPersistenceContracts.cs`; References: persistence-adapters; Depends: T041; Verify: contract covers Metric/Unit/Source/Mapping ownership and compiles for PASS or reports FAIL.
+- [ ] T043 [US1] [RUNNABLE_NOW] Define `ICatalogEligibilityQueryRepository` and public eligibility snapshots in `src/Modules/Catalog/Contracts/CatalogEligibilityContracts.cs`; References: Catalog contract; Depends: T041; Verify: versioned fact surface compiles without leaking internals for PASS or reports FAIL.
+- [ ] T044 [P] [US1] [RUNNABLE_NOW] Implement deterministic Catalog repository fakes in `tests/Unit/Fakes/FakeCatalogRepositories.cs`; References: T042-T043; Depends: T042,T043; Verify: fake tests PASS/FAIL for uniqueness/overlap/dependencies.
+- [ ] T045 [US1] [RUNNABLE_NOW] Implement Metric/Unit/compatibility domain and seed definitions in `src/Modules/Catalog/Domain/MetricUnitModel.cs`; References: FR-CAT-001..004; Depends: T011,T038,T044; Verify: T038 passes for PASS or reports FAIL.
+- [ ] T046 [US2] [RUNNABLE_NOW] Implement Source/Mapping lifecycle, effective-period overlap, and deletion decisions in `src/Modules/Catalog/Domain/SourceMappingModel.cs`; References: FR-DS-001..004, P-008/P-010; Depends: T011,T039,T044,T045; Verify: T039 passes for PASS or reports FAIL.
+- [ ] T047 [US2] [RUNNABLE_NOW] Implement authorized Catalog commands and safe owner events in `src/Modules/Catalog/Application/CatalogCommands.cs`; References: FR-028/031/035/036, P-021; Depends: T011,T040,T042,T043,T046; Verify: T040 passes and payload construction is not claimed as Audit persistence for PASS or reports FAIL.
+- [ ] T048 [US1] [RUNNABLE_NOW] Create reviewed `database/migrations/0003_catalog_foundation.sql`; References: migration order 0003; Depends: T042,T045,T046; Verify: SQL covers Metric/Unit/compatibility/Source ownership and indexes, expected PASS/FAIL.
+- [ ] T049 [US2] [RUNNABLE_NOW] Add Catalog PostgreSQL adapter test source in `tests/Integration/Catalog/CatalogRepositoryTests.cs`; References: persistence-adapters, 0003; Depends: T042,T043,T048; Verify: source review/compile PASS/FAIL when packages available.
+- [ ] T050 [US2] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL Catalog adapters in `src/Modules/Catalog/Infrastructure/PostgresCatalogRepositories.cs`; References: T042-T043,T049; Depends: T048,T049; Verify: approved locked-package build/test PASS/FAIL or BLOCKED.
+- [ ] T051 [US2] [BLOCKED_BY_PACKAGE_POLICY] Register Catalog adapters in `src/Api/Program.cs`, `src/Worker/Program.cs`, `src/Api/IUMP.Api.csproj`, and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T050; Verify: both hosts compile/reach adapters PASS/FAIL or BLOCKED.
+- [ ] T052 [US2] [BLOCKED_BY_DATABASE_ACCESS] Execute 0003 and Catalog PostgreSQL tests, recording `specs/002-asset-simulator-latest/checklists/migration-0003.md`; References: ADR-003/015; Depends: T048,T049,T050,T051; Verify: constraints/overlap/dependency query/rollback+outbox PASS/FAIL or BLOCKED.
+- [ ] T053 [US2] [RUNNABLE_NOW] Extend architecture ownership checks for Catalog in `tests/Verification/architecture.tests.ps1`; References: ADR-007; Depends: T045,T046,T047; Verify: Fast PASS/FAIL and no cross-schema write.
+- [ ] T054 [US2] [RUNNABLE_NOW] Run Phase 2 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-02-review.md`; References: US1/US2; Depends: T053; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T055 [US2] [RUNNABLE_NOW] Record Phase 2 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-02-catalog.md`; References: Phase 2 independent test; Depends: T054; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL.
 
 ## Phase 3: Draft Organization hierarchy
 
-**Story**: US1 hierarchy configuration; US5 lifecycle audit.
+**Stories**: US1, US4, US5. **Independent test**: authorized hierarchy commands and scope-filtered
+queries enforce lifecycle, code, interval, no-cascade, terminal decommission, and post-Site fixture.
 
-**Independent test**: Administrator creates/activates Site and assigns scope; Engineer creates Draft
-Area, Asset and Point and activates valid parents top-down; invalid transitions, duplicates and
-decommission dependencies are rejected without cascade.
+- [ ] T056 [P] [US1] [RUNNABLE_NOW] Add failing hierarchy/lifecycle/code/interval tests in `tests/Unit/Organization/HierarchyDomainTests.cs`; References: FR-001..007, FR-AP-001/002; Depends: T055; Verify: expected FAIL before green.
+- [ ] T057 [P] [US1] [RUNNABLE_NOW] Add failing Asset/Point decommission, no-cascade, terminal-state tests in `tests/Unit/Organization/DecommissionTests.cs`; References: FR-DC-001..005, SC-009; Depends: T055; Verify: expected FAIL before green.
+- [ ] T058 [P] [US4] [RUNNABLE_NOW] Add failing hierarchy command authorization and owner-event tests in `tests/Unit/Organization/HierarchyCommandTests.cs`; References: FR-028..034, FR-035; Depends: T055; Verify: expected FAIL before commands/events.
+- [ ] T059 [P] [US4] [RUNNABLE_NOW] Add failing scope-filtered hierarchy query tests in `tests/Unit/Organization/HierarchyQueryTests.cs`; References: FR-029..034, SC-005; Depends: T055; Verify: expected FAIL and no out-of-scope counts/data.
+- [ ] T060 [P] [US1] [RUNNABLE_NOW] Add failing post-Site scope/capability fixture wiring tests in `tests/Unit/Organization/PostSiteFixtureTests.cs`; References: FR-IAM-006, P-019; Depends: T055; Verify: expected FAIL before wiring.
+- [ ] T061 [US1] [RUNNABLE_NOW] Capture Phase 3 red evidence in `specs/002-asset-simulator-latest/checklists/phase-03-red.md`; References: test-first; Depends: T056,T057,T058,T059,T060; Verify: red FAIL evidence recorded.
+- [ ] T062 [US1] [RUNNABLE_NOW] Define `IOrganizationCommandRepository` in `src/Modules/Organization/Contracts/OrganizationPersistenceContracts.cs`; References: persistence-adapters; Depends: T061; Verify: Site/Area/Asset/Point/history/locking surface compiles for PASS or reports FAIL.
+- [ ] T063 [US1] [RUNNABLE_NOW] Define `IOrganizationQueryRepository` and eligibility snapshots in `src/Modules/Organization/Contracts/OrganizationQueryContracts.cs`; References: Organization contract; Depends: T061; Verify: scope/filter/version surface compiles for PASS or reports FAIL.
+- [ ] T064 [P] [US1] [RUNNABLE_NOW] Implement deterministic Organization repository fakes in `tests/Unit/Fakes/FakeOrganizationRepositories.cs`; References: T062-T063; Depends: T062,T063; Verify: deterministic hierarchy/lock tests PASS/FAIL.
+- [ ] T065 [US1] [RUNNABLE_NOW] Implement hierarchy aggregates, lifecycle, code/interval rules in `src/Modules/Organization/Domain/Hierarchy.cs`; References: FR-001..007, FR-AP-001/002; Depends: T011,T056,T064; Verify: T056 passes for PASS or reports FAIL.
+- [ ] T066 [US1] [RUNNABLE_NOW] Implement terminal decommission and no-cascade decisions in `src/Modules/Organization/Domain/DecommissionPolicy.cs`; References: FR-DC-001..005; Depends: T011,T057,T065; Verify: T057 passes for PASS or reports FAIL.
+- [ ] T067 [US1] [RUNNABLE_NOW] Implement authorized hierarchy commands and versioned owner events in `src/Modules/Organization/Application/HierarchyCommands.cs`; References: FR-028/031/035, P-021; Depends: T011,T058,T062,T063,T065,T066; Verify: T058 passes for PASS or reports FAIL.
+- [ ] T068 [US4] [RUNNABLE_NOW] Implement scope-filtered hierarchy queries in `src/Modules/Organization/Application/HierarchyQueries.cs`; References: FR-029..034; Depends: T011,T059,T063,T065; Verify: T059 passes with filtering before paging for PASS or reports FAIL.
+- [ ] T069 [US1] [RUNNABLE_NOW] Wire the IAM post-Site fixture application service through Organization public contracts in `src/Modules/IAM/Application/PostSiteFixtureOrganizationAdapter.cs`; References: FR-IAM-006,P-019; Depends: T011,T026,T060,T063,T067; Verify: T060 passes and no HTTP endpoint or direct cross-schema SQL is introduced before Phase 9 for PASS or reports FAIL.
+- [ ] T070 [US1] [RUNNABLE_NOW] Create reviewed `database/migrations/0004_organization_hierarchy.sql`; References: migration order 0004; Depends: T062,T063,T065,T066; Verify: hierarchy/history/index SQL review PASS/FAIL.
+- [ ] T071 [US1] [RUNNABLE_NOW] Add Organization PostgreSQL adapter test source in `tests/Integration/Organization/OrganizationRepositoryTests.cs`; References: persistence-adapters,0004; Depends: T062,T063,T070; Verify: source review/compile PASS/FAIL when packages exist.
+- [ ] T072 [US1] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL Organization adapters in `src/Modules/Organization/Infrastructure/PostgresOrganizationRepositories.cs`; References: T062-T063,T071; Depends: T070,T071; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T073 [US1] [BLOCKED_BY_PACKAGE_POLICY] Register Organization adapters in `src/Api/Program.cs`, `src/Worker/Program.cs`, `src/Api/IUMP.Api.csproj`, and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T072; Verify: host build/reachability PASS/FAIL or BLOCKED.
+- [ ] T074 [US1] [BLOCKED_BY_DATABASE_ACCESS] Execute 0004 and Organization PostgreSQL tests, recording `specs/002-asset-simulator-latest/checklists/migration-0004.md`; References: ADR-003/015; Depends: T070,T071,T072,T073; Verify: uniqueness, locks, concurrent decommission, rollback+outbox PASS/FAIL or BLOCKED.
+- [ ] T075 [US1] [RUNNABLE_NOW] Extend Organization ownership checks in `tests/Verification/architecture.tests.ps1`; References: ADR-007; Depends: T065,T066,T067,T068,T069; Verify: Fast PASS/FAIL and provider-only writes.
+- [ ] T076 [US1] [RUNNABLE_NOW] Run Phase 3 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-03-review.md`; References: US1/US4/US5; Depends: T075; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T077 [US1] [RUNNABLE_NOW] Record Phase 3 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-03-organization.md`; References: SC-001/005/009; Depends: T076; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL.
 
-- [ ] T046 [P] [US1] [RUNNABLE_NOW] Add failing Site/Area/Asset/Measurement Point creation, code-scope and Draft-child tests in `tests/Unit/Organization/HierarchyDomainTests.cs`; References: FR-001..007; Depends: T045; Verify: unit command fails for missing hierarchy model.
-- [ ] T047 [P] [US1] [RUNNABLE_NOW] Add failing lifecycle matrix tests for every valid/invalid activation, inactivation and terminal decommission transition in `tests/Unit/Organization/LifecycleTests.cs`; References: FR-001..007, FR-DC-001..005; Depends: T045; Verify: red output names every transition.
-- [ ] T048 [P] [US1] [RUNNABLE_NOW] Add failing interval, Data Owner reference and Point-code non-reuse tests in `tests/Unit/Organization/MeasurementPointTests.cs`; References: FR-004..007, FR-AP-001..005, FR-DO-001..003; Depends: T045; Verify: red output covers `expected_interval_seconds`, `no_data_after_seconds` and owner requirements.
-- [ ] T049 [P] [US1] [RUNNABLE_NOW] Add failing Asset Active-child decommission/no-cascade tests in `tests/Unit/Organization/DecommissionTests.cs`; References: SC-009, plan P-009; Depends: T045; Verify: red evidence proves atomic `ACTIVE_CHILD_POINT`.
-- [ ] T050 [US1] [RUNNABLE_NOW] Record Phase 3 red evidence in `specs/002-asset-simulator-latest/checklists/phase-03-red.md`; References: constitution IV; Depends: T046-T049; Verify: exact failing command and assertions recorded.
-- [ ] T051 [P] [US1] [RUNNABLE_NOW] Implement Site, Area, Asset and Measurement Point aggregates/value objects in `src/Modules/Organization/Domain/Hierarchy.cs`; References: FR-001..007, `data-model.md`; Depends: T003, T010, T050; Verify: T046 and T048 pass.
-- [ ] T052 [US1] [RUNNABLE_NOW] Implement lifecycle state machines, top-down activation, terminal decommission and no-cascade child guard in `src/Modules/Organization/Domain/LifecyclePolicy.cs`; References: FR-DC-001..005, plan P-009; Depends: T051; Verify: T047 and T049 pass.
-- [ ] T053 [P] [US1] [RUNNABLE_NOW] Define hierarchy, Point eligibility and decommission dependency contracts in `src/Modules/Organization/Contracts/OrganizationContracts.cs`; References: plan synchronous contracts; Depends: T051-T052; Verify: interface exposes versioned snapshots and specific failure codes.
-- [ ] T054 [US1] [RUNNABLE_NOW] Implement Administrator root-Site and scoped Engineer hierarchy commands with optimistic concurrency in `src/Modules/Organization/Application/HierarchyCommands.cs`; References: US1, FR-028..034; Depends: T016, T051-T053; Verify: `tests/Unit/Organization/HierarchyCommandTests.cs` passes role/scope/version cases.
-- [ ] T055 [P] [US1] [RUNNABLE_NOW] Implement scope-filtered hierarchy queries in `src/Modules/Organization/Application/HierarchyQueries.cs`; References: US1/US4; Depends: T016, T051; Verify: out-of-scope lookup is indistinguishable NOT_FOUND.
-- [ ] T056 [P] [US5] [RUNNABLE_NOW] Implement lifecycle-history and immutable Organization event payloads in `src/Modules/Organization/Application/OrganizationEvents.cs`; References: FR-035..039, US5; Depends: T051-T054; Verify: before/after snapshots omit secrets and retain actor/correlation.
-- [ ] T057 [US1] [RUNNABLE_NOW] Create `database/migrations/0004_organization_hierarchy.sql` for hierarchy, Point and lifecycle-history constraints/indexes; References: migration design 0004; Depends: T051-T056; Verify: SQL review proves scoped uniqueness and Point code non-reuse.
-- [ ] T058 [US1] [REQUIRES_APPROVED_POSTGRESQL] Add Organization PostgreSQL uniqueness/concurrency/lifecycle tests in `tests/Integration/Organization/OrganizationPersistenceTests.cs`; References: 0004; Depends: T006-T007 and T057; Verify: approved PostgreSQL transaction evidence or BLOCKED.
-- [ ] T059 [US1] [RUNNABLE_NOW] Refactor Organization commands behind public contracts and extend module-boundary checks in `tests/Verification/architecture.tests.ps1`; References: ADR-007; Depends: T051-T056; Verify: Fast architecture check passes.
-- [ ] T060 [US1] [RUNNABLE_NOW] Complete the Phase 3 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-03-organization.md`; References: US1 independent test, SC-009; Depends: T050-T059; Verify: domain/application checks, architecture boundary, Standards/Spec reviews, code-review checkpoint and DB blocker evidence are recorded before Phase 4.
+## Phase 4: Simulator configuration and Mapping readiness
 
-## Phase 4: Simulator configuration and Mapping
+**Stories**: US1, US2, US5. **Independent test**: immutable configuration versions and Mapping
+readiness support a Draft non-producing Point and emit safe owner events.
 
-**Story**: US2 configuration; US1 Point prerequisites; US5 audit.
+- [ ] T078 [P] [US2] [RUNNABLE_NOW] Add failing immutable configuration/head/version tests in `tests/Unit/Acquisition/ConfigurationTests.cs`; References: FR-008,P-011; Depends: T077; Verify: expected FAIL before green.
+- [ ] T079 [P] [US2] [RUNNABLE_NOW] Add failing configuration command authorization/event tests in `tests/Unit/Acquisition/ConfigurationCommandTests.cs`; References: FR-028/031/037/038, P-021; Depends: T077; Verify: expected FAIL before green.
+- [ ] T080 [P] [US2] [RUNNABLE_NOW] Add failing Mapping readiness/real Organization adapter tests in `tests/Unit/Catalog/MappingReadinessTests.cs`; References: FR-014..016, SC-007; Depends: T077; Verify: expected FAIL before integration.
+- [ ] T081 [US2] [RUNNABLE_NOW] Capture Phase 4 red evidence in `specs/002-asset-simulator-latest/checklists/phase-04-red.md`; References: test-first; Depends: T078,T079,T080; Verify: expected red FAIL evidence.
+- [ ] T082 [US2] [RUNNABLE_NOW] Define Acquisition configuration repository port in `src/Modules/Acquisition/Contracts/ConfigurationPersistenceContracts.cs`; References: persistence-adapters; Depends: T081; Verify: immutable head/version surface compiles for PASS or reports FAIL.
+- [ ] T083 [US2] [RUNNABLE_NOW] Implement deterministic configuration repository fake in `tests/Unit/Fakes/FakeAcquisitionConfigurationRepository.cs`; References: T082; Depends: T082; Verify: deterministic version tests PASS/FAIL.
+- [ ] T084 [US2] [RUNNABLE_NOW] Implement immutable configuration domain/application commands and owner events in `src/Modules/Acquisition/Application/SimulatorConfiguration.cs`; References: FR-008,P-011,P-021; Depends: T011,T078,T079,T083; Verify: T078-T079 pass.
+- [ ] T085 [US2] [RUNNABLE_NOW] Implement real Organization readiness adapter for Catalog Mapping activation in `src/Modules/Catalog/Application/OrganizationPointReadinessAdapter.cs`; References: Catalog contract; Depends: T011,T063,T080; Verify: T080 passes and Draft Mapping remains non-producing for PASS or reports FAIL.
+- [ ] T086 [US2] [RUNNABLE_NOW] Create reviewed `database/migrations/0005_acquisition_configuration.sql`; References: migration order 0005; Depends: T082,T084; Verify: immutable version constraints/indexes review PASS/FAIL.
+- [ ] T087 [US2] [RUNNABLE_NOW] Create reviewed `database/migrations/0006_catalog_source_mapping.sql`; References: migration order 0006; Depends: T046,T070,T085; Verify: half-open overlap/exclusion and dependency order review PASS/FAIL.
+- [ ] T088 [US2] [RUNNABLE_NOW] Add configuration PostgreSQL adapter test source in `tests/Integration/Acquisition/ConfigurationRepositoryTests.cs`; References: persistence-adapters,0005; Depends: T082,T086; Verify: source review/compile PASS/FAIL.
+- [ ] T089 [US2] [BLOCKED_BY_PACKAGE_POLICY] Implement/register PostgreSQL configuration adapter in `src/Modules/Acquisition/Infrastructure/PostgresConfigurationRepository.cs`, `src/Api/Program.cs`, and `src/Api/IUMP.Api.csproj`; References: T082,T088; Depends: T086,T088; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T090 [US2] [BLOCKED_BY_DATABASE_ACCESS] Execute 0005/0006 and configuration/Mapping readiness tests, recording `specs/002-asset-simulator-latest/checklists/migrations-0005-0006.md`; References: ADR-015; Depends: T086,T087,T088,T089,T052,T074; Verify: clean/order/immutability/SC-007 PASS/FAIL or BLOCKED.
+- [ ] T091 [US2] [RUNNABLE_NOW] Extend Acquisition/Catalog readiness ownership checks in `tests/Verification/architecture.tests.ps1`; References: ADR-007; Depends: T084,T085; Verify: Fast PASS/FAIL.
+- [ ] T092 [US2] [RUNNABLE_NOW] Run Phase 4 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-04-review.md`; References: US1/US2/US5; Depends: T091; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T093 [US2] [RUNNABLE_NOW] Record Phase 4 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-04-configuration.md`; References: Phase 4 independent test; Depends: T092; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL.
 
-**Independent test**: Create immutable Constant/Normal configuration and one effective Active
-Mapping for a Draft Point; it is configuration-ready but produces nothing.
+## Phase 5: Point activation and shared transaction
 
-- [ ] T061 [P] [US2] [RUNNABLE_NOW] Add failing configuration-head/version and Constant/Normal validation tests in `tests/Unit/Acquisition/SimulatorConfigurationTests.cs`; References: FR-008..016, plan P-011/P-012; Depends: T060; Verify: unit command fails before configuration implementation.
-- [ ] T062 [P] [US2] [RUNNABLE_NOW] Add failing Draft-Point Mapping/readiness and overlap contract tests in `tests/Unit/Catalog/SimulatorMappingTests.cs`; References: plan P-004/P-010; Depends: T060; Verify: red output proves Active Mapping does not imply production.
-- [ ] T063 [US2] [RUNNABLE_NOW] Record Phase 4 red evidence in `specs/002-asset-simulator-latest/checklists/phase-04-red.md`; References: constitution IV; Depends: T061-T062; Verify: exact failures recorded.
-- [ ] T064 [P] [US2] [RUNNABLE_NOW] Implement Simulator configuration aggregate head and immutable versions in `src/Modules/Acquisition/Domain/SimulatorConfiguration.cs`; References: plan P-011; Depends: T003, T010, T063; Verify: T061 version tests pass.
-- [ ] T065 [P] [US2] [RUNNABLE_NOW] Implement Constant/Normal parameter and algorithm-identity validation without generation in `src/Modules/Acquisition/Domain/SimulatorConfigurationPolicy.cs`; References: `contracts/simulator.md`; Depends: T064; Verify: validation tests pass and no Worker production code exists in this phase.
-- [ ] T066 [US2] [RUNNABLE_NOW] Implement Catalog-to-Organization readiness adapter and Draft-Point Mapping commands in `src/Modules/Catalog/Application/SimulatorMappingCommands.cs`; References: plan P-004/P-010, ADR-007; Depends: T040, T053, T062; Verify: deterministic adapter tests pass.
-- [ ] T067 [P] [US2] [RUNNABLE_NOW] Define configuration/version and Simulator Mapping API contracts in `src/Modules/Acquisition/Contracts/SimulatorConfigurationContracts.cs`; References: `contracts/simulator.md`, `contracts/catalog.md`; Depends: T064-T066; Verify: contract snapshots include configuration and Mapping versions.
-- [ ] T068 [P] [US5] [RUNNABLE_NOW] Add configuration/Mapping event and audit payload construction in `src/Modules/Acquisition/Application/SimulatorConfigurationEvents.cs`; References: US5, FR-035..039; Depends: T064-T067; Verify: unit tests prove immutable version/actor/correlation snapshots.
-- [ ] T069 [US2] [RUNNABLE_NOW] Create `database/migrations/0005_acquisition_configuration.sql` for head/immutable versions; References: migration design 0005; Depends: T064-T065; Verify: SQL review forbids update/delete of referenced versions.
-- [ ] T070 [US2] [RUNNABLE_NOW] Create `database/migrations/0006_catalog_source_mapping.sql` for effective periods and overlap protection after Point exists; References: migration design 0006; Depends: T057 and T066; Verify: ordered-source review confirms Catalog ownership and no premature Point FK creation.
-- [ ] T071 [US2] [REQUIRES_APPROVED_POSTGRESQL] Add PostgreSQL configuration immutability and Mapping exclusion/unique-race tests in `tests/Integration/Acquisition/ConfigurationMappingPersistenceTests.cs`; References: 0005/0006; Depends: T006-T007, T069-T070; Verify: approved PostgreSQL only or BLOCKED.
-- [ ] T072 [US2] [RUNNABLE_NOW] Refactor configuration and Mapping seams and verify no Acquisition ownership of Mapping in `tests/Verification/architecture.tests.ps1`; References: ADR-007, research Catalog ownership; Depends: T064-T068; Verify: Fast architecture check passes.
-- [ ] T073 [US2] [RUNNABLE_NOW] Complete the Phase 4 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-04-configuration-mapping.md`; References: US2 independent test; Depends: T063-T072; Verify: red/green/refactor, architecture boundary, Standards/Spec reviews, code-review checkpoint and DB blocker evidence are recorded before Phase 5.
+**Stories**: US1, US4, US5. **Independent test**: Point activation validates IAM, Organization, and
+Catalog facts inside the global lock order and atomically stages an owner event/outbox write.
 
-## Phase 5: Measurement Point activation
+- [ ] T094 [P] [US1] [RUNNABLE_NOW] Add failing Point activation prerequisite/error tests in `tests/Unit/Organization/PointActivationTests.cs`; References: FR-005,FR-AP-003..005,FR-DO-001..003; Depends: T093; Verify: expected FAIL before green.
+- [ ] T095 [P] [US1] [RUNNABLE_NOW] Add failing global lock-order/host-transaction/rollback tests in `tests/Unit/Organization/PointActivationTransactionTests.cs`; References: P-016; Depends: T093; Verify: expected FAIL before coordinator.
+- [ ] T096 [P] [US5] [RUNNABLE_NOW] Add failing owner-event envelope/correlation/causation tests in `tests/Unit/Integration/OwnerEventEnvelopeTests.cs`; References: P-021, Integration contract; Depends: T093; Verify: expected FAIL before envelope/outbox port.
+- [ ] T097 [US1] [RUNNABLE_NOW] Capture Phase 5 red evidence in `specs/002-asset-simulator-latest/checklists/phase-05-red.md`; References: test-first; Depends: T094,T095,T096; Verify: expected FAIL evidence.
+- [ ] T098 [US5] [RUNNABLE_NOW] Define event envelope and `ITransactionalOutboxWriter` in `src/Modules/Integration/Contracts/OutboxContracts.cs`; References: Integration contract; Depends: T097; Verify: versioned envelope/transaction port compiles for PASS or reports FAIL.
+- [ ] T099 [US5] [RUNNABLE_NOW] Implement deterministic transactional outbox fake in `tests/Unit/Fakes/FakeTransactionalOutboxWriter.cs`; References: T098; Depends: T098; Verify: rollback/one-event tests PASS/FAIL.
+- [ ] T100 [US1] [RUNNABLE_NOW] Implement host transaction coordinator and global lock-order contract in `src/BuildingBlocks/Persistence/HostTransactionCoordinator.cs`; References: P-016; Depends: T011,T095,T099; Verify: T095 passes with Integration last for PASS or reports FAIL.
+- [ ] T101 [US1] [RUNNABLE_NOW] Implement Point activation orchestration in `src/Modules/Organization/Application/ActivateMeasurementPoint.cs`; References: FR-005,FR-AP-003..005,FR-DO-001..003; Depends: T011,T094,T100,T022,T043,T063; Verify: T094 passes with specific failures for PASS or reports FAIL.
+- [ ] T102 [US5] [RUNNABLE_NOW] Implement safe owner-event envelope creation for activation in `src/Modules/Organization/Application/OrganizationEvents.cs`; References: FR-035/038,P-021; Depends: T011,T096,T098,T101; Verify: T096 passes and event construction is not Audit completion for PASS or reports FAIL.
+- [ ] T103 [US1] [RUNNABLE_NOW] Add PostgreSQL Point activation transaction-test source in `tests/Integration/Organization/PointActivationTransactionTests.cs`; References: P-016; Depends: T100,T101,T102; Verify: test source review/compile PASS/FAIL.
+- [ ] T104 [US1] [BLOCKED_BY_DATABASE_ACCESS] Execute Point activation concurrency/rollback/outbox tests on approved PostgreSQL and record `specs/002-asset-simulator-latest/checklists/phase-05-postgresql.md`; References: P-016; Depends: T103,T029,T050,T072; Verify: one atomic commit and lock order PASS/FAIL or BLOCKED.
+- [ ] T105 [US1] [RUNNABLE_NOW] Extend host transaction/ownership checks in `tests/Verification/architecture.tests.ps1`; References: P-022,ADR-007; Depends: T100,T101,T102; Verify: Fast PASS/FAIL and Integration last/no cross-schema SQL.
+- [ ] T106 [US1] [RUNNABLE_NOW] Run Phase 5 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-05-review.md`; References: US1/US4/US5; Depends: T105; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T107 [US1] [RUNNABLE_NOW] Record Phase 5 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-05-activation.md`; References: Phase 5 independent test; Depends: T106; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL; T104 remains non-passing when BLOCKED.
 
-**Story**: US1 top-down activation.
+## Phase 6: Simulator Run and Worker production
 
-**Independent test**: Activation succeeds only after IAM -> Organization -> Catalog checks in one
-REPEATABLE READ transaction; each prerequisite failure rolls back with its specific code.
+**Stories**: US2, US5. **Independent test**: literal generator vectors, Run controls, pinned state,
+leases, existing-Pending-first dispatch, and attempt reservation/finalization are deterministic.
 
-- [ ] T074 [P] [US1] [RUNNABLE_NOW] Add failing Point-activation application tests for owner, ancestors, intervals, Metric/Unit and exactly-one Mapping in `tests/Unit/Organization/PointActivationTests.cs`; References: FR-AP-001..005, FR-DO-001..003; Depends: T073; Verify: unit command fails for every prerequisite.
-- [ ] T075 [P] [US1] [REQUIRES_APPROVED_POSTGRESQL] Add failing concurrent activation, owner-version mismatch and rollback tests in `tests/Integration/Organization/PointActivationTransactionTests.cs`; References: plan P-016, `contracts/README.md`; Depends: T006-T007 and T073; Verify: approved PostgreSQL red evidence or BLOCKED.
-- [ ] T076 [US1] [RUNNABLE_NOW] Record runnable and blocked Phase 5 red evidence in `specs/002-asset-simulator-latest/checklists/phase-05-red.md`; References: constitution IV; Depends: T074-T075; Verify: domain failures and PostgreSQL blocker are distinguished.
-- [ ] T077 [US1] [RUNNABLE_NOW] Implement Point activation orchestration with provider-owned IAM/Organization/Catalog adapters in `src/Modules/Organization/Application/ActivateMeasurementPoint.cs`; References: FR-AP-001..005, plan P-016; Depends: T003, T010, T017, T039-T040, T053 and T076; Verify: T074 passes.
-- [ ] T078 [US1] [BLOCKED_BY_PACKAGE_POLICY] Implement the host-coordinated REPEATABLE READ unit-of-work adapter in `src/BuildingBlocks/Persistence/PostgresUnitOfWork.cs`; References: `contracts/README.md`; Depends: T007, T077; Verify: builds only with approved locked PostgreSQL provider.
-- [ ] T079 [US1] [REQUIRES_APPROVED_POSTGRESQL] Implement and verify `SELECT FOR UPDATE` order IAM -> Organization -> Catalog -> Integration plus bounded conflict retries in `tests/Integration/Organization/PointActivationTransactionTests.cs`; References: plan P-016; Depends: T075, T078; Verify: concurrent PostgreSQL tests prove order, rollback and `TRANSIENT_DATABASE_CONFLICT`.
-- [ ] T080 [US1] [RUNNABLE_NOW] Implement specific activation prerequisite errors and owner-version rollback mapping in `src/Modules/Organization/Application/PointActivationErrors.cs`; References: quickstart step 15, P-016; Depends: T077; Verify: T074 asserts each safe error code.
-- [ ] T081 [P] [US5] [RUNNABLE_NOW] Implement atomic Point-activated outbox event construction in `src/Modules/Organization/Application/PointActivationEvents.cs`; References: FR-035..039, ADR-005; Depends: T077; Verify: unit test proves event created only for successful activation.
-- [ ] T082 [US1] [RUNNABLE_NOW] Refactor activation orchestration to keep provider facts behind contracts and extend lock-order architecture checks in `tests/Verification/architecture.tests.ps1`; References: constitution III; Depends: T077-T081; Verify: Fast architecture check passes.
-- [ ] T083 [US1] [RUNNABLE_NOW] Complete the Phase 5 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-05-point-activation.md`; References: US1 independent activation test; Depends: T076-T082; Verify: positive/negative/concurrent evidence, architecture boundary, Standards/Spec reviews, code-review checkpoint and blockers are recorded before Phase 6.
+- [ ] T108 [P] [US2] [RUNNABLE_NOW] Add failing literal Constant/Normal/restart vector tests in `tests/Unit/Acquisition/DeterministicGeneratorVectorTests.cs`; References: P-012, simulator contract; Depends: T107; Verify: expected FAIL using literal outputs/state only.
+- [ ] T109 [P] [US2] [RUNNABLE_NOW] Add failing Measurement UUIDv5 identity/canonical tuple tests in `tests/Unit/Acquisition/MeasurementIdentityTests.cs`; References: P-013,FR-017/018; Depends: T107; Verify: expected FAIL before identity implementation.
+- [ ] T110 [P] [US2] [RUNNABLE_NOW] Add failing Run control/pinned Run-Point/restart tests in `tests/Unit/Acquisition/RunControlTests.cs`; References: FR-009/010/012/013,P-007; Depends: T107; Verify: expected FAIL before green.
+- [ ] T111 [P] [US2] [RUNNABLE_NOW] Add failing existing-Pending-first Worker dispatch tests in `tests/Unit/Worker/ProductionDispatchTests.cs`; References: P-015; Depends: T107; Verify: expected FAIL proving generator/cursor/counter untouched on retry.
+- [ ] T112 [P] [US2] [RUNNABLE_NOW] Add failing production-attempt reserve/finalize/idempotent-counter tests in `tests/Unit/Acquisition/ProductionAttemptTests.cs`; References: P-015, telemetry finalization contract; Depends: T107; Verify: expected FAIL before green.
+- [ ] T113 [P] [US5] [RUNNABLE_NOW] Add failing Run/configuration owner-event tests in `tests/Unit/Acquisition/AcquisitionEventTests.cs`; References: FR-037/038,P-021; Depends: T107; Verify: expected FAIL before event implementation.
+- [ ] T114 [US2] [RUNNABLE_NOW] Capture Phase 6 red evidence in `specs/002-asset-simulator-latest/checklists/phase-06-red.md`; References: test-first; Depends: T108,T109,T110,T111,T112,T113; Verify: expected red FAIL evidence.
+- [ ] T115 [US2] [RUNNABLE_NOW] Define `IAcquisitionRunRepository` in `src/Modules/Acquisition/Contracts/RunPersistenceContracts.cs`; References: persistence-adapters; Depends: T114; Verify: Run/Run-Point/lease contract compiles for PASS or reports FAIL.
+- [ ] T116 [US2] [RUNNABLE_NOW] Define `ISimulatorProductionAttemptRepository` in `src/Modules/Acquisition/Contracts/ProductionAttemptContracts.cs`; References: persistence-adapters; Depends: T114; Verify: Pending/load/finalize contract compiles for PASS or reports FAIL.
+- [ ] T117 [P] [US2] [RUNNABLE_NOW] Implement deterministic Acquisition Run/attempt fakes in `tests/Unit/Fakes/FakeAcquisitionRunRepositories.cs`; References: T115-T116; Depends: T115,T116; Verify: lease/reserve/finalize fake tests PASS/FAIL.
+- [ ] T118 [US2] [RUNNABLE_NOW] Implement IUMP-DETERMINISTIC-V1 and state serialization in `src/Modules/Acquisition/Domain/DeterministicGenerator.cs`; References: P-012; Depends: T011,T108; Verify: T108 passes exactly for PASS or reports FAIL.
+- [ ] T119 [US2] [RUNNABLE_NOW] Implement stable Measurement identity derivation in `src/Modules/Acquisition/Domain/MeasurementIdentity.cs`; References: P-013,FR-017/018; Depends: T011,T109; Verify: T109 passes for PASS or reports FAIL.
+- [ ] T120 [US2] [RUNNABLE_NOW] Implement Run controls, pinned Run-Point state, and owner events in `src/Modules/Acquisition/Application/RunCommands.cs`; References: FR-009/010/012/013,P-007,P-021; Depends: T011,T110,T113,T115,T117,T118,T119; Verify: T110/T113 pass.
+- [ ] T121 [US2] [RUNNABLE_NOW] Implement production-attempt reservation/finalization service in `src/Modules/Acquisition/Application/ProductionAttemptService.cs`; References: P-015; Depends: T011,T112,T116,T117,T120; Verify: T112 passes with one final counter for PASS or reports FAIL.
+- [ ] T122 [US2] [RUNNABLE_NOW] Implement existing-Pending-first Worker production loop in `src/Worker/SimulatorProductionWorker.cs`; References: P-015; Depends: T011,T111,T121; Verify: T111 passes for PASS or reports FAIL.
+- [ ] T123 [US2] [RUNNABLE_NOW] Create reviewed `database/migrations/0007_acquisition_run.sql`; References: migration order 0007; Depends: T115,T116,T120,T121; Verify: Run/state/attempt/lease/unique identity SQL review PASS/FAIL.
+- [ ] T124 [US2] [RUNNABLE_NOW] Add Acquisition PostgreSQL adapter test source in `tests/Integration/Acquisition/RunAttemptRepositoryTests.cs`; References: persistence-adapters,0007; Depends: T115,T116,T123; Verify: source review/compile PASS/FAIL.
+- [ ] T125 [US2] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL Run/attempt adapters in `src/Modules/Acquisition/Infrastructure/PostgresRunRepositories.cs`; References: T115-T116,T124; Depends: T123,T124; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T126 [US2] [BLOCKED_BY_PACKAGE_POLICY] Register Acquisition adapters/Worker services in `src/Api/Program.cs`, `src/Worker/Program.cs`, `src/Api/IUMP.Api.csproj`, and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T089,T125,T122; Verify: both hosts build/reach services PASS/FAIL or BLOCKED.
+- [ ] T127 [US2] [BLOCKED_BY_DATABASE_ACCESS] Execute 0007 and Run/attempt transaction/concurrency tests, recording `specs/002-asset-simulator-latest/checklists/migration-0007.md`; References: ADR-015; Depends: T123,T124,T125,T126; Verify: unique slot, lease reclaim, cursor/PRNG/counter atomicity PASS/FAIL or BLOCKED.
+- [ ] T128 [US2] [RUNNABLE_NOW] Extend Acquisition/Worker ownership checks in `tests/Verification/architecture.tests.ps1`; References: P-022; Depends: T118,T119,T120,T121,T122; Verify: Fast PASS/FAIL.
+- [ ] T129 [US2] [RUNNABLE_NOW] Run Phase 6 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-06-review.md`; References: US2/US5; Depends: T128; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T130 [US2] [RUNNABLE_NOW] Record Phase 6 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-06-simulator.md`; References: Phase 6 independent test; Depends: T129; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL.
 
-## Phase 6: Simulator Run and Worker
+## Phase 7: Canonical Telemetry ingestion
 
-**Story**: US2 Simulator operation; US5 control audit.
+**Stories**: US2, US3, US5. **Independent test**: trusted canonical ingestion commits stable
+Accepted/Rejected terminal results, exact Duplicate replay, raw Accepted data, and attempt
+finalization without identity confusion.
 
-**Independent test**: Literal vectors pass before Worker connection; Start/Pause/Resume/Stop,
-zero-based sequence, durable attempt reservation and both crash-recovery points behave exactly as
-`contracts/simulator.md`.
+- [ ] T131 [P] [US2] [RUNNABLE_NOW] Add failing terminal registry/fingerprint/exact replay tests in `tests/Unit/Telemetry/MeasurementIdentityRegistryTests.cs`; References: FR-017/018,P-015A; Depends: T130; Verify: expected FAIL before green.
+- [ ] T132 [P] [US2] [RUNNABLE_NOW] Add failing Telemetry ingestion orchestration/validation/quality tests in `tests/Unit/Telemetry/IngestionOrchestrationTests.cs`; References: FR-019..021; Depends: T130; Verify: expected FAIL before orchestration.
+- [ ] T133 [P] [US2] [RUNNABLE_NOW] Add failing Accepted+raw, Rejected-without-raw, and transaction/outbox tests in `tests/Unit/Telemetry/IngestionPersistenceContractTests.cs`; References: P-015A; Depends: T130; Verify: expected FAIL before repository orchestration.
+- [ ] T134 [P] [US2] [RUNNABLE_NOW] Add failing Acquisition finalization-on-Accepted/Rejected/Duplicate tests in `tests/Unit/Acquisition/TelemetryFinalizationTests.cs`; References: telemetry finalization contract; Depends: T130; Verify: expected FAIL before integration.
+- [ ] T135 [P] [US5] [RUNNABLE_NOW] Add failing Measurement owner-event payload tests in `tests/Unit/Telemetry/TelemetryEventTests.cs`; References: P-021,Telemetry events; Depends: T130; Verify: expected FAIL before events.
+- [ ] T136 [US2] [RUNNABLE_NOW] Capture Phase 7 red evidence in `specs/002-asset-simulator-latest/checklists/phase-07-red.md`; References: test-first; Depends: T131,T132,T133,T134,T135; Verify: expected red FAIL evidence.
+- [ ] T137 [US2] [RUNNABLE_NOW] Define `ITelemetryIngestionRepository` in `src/Modules/Telemetry/Contracts/TelemetryPersistenceContracts.cs`; References: persistence-adapters; Depends: T136; Verify: identity/raw/transaction result port compiles for PASS or reports FAIL.
+- [ ] T138 [US3] [RUNNABLE_NOW] Define `ILatestProjectionRepository`, `ISourceHealthRepository`, and `ITelemetryQueryRepository` in `src/Modules/Telemetry/Contracts/TelemetryProjectionContracts.cs`; References: persistence-adapters; Depends: T136; Verify: projection/query ports compile for PASS or reports FAIL.
+- [ ] T139 [P] [US2] [RUNNABLE_NOW] Implement deterministic Telemetry repository fakes in `tests/Unit/Fakes/FakeTelemetryRepositories.cs`; References: T137-T138; Depends: T137,T138; Verify: identity/raw/latest/status fake tests PASS/FAIL.
+- [ ] T140 [US2] [RUNNABLE_NOW] Implement terminal identity/fingerprint/result domain in `src/Modules/Telemetry/Domain/MeasurementIdentityResult.cs`; References: P-015A; Depends: T011,T131,T139; Verify: T131 passes and differs from API command idempotency for PASS or reports FAIL.
+- [ ] T141 [US2] [RUNNABLE_NOW] Implement canonical ingestion orchestration and quality policy in `src/Modules/Telemetry/Application/IngestMeasurement.cs`; References: FR-019..021,P-001/P-002; Depends: T011,T132,T137,T139,T140; Verify: T132 passes for PASS or reports FAIL.
+- [ ] T142 [US2] [RUNNABLE_NOW] Implement accepted/rejected transaction and safe owner events in `src/Modules/Telemetry/Application/TelemetryPersistenceService.cs`; References: P-015A,P-021; Depends: T011,T133,T135,T098,T141; Verify: T133/T135 pass.
+- [ ] T143 [US2] [RUNNABLE_NOW] Integrate Acquisition attempt finalization with stable Telemetry result in `src/Modules/Acquisition/Application/FinalizeTelemetryAttempt.cs`; References: P-015,Telemetry contract; Depends: T011,T134,T121,T142; Verify: T134 passes and Duplicate is not a counter for PASS or reports FAIL.
+- [ ] T144 [US2] [RUNNABLE_NOW] Create reviewed `database/migrations/0008_telemetry_measurement.sql`; References: migration order 0008; Depends: T137,T140,T142; Verify: identity/raw constraints/immutability SQL review PASS/FAIL.
+- [ ] T145 [US2] [RUNNABLE_NOW] Add Telemetry PostgreSQL adapter test source in `tests/Integration/Telemetry/TelemetryIngestionRepositoryTests.cs`; References: persistence-adapters,0008; Depends: T137,T138,T144; Verify: source review/compile PASS/FAIL.
+- [ ] T146 [US2] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL Telemetry ingestion adapter in `src/Modules/Telemetry/Infrastructure/PostgresTelemetryRepositories.cs`; References: T137-T138,T145; Depends: T144,T145; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T147 [US2] [BLOCKED_BY_PACKAGE_POLICY] Register Telemetry adapters in `src/Api/Program.cs`, `src/Worker/Program.cs`, `src/Api/IUMP.Api.csproj`, and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T146; Verify: host build/reachability PASS/FAIL or BLOCKED.
+- [ ] T148 [US2] [BLOCKED_BY_DATABASE_ACCESS] Execute 0008 and Telemetry transaction/concurrency tests, recording `specs/002-asset-simulator-latest/checklists/migration-0008.md`; References: ADR-015; Depends: T144,T145,T146,T147; Verify: terminal uniqueness, Accepted+raw atomicity, Rejected-without-raw, replay/conflict PASS/FAIL or BLOCKED.
+- [ ] T149 [US2] [RUNNABLE_NOW] Extend Telemetry ownership/identity checks in `tests/Verification/architecture.tests.ps1`; References: P-022; Depends: T140,T141,T142,T143; Verify: Fast PASS/FAIL and no identity mechanism conflation.
+- [ ] T150 [US2] [RUNNABLE_NOW] Run Phase 7 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-07-review.md`; References: US2/US3/US5; Depends: T149; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T151 [US2] [RUNNABLE_NOW] Record Phase 7 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-07-telemetry.md`; References: FR-017..021; Depends: T150; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL.
 
-- [ ] T084 [US2] [RUNNABLE_NOW] Freeze the sole algorithm reference by adding a contract checksum/reference assertion in `tests/Unit/Acquisition/SimulatorContractReferenceTests.cs`; References: `contracts/simulator.md`; Depends: T083; Verify: test points to the normative contract and contains no alternate algorithm prose.
-- [ ] T085 [P] [US2] [RUNNABLE_NOW] Add failing literal vector tests for Constant seq 0/output 12.5000/next 1 and Normal seq 0/output 11.6519/next 1 in `tests/Unit/Acquisition/SimulatorGoldenVectorTests.cs`; References: Simulator golden vectors; Depends: T084; Verify: unit command fails before generator implementation.
-- [ ] T086 [P] [US2] [RUNNABLE_NOW] Add failing persisted-state restart vector test for Normal seq 1/output 17.9149/next 2 in `tests/Unit/Acquisition/SimulatorRestartVectorTests.cs`; References: Simulator vector 3; Depends: T084; Verify: red evidence includes exact state hex/spare.
-- [ ] T087 [P] [US2] [RUNNABLE_NOW] Add failing sequence/Constant/no-PRNG and Pending-authoritative-retry tests in `tests/Unit/Acquisition/ProductionAttemptTests.cs`; References: plan P-007/P-015; Depends: T084; Verify: red assertions cover no generator call, no state/sequence/Generated change on retry.
-- [ ] T088 [P] [US2] [RUNNABLE_NOW] Add failing Run lifecycle, pinned snapshot, owner-change and no-Mapping-replacement tests in `tests/Unit/Acquisition/SimulatorRunTests.cs`; References: US2, plan Phase 6; Depends: T084; Verify: red output covers Start/Pause/Resume/Stop/restart.
-- [ ] T089 [US2] [RUNNABLE_NOW] Record Phase 6 red evidence in `specs/002-asset-simulator-latest/checklists/phase-06-red.md`; References: constitution IV; Depends: T085-T088; Verify: all literal inputs/outputs and failing assertions recorded.
-- [ ] T090 [P] [US2] [RUNNABLE_NOW] Implement unsigned overflow helpers, UTF-8 canonical material and FNV-1a initialization in `src/Modules/Acquisition/Domain/DeterministicGeneratorInitialization.cs`; References: Simulator normative pseudocode; Depends: T003, T010, T089; Verify: initialization state equals contract hex.
-- [ ] T091 [P] [US2] [RUNNABLE_NOW] Implement exact PCG transition/output and 25-byte little-endian serializer in `src/Modules/Acquisition/Domain/PcgState.cs`; References: Simulator PRNG/state serialization; Depends: T089; Verify: state/draw assertions in T085-T086 pass.
-- [ ] T092 [US2] [RUNNABLE_NOW] Implement Box-Muller pair/spare, ties-to-even rounding and deterministic round-then-clamp in `src/Modules/Acquisition/Domain/DeterministicSimulatorGenerator.cs`; References: Simulator Normal conversion; Depends: T090-T091; Verify: all three literal vectors pass before Worker integration.
-- [ ] T093 [P] [US2] [RUNNABLE_NOW] Implement UUIDv5 Measurement identity derivation in `src/Modules/Acquisition/Domain/SimulatorMeasurementIdentity.cs`; References: plan P-013, fixed namespace; Depends: T089; Verify: `tests/Unit/Acquisition/MeasurementIdentityTests.cs` passes canonical tuple/collision cases.
-- [ ] T094 [US2] [RUNNABLE_NOW] Implement Run lifecycle, new-Start/reset versus Resume/continue and pinned Run-Point snapshots in `src/Modules/Acquisition/Domain/SimulatorRun.cs`; References: plan P-007/P-011; Depends: T092-T093; Verify: T088 lifecycle/snapshot tests pass.
-- [ ] T095 [US2] [RUNNABLE_NOW] Implement new-slot reservation and Pending authoritative retry orchestration in `src/Modules/Acquisition/Application/ProduceSimulatorMeasurement.cs`; References: plan P-015, Simulator checkpoint; Depends: T087, T092-T094; Verify: T087 passes exactly-once sequence/Generated behavior.
-- [ ] T096 [P] [US2] [RUNNABLE_NOW] Implement Run control application contracts/handlers in `src/Modules/Acquisition/Application/SimulatorRunCommands.cs`; References: US2 acceptance scenarios; Depends: T094; Verify: command tests pass transition/idempotency/version cases.
-- [ ] T097 [P] [US5] [RUNNABLE_NOW] Implement Simulator control and stopped-on-owner-change event payloads in `src/Modules/Acquisition/Application/SimulatorRunEvents.cs`; References: US5, owner-state contract; Depends: T094-T096; Verify: audit event tests preserve actor/config/time/correlation.
-- [ ] T098 [US2] [RUNNABLE_NOW] Create `database/migrations/0007_acquisition_run.sql` for Run, Run-Point state, 25-byte PRNG state, production attempts and leases; References: migration design 0007; Depends: T090-T097; Verify: SQL review proves sequence/attempt uniqueness and immutable Pending payload.
-- [ ] T099 [US2] [REQUIRES_APPROVED_POSTGRESQL] Add lease, reservation, crash-point and exactly-once counter PostgreSQL tests in `tests/Integration/Acquisition/SimulatorRunPersistenceTests.cs`; References: 0007, Simulator crash recovery; Depends: T006-T007 and T098; Verify: approved PostgreSQL only or BLOCKED.
-- [ ] T100 [US2] [BLOCKED_BY_PACKAGE_POLICY] Implement Acquisition PostgreSQL repositories and lease adapter in `src/Modules/Acquisition/Infrastructure/PostgresSimulatorStore.cs`; References: 0007, ADR-005; Depends: T007, T098; Verify: builds only from approved package source and passes T099 when DB available.
-- [ ] T101 [US2] [RUNNABLE_NOW] Implement restart-safe Worker scheduling and existing-Pending-first dispatch against the T095 Acquisition persistence port in `src/Worker/SimulatorWorker.cs`; References: US2 restart, Simulator checkpoint; Depends: T092-T096; Verify: deterministic Worker tests prove no generator call on Pending retry.
-- [ ] T102 [US2] [RUNNABLE_NOW] Refactor generator, Run and Worker seams and verify API/Worker/module dependency direction in `tests/Verification/architecture.tests.ps1`; References: ADR-001/004/007; Depends: T090-T101; Verify: Fast architecture check passes and literal vectors remain green.
-- [ ] T103 [US2] [RUNNABLE_NOW] Complete the Phase 6 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-06-simulator-worker.md`; References: US2 independent test, SC-002; Depends: T089-T102; Verify: vectors, restart/counter evidence, architecture boundary, Standards/Spec reviews, code-review checkpoint and blockers are recorded before Phase 7.
+## Phase 8: Latest, Source Health, and Operations scheduling
 
-## Phase 7: Canonical Telemetry
+**Stories**: US3, US5. **Independent test**: Latest never regresses, No Data is not zero, Source
+Health recovers, and durable scheduling/leases/retries reconcile idempotently.
 
-**Stories**: US2 ingestion result; US3 accepted Measurement/Latest input.
+- [ ] T152 [P] [US3] [RUNNABLE_NOW] Add failing Latest eligibility/order/tie/concurrency decision tests in `tests/Unit/Telemetry/PointLatestTests.cs`; References: FR-022/023,P-001/P-003; Depends: T151; Verify: expected FAIL before green.
+- [ ] T153 [P] [US3] [RUNNABLE_NOW] Add failing Source Health precedence/threshold/recovery tests in `tests/Unit/Telemetry/SourceHealthTests.cs`; References: FR-024..027,P-006,SC-004; Depends: T151; Verify: expected FAIL before green.
+- [ ] T154 [P] [US3] [RUNNABLE_NOW] Add failing durable job schedule/claim/lease/retry/reconciliation tests in `tests/Unit/Operations/DurableJobTests.cs`; References: Operations contract; Depends: T151; Verify: expected FAIL before ports/green.
+- [ ] T155 [US3] [RUNNABLE_NOW] Capture Phase 8 red evidence in `specs/002-asset-simulator-latest/checklists/phase-08-red.md`; References: test-first; Depends: T152,T153,T154; Verify: expected red FAIL evidence.
+- [ ] T156 [US3] [RUNNABLE_NOW] Define `IDurableJobScheduler` in `src/Modules/Operations/Contracts/DurableJobContracts.cs`; References: persistence-adapters; Depends: T155; Verify: safe payload/idempotency scheduling port compiles for PASS or reports FAIL.
+- [ ] T157 [US3] [RUNNABLE_NOW] Define `IJobClaimRepository` in `src/Modules/Operations/Contracts/JobClaimContracts.cs`; References: Operations contract; Depends: T155; Verify: claim/renew/complete/reschedule/Failed port compiles for PASS or reports FAIL.
+- [ ] T158 [P] [US3] [RUNNABLE_NOW] Implement deterministic Operations job fakes in `tests/Unit/Fakes/FakeOperationsRepositories.cs`; References: T156-T157; Depends: T156,T157; Verify: deterministic lease/retry tests PASS/FAIL.
+- [ ] T159 [US3] [RUNNABLE_NOW] Implement Latest policy/service in `src/Modules/Telemetry/Application/PointLatestService.cs`; References: FR-022/023,P-001/P-003; Depends: T011,T138,T139,T152; Verify: T152 passes for PASS or reports FAIL.
+- [ ] T160 [US3] [RUNNABLE_NOW] Implement Source Health evaluation/recovery service in `src/Modules/Telemetry/Application/SourceHealthService.cs`; References: FR-024..027,P-006; Depends: T011,T138,T139,T153,T159; Verify: T153 passes and No Data is never Measurement/zero for PASS or reports FAIL.
+- [ ] T161 [US3] [RUNNABLE_NOW] Implement durable health scheduling/reconciliation application service in `src/Modules/Operations/Application/SourceHealthJobs.cs`; References: Operations contract; Depends: T011,T154,T156,T157,T158,T160; Verify: T154 passes for 30-second leases/idempotent reconciliation for PASS or reports FAIL.
+- [ ] T162 [US3] [RUNNABLE_NOW] Create reviewed `database/migrations/0009_telemetry_latest_status.sql`; References: migration order 0009; Depends: T138,T159,T160; Verify: Latest/status/index SQL review PASS/FAIL.
+- [ ] T163 [US3] [RUNNABLE_NOW] Review the existing Operations migration source and add PostgreSQL job-adapter test source in `database/migrations/0001_r0_foundation.sql` and `tests/Integration/Operations/OperationsJobRepositoryTests.cs`; References: persistence-adapters,R0 job; Depends: T156,T157; Verify: source review/compile PASS/FAIL, existing job schema is sufficient, and no new/recreated job table is proposed.
+- [ ] T164 [US3] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL Operations job adapter in `src/Modules/Operations/Infrastructure/PostgresJobRepositories.cs`; References: T156-T157,T163; Depends: T163; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T165 [US3] [BLOCKED_BY_PACKAGE_POLICY] Register Operations job adapter/health jobs in `src/Worker/Program.cs` and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T161,T164; Verify: Worker build/reachability PASS/FAIL or BLOCKED.
+- [ ] T166 [US3] [BLOCKED_BY_DATABASE_ACCESS] Execute 0009, Latest concurrency, job lease/retry/recovery tests, recording `specs/002-asset-simulator-latest/checklists/migration-0009.md`; References: ADR-015; Depends: T162,T163,T164,T165,T146; Verify: Latest CAS/no regression, SKIP LOCKED, lease reclaim, retry PASS/FAIL or BLOCKED.
+- [ ] T167 [US3] [RUNNABLE_NOW] Extend Telemetry/Operations ownership checks in `tests/Verification/architecture.tests.ps1`; References: P-022; Depends: T159,T160,T161; Verify: Fast PASS/FAIL.
+- [ ] T168 [US3] [RUNNABLE_NOW] Run Phase 8 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-08-review.md`; References: US3/US5; Depends: T167; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T169 [US3] [RUNNABLE_NOW] Record Phase 8 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-08-latest-health.md`; References: SC-003/004; Depends: T168; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL.
 
-**Independent test**: Valid trusted identity receives one stable Accepted or Rejected terminal
-result; exact Duplicate replay survives crash; same ID/different fingerprint conflicts.
+## Phase 9: API command idempotency, delivery runtime, Audit, API, and Web
 
-- [ ] T104 [US2] [RUNNABLE_NOW] Freeze the request-fingerprint typed fields, order, UUID normalization, float64/canonical numeric representation, timestamp normalization, UTF-8 encoding and excluded retry metadata in `src/Modules/Telemetry/Contracts/MeasurementFingerprintV1.cs`; References: `contracts/telemetry.md`; Depends: T103; Verify: contract review has no unspecified field or encoding.
-- [ ] T105 [P] [US2] [RUNNABLE_NOW] Add failing fingerprint tests for identical payload, excluded transport-only retry metadata and changed identity/value in `tests/Unit/Telemetry/MeasurementFingerprintTests.cs`; References: T104, Telemetry contract; Depends: T104; Verify: unit command fails before fingerprint implementation.
-- [ ] T106 [P] [US2] [RUNNABLE_NOW] Add failing trusted-producer, UUID tuple recomputation, malformed-ID and fingerprint-conflict tests in `tests/Unit/Telemetry/TelemetryIdentityTests.cs`; References: FR-017..021; Depends: T104; Verify: red output distinguishes pre-reservation errors from terminal Rejected.
-- [ ] T107 [P] [US2] [RUNNABLE_NOW] Add failing Accepted/Rejected terminal registry and exact Duplicate replay tests in `tests/Unit/Telemetry/TerminalResultTests.cs`; References: plan P-015A, Telemetry Result; Depends: T104; Verify: red output proves Rejected needs no raw Measurement.
-- [ ] T108 [P] [US3] [RUNNABLE_NOW] Add failing quality/Latest eligibility tests for Good, Uncertain, Bad, `VALUE_OUT_OF_RANGE` and `SOURCE_TIMESTAMP_FUTURE` in `tests/Unit/Telemetry/QualityPolicyTests.cs`; References: P-001/P-002; Depends: T104; Verify: red assertions match contract.
-- [ ] T109 [US2] [RUNNABLE_NOW] Record Phase 7 red evidence in `specs/002-asset-simulator-latest/checklists/phase-07-red.md`; References: constitution IV; Depends: T105-T108; Verify: exact failures recorded.
-- [ ] T110 [P] [US2] [RUNNABLE_NOW] Implement SHA-256 request fingerprint V1 in `src/Modules/Telemetry/Domain/MeasurementFingerprint.cs`; References: T104; Depends: T003, T010, T105 and frozen contract; Verify: T105 passes.
-- [ ] T111 [P] [US2] [RUNNABLE_NOW] Implement producer/identity validation and UUID tuple recomputation in `src/Modules/Telemetry/Application/TelemetryIdentityValidator.cs`; References: Telemetry validation steps 1-4; Depends: T093, T106; Verify: T106 passes.
-- [ ] T112 [P] [US3] [RUNNABLE_NOW] Implement Data Quality classification and Latest eligibility in `src/Modules/Telemetry/Domain/MeasurementQualityPolicy.cs`; References: P-001/P-002; Depends: T108; Verify: T108 passes.
-- [ ] T113 [US2] [RUNNABLE_NOW] Implement immutable terminal-result and Duplicate/idempotency decision model in `src/Modules/Telemetry/Domain/MeasurementTerminalResult.cs`; References: plan P-015A; Depends: T110-T112; Verify: T107 domain tests pass.
-- [ ] T114 [US2] [RUNNABLE_NOW] Implement canonical ingestion orchestration and Organization -> Catalog -> Telemetry -> Integration provider flow in `src/Modules/Telemetry/Application/IngestMeasurement.cs`; References: Telemetry validation steps, P-016; Depends: T039-T040, T053, T111-T113; Verify: application tests pass Accepted, Rejected, Duplicate and conflict paths.
-- [ ] T115 [US2] [RUNNABLE_NOW] Create `database/migrations/0008_telemetry_measurement.sql` for terminal registry/fingerprint constraints and Accepted-only raw Measurement partitions/indexes; References: migration design 0008; Depends: T104, T113-T114; Verify: SQL review enforces Accepted/Rejected check constraints and Run+Point+sequence uniqueness.
-- [ ] T116 [US2] [REQUIRES_APPROVED_POSTGRESQL] Add atomic Accepted/raw, Rejected/no-raw and immutable Duplicate PostgreSQL tests in `tests/Integration/Telemetry/TerminalRegistryPersistenceTests.cs`; References: 0008; Depends: T006-T007 and T115; Verify: approved PostgreSQL only or BLOCKED.
-- [ ] T117 [US2] [REQUIRES_APPROVED_POSTGRESQL] Add unique-race tests that roll back the aborted transaction and reload the winner in a new bounded transaction in `tests/Integration/Telemetry/TelemetryUniqueRaceTests.cs`; References: user race rule, Telemetry step 9; Depends: T116; Verify: no query runs inside an aborted transaction.
-- [ ] T118 [US2] [BLOCKED_BY_PACKAGE_POLICY] Implement Telemetry terminal-registry/raw repository adapter in `src/Modules/Telemetry/Infrastructure/PostgresTelemetryStore.cs`; References: 0008, ADR-003; Depends: T007, T115; Verify: approved-provider build and T116-T117 when DB available.
-- [ ] T119 [US2] [RUNNABLE_NOW] Implement stable Acquisition Pending finalization and exactly-once Accepted/Rejected counter application in `src/Modules/Acquisition/Application/FinalizeProductionAttempt.cs`; References: Telemetry Acquisition finalization; Depends: T095, T113-T114; Verify: `tests/Unit/Acquisition/ProductionAttemptFinalizationTests.cs` passes same-result no-op/different-result conflict.
-- [ ] T120 [P] [US5] [RUNNABLE_NOW] Implement MeasurementAccepted/Rejected and PointLatestAdvanced outbox payloads in `src/Modules/Telemetry/Application/TelemetryEvents.cs`; References: Telemetry Events, ADR-005; Depends: T112-T114; Verify: event tests preserve IDs, quality/reason and lineage.
-- [ ] T121 [US2] [RUNNABLE_NOW] Refactor Telemetry registry/ingestion behind public contracts and extend schema-ownership/lock-order checks in `tests/Verification/architecture.tests.ps1`; References: ADR-007; Depends: T110-T120; Verify: Fast architecture check passes.
-- [ ] T122 [US2] [RUNNABLE_NOW] Complete the Phase 7 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-07-telemetry.md`; References: US2/US3 checkpoint; Depends: T109-T121; Verify: fingerprint, terminal-result/race evidence, architecture boundary, Standards/Spec reviews, code-review checkpoint and blockers are recorded before Phase 8.
+**Stories**: US1-US5. **Independent test**: all mutation endpoints use one durable command executor;
+outbox/inbox/dispatcher/Audit completes the mandatory path; authorized queries and Web flows remain
+scope-safe.
 
-## Phase 8: Latest and Source Health
+### Phase 9 red contracts
 
-**Story**: US3 observe latest Measurement and source health.
+- [ ] T170 [P] [US4] [RUNNABLE_NOW] Add failing operation-code/fingerprint V1 tests in `tests/Unit/Integration/CommandFingerprintTests.cs`; References: P-020,Integration contract; Depends: T169; Verify: expected FAIL before green covers length-prefix UTF-8, UUID/string/integer/decimal/timestamp normalization, If-Match inclusion/exclusions, stable/changed hashes, and secrets.
+- [ ] T171 [P] [US4] [RUNNABLE_NOW] Add failing Pending/Completed/result/lease/retention/error tests in `tests/Unit/Integration/CommandIdempotencyDomainTests.cs`; References: P-020; Depends: T169; Verify: expected FAIL for in-progress/conflict/24-hour policy before green.
+- [ ] T172 [P] [US4] [RUNNABLE_NOW] Add failing idempotent-command executor tests in `tests/Unit/Integration/IdempotentCommandExecutorTests.cs`; References: P-020; Depends: T169; Verify: expected FAIL before green covers same/different key, live/expired Pending, crash boundaries, one mutation/outbox, exact response replay, login/logout/query exclusion.
+- [ ] T173 [P] [US5] [RUNNABLE_NOW] Add failing outbox/inbox envelope/hash/claim/lease/retry/Failed tests in `tests/Unit/Integration/DeliveryRepositoryContractTests.cs`; References: P-021,Integration contract; Depends: T169; Verify: expected FAIL before ports/runtime.
+- [ ] T174 [P] [US5] [RUNNABLE_NOW] Add failing dispatcher/consumer-resolution/restart/correlation tests in `tests/Unit/Worker/OutboxDispatcherTests.cs`; References: audit-events contract; Depends: T169; Verify: expected FAIL for at-least-once/all-required-consumers before green.
+- [ ] T175 [P] [US5] [RUNNABLE_NOW] Add failing Audit event consumption/schema/redaction/append-idempotency tests in `tests/Unit/Audit/AuditConsumerTests.cs`; References: FR-035..039; Depends: T169; Verify: expected FAIL before consumer/repository.
+- [ ] T176 [P] [US5] [RUNNABLE_NOW] Add failing Audit filtered query/global/scope/keyset tests in `tests/Unit/Audit/AuditQueryTests.cs`; References: FR-028/029/035..039; Depends: T169; Verify: expected FAIL before query service.
+- [ ] T177 [P] [US5] [RUNNABLE_NOW] Add failing Operations delivery-reconciliation/replay/poison tests in `tests/Unit/Operations/AuditDeliveryJobsTests.cs`; References: Operations/audit contracts; Depends: T169; Verify: expected FAIL before green covers 30-second leases, 250ms/1s/2s/5s/30s-capped retry, 10 attempts, backlog, expired leases, Published-without-Audit, and identity-preserving replay.
+- [ ] T178 [P] [US1] [RUNNABLE_NOW] Add failing IAM admin/post-Site fixture and hierarchy/Catalog/configuration mutation/query endpoint-group tests in `tests/Unit/Api/ConfigurationEndpointTests.cs`; References: IAM/Organization/Catalog/Simulator HTTP contracts; Depends: T169; Verify: expected FAIL and every mutation expects common executor.
+- [ ] T179 [P] [US2] [RUNNABLE_NOW] Add failing Simulator mutation/query endpoint-group tests in `tests/Unit/Api/SimulatorEndpointTests.cs`; References: FR-009,P-018/P-020; Depends: T169; Verify: expected FAIL and mutations require executor.
+- [ ] T180 [P] [US3] [RUNNABLE_NOW] Add failing Telemetry query endpoint-group tests in `tests/Unit/Api/TelemetryQueryEndpointTests.cs`; References: FR-023/027; Depends: T169; Verify: expected FAIL with scope-safe No Data representation.
+- [ ] T181 [P] [US5] [RUNNABLE_NOW] Add failing Audit endpoint-group tests in `tests/Unit/Api/AuditEndpointTests.cs`; References: FR-035..039; Depends: T169; Verify: expected FAIL for Admin global or AUDIT_READ+scope.
+- [ ] T182 [US1] [RUNNABLE_NOW] Capture all Phase 9 red evidence in `specs/002-asset-simulator-latest/checklists/phase-09-red.md`; References: test-first; Depends: T170,T171,T172,T173,T174,T175,T176,T177,T178,T179,T180,T181; Verify: exact expected FAIL evidence recorded before green.
 
-**Independent test**: Latest never regresses; Stale/No Data are derived without synthetic zero;
-restart-safe evaluation emits events only on real transitions and recovers after accepted data.
+### Integration command idempotency and delivery
 
-- [ ] T123 [P] [US3] [RUNNABLE_NOW] Add failing Latest tuple-order and out-of-order-history tests in `tests/Unit/Telemetry/LatestOrderingTests.cs`; References: P-003, FR-022..027; Depends: T122; Verify: red output covers timestamp, sequence, processing time and Measurement ID.
-- [ ] T124 [P] [US3] [RUNNABLE_NOW] Add failing Online/Stale/NoData/Suspended/Decommissioned precedence/default tests in `tests/Unit/Telemetry/SourceHealthTests.cs`; References: P-006, defaults 60/300; Depends: T122; Verify: red output proves No Data is not zero.
-- [ ] T125 [P] [US3] [RUNNABLE_NOW] Add failing scheduled restart/reconciliation/real-transition-only event tests in `tests/Unit/Operations/SourceHealthJobTests.cs`; References: US3 restart/recovery; Depends: T122; Verify: red output covers persisted due time and recovery.
-- [ ] T126 [US3] [RUNNABLE_NOW] Record Phase 8 red evidence in `specs/002-asset-simulator-latest/checklists/phase-08-red.md`; References: constitution IV; Depends: T123-T125; Verify: exact failures recorded.
-- [ ] T127 [P] [US3] [RUNNABLE_NOW] Implement Latest ordering tuple and compare-and-set decision in `src/Modules/Telemetry/Domain/PointLatestPolicy.cs`; References: P-003; Depends: T003, T010, T123, T126; Verify: T123 passes.
-- [ ] T128 [P] [US3] [RUNNABLE_NOW] Implement Source Health derivation/defaults/administrative precedence in `src/Modules/Telemetry/Domain/PointSourceHealthPolicy.cs`; References: P-006; Depends: T124, T126; Verify: T124 passes.
-- [ ] T129 [US3] [RUNNABLE_NOW] Implement durable scheduled health evaluation and restart reconciliation in `src/Modules/Operations/Application/EvaluatePointSourceHealth.cs`; References: ADR-005, US3; Depends: T125, T128 and existing `operations.job`; Verify: T125 passes and repeated evaluation emits no duplicate event.
-- [ ] T130 [P] [US3] [RUNNABLE_NOW] Implement source-health recovery on new Accepted Measurement in `src/Modules/Telemetry/Application/RecoverPointSourceHealth.cs`; References: US3 scenario 4; Depends: T112, T128; Verify: recovery test returns Online and advances Latest only when eligible.
-- [ ] T131 [US3] [RUNNABLE_NOW] Create `database/migrations/0009_telemetry_latest_status.sql` for `point_latest`, `point_source_status` and due-time indexes; References: migration design 0009; Depends: T127-T130; Verify: SQL review keeps prior Latest distinct from current NoData.
-- [ ] T132 [US3] [REQUIRES_APPROVED_POSTGRESQL] Add Latest CAS/concurrency and scheduler restart PostgreSQL tests in `tests/Integration/Telemetry/LatestHealthPersistenceTests.cs`; References: 0009; Depends: T006-T007 and T131; Verify: approved PostgreSQL only or BLOCKED.
-- [ ] T133 [US3] [RUNNABLE_NOW] Refactor Latest/Health seams and verify Telemetry versus Operations ownership in `tests/Verification/architecture.tests.ps1`; References: ADR-005/007; Depends: T127-T132; Verify: Fast architecture check passes.
-- [ ] T134 [US3] [RUNNABLE_NOW] Complete the Phase 8 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-08-latest-health.md`; References: US3 independent test, SC-003/004; Depends: T126-T133; Verify: ordering/health/restart evidence, architecture boundary, Standards/Spec reviews, code-review checkpoint and blockers are recorded before Phase 9.
+- [ ] T183 [US5] [RUNNABLE_NOW] Create the ordered initial Audit migration source in `database/migrations/0010_audit_event.sql`; References: migration order 0010, audit contract; Depends: T182; Verify: initial unique source-event/append-only/index design review yields PASS or FAIL and precedes 0011 source.
+- [ ] T184 [US4] [RUNNABLE_NOW] Implement command identity/result/state/policy, stable operation-code registry, and typed canonical fingerprint V1 in `src/Modules/Integration/Domain/CommandIdempotency.cs` and `src/Modules/Integration/Application/CommandFingerprintV1.cs`; References: P-020,Integration/README contracts; Depends: T011,T170,T171; Verify: T170-T171 pass and excluded security metadata has no effect.
+- [ ] T185 [US4] [RUNNABLE_NOW] Define `ICommandIdempotencyStore` in `src/Modules/Integration/Contracts/CommandIdempotencyContracts.cs`; References: persistence-adapters; Depends: T182; Verify: register/read/reclaim/complete contract compiles for PASS or reports FAIL.
+- [ ] T186 [US4] [RUNNABLE_NOW] Implement deterministic command-idempotency fake in `tests/Unit/Fakes/FakeCommandIdempotencyStore.cs`; References: T185; Depends: T183,T185; Verify: concurrency/version tests PASS/FAIL.
+- [ ] T187 [US4] [RUNNABLE_NOW] Implement common idempotent-command executor/orchestrator in `src/Api/Infrastructure/IdempotentCommandExecutor.cs`; References: P-020; Depends: T011,T172,T184,T185,T186,T098,T100; Verify: T172 passes for exact replay/conflict/Pending/crash/one mutation+outbox for PASS or reports FAIL.
+- [ ] T188 [US5] [RUNNABLE_NOW] Define `IOutboxClaimRepository` and `IInboxDeduplicationRepository` in `src/Modules/Integration/Contracts/DeliveryPersistenceContracts.cs`; References: Integration contract; Depends: T182; Verify: claim/renew/retry/complete/Failed/hash surface compiles for PASS or reports FAIL.
+- [ ] T189 [US5] [RUNNABLE_NOW] Implement deterministic outbox/inbox fakes and consumer registry in `tests/Unit/Fakes/FakeIntegrationDeliveryRepositories.cs`; References: T188; Depends: T173,T188; Verify: T173 passes for deterministic repository transitions for PASS or reports FAIL.
+- [ ] T190 [US4] [RUNNABLE_NOW] Create required additive `database/migrations/0011_r1_infrastructure_expand.sql`; References: migration design 0011; Depends: T183,T185,T188; Verify: creates `integration.command_idempotency`, adds nullable inbox recovery fields/indexes, and does not recreate outbox/inbox/job; SQL review PASS/FAIL.
+- [ ] T191 [US4] [RUNNABLE_NOW] Add Integration PostgreSQL command/outbox/inbox adapter test source in `tests/Integration/Integration/IntegrationRepositoryTests.cs`; References: persistence-adapters,0011; Depends: T185,T188,T190; Verify: source covers constraints/reclaim/`FOR UPDATE SKIP LOCKED`/hash/retry and compiles for PASS or reports FAIL when packages exist.
+- [ ] T192 [US4] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL command-idempotency/outbox/inbox adapters in `src/Modules/Integration/Infrastructure/PostgresIntegrationRepositories.cs`; References: T185,T188,T191; Depends: T190,T191; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T193 [US4] [BLOCKED_BY_PACKAGE_POLICY] Register Integration adapters and common executor in `src/Api/Program.cs`, `src/Worker/Program.cs`, `src/Api/IUMP.Api.csproj`, and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T187,T192; Verify: both composition roots resolve public ports PASS/FAIL or BLOCKED.
 
-## Phase 9: API and Web integration
+### Worker dispatcher, Audit, and Operations delivery
 
-**Stories**: US1-US5 through the Industrial Operations Console.
+- [ ] T194 [US5] [RUNNABLE_NOW] Implement required-consumer registry/resolution in `src/Worker/Integration/RequiredConsumerRegistry.cs`; References: audit-events contract; Depends: T011,T174,T189; Verify: T174 consumer-resolution cases pass.
+- [ ] T195 [US5] [RUNNABLE_NOW] Implement `OutboxDispatcherWorker` in `src/Worker/Integration/OutboxDispatcherWorker.cs`; References: P-021; Depends: T011,T174,T188,T194; Verify: T174 passes for lease/restart/at-least-once/Published-after-all/correlation for PASS or reports FAIL.
+- [ ] T196 [US5] [RUNNABLE_NOW] Define `IAuditEventConsumer`, `IAuditAppendRepository`, and `IAuditQueryRepository` in `src/Modules/Audit/Contracts/AuditContracts.cs`; References: persistence-adapters,audit contract; Depends: T182; Verify: consumer/append/query ports compile for PASS or report FAIL.
+- [ ] T197 [US5] [RUNNABLE_NOW] Implement deterministic Audit repository fakes in `tests/Unit/Fakes/FakeAuditRepositories.cs`; References: T196; Depends: T196; Verify: unique source event/filter/keyset fake tests PASS/FAIL.
+- [ ] T198 [US5] [RUNNABLE_NOW] Implement Audit event consumer schema validation/mapping/redaction in `src/Modules/Audit/Application/AuditEventConsumer.cs`; References: FR-035..039; Depends: T011,T175,T196,T197; Verify: T175 passes and payload construction alone is not completion for PASS or reports FAIL.
+- [ ] T199 [US5] [RUNNABLE_NOW] Implement Audit query service authorization/filtering in `src/Modules/Audit/Application/AuditQueryService.cs`; References: FR-028/029/035..039; Depends: T011,T176,T196,T197,T023; Verify: T176 passes for Admin global, AUDIT_READ+scope, unscoped restriction for PASS or reports FAIL.
+- [ ] T200 [US5] [RUNNABLE_NOW] Finalize and review `database/migrations/0010_audit_event.sql` against the implemented Audit ports/consumer without changing its migration order; References: migration order 0010; Depends: T183,T196,T198; Verify: unique `source_event_id`, append-only grants/indexes/no restrictive target FK review PASS/FAIL.
+- [ ] T201 [US5] [RUNNABLE_NOW] Add Audit PostgreSQL adapter test source in `tests/Integration/Audit/AuditRepositoryTests.cs`; References: persistence-adapters,0010; Depends: T196,T200; Verify: source covers append-if-absent/immutable/query scope and compiles for PASS or reports FAIL when packages exist.
+- [ ] T202 [US5] [BLOCKED_BY_PACKAGE_POLICY] Implement PostgreSQL Audit append/query adapters in `src/Modules/Audit/Infrastructure/PostgresAuditRepositories.cs`; References: T196,T201; Depends: T200,T201; Verify: approved package build/test PASS/FAIL or BLOCKED.
+- [ ] T203 [US5] [RUNNABLE_NOW] Implement Audit append plus inbox-completion host transaction in `src/Worker/Integration/AuditDeliveryHandler.cs`; References: P-021,persistence-adapters; Depends: T011,T175,T188,T195,T198; Verify: unit crash tests show Audit first, Integration last, and at most one row for PASS or report FAIL.
+- [ ] T204 [US5] [RUNNABLE_NOW] Implement dispatcher/reconciliation wakeups, 30-second leases, specified capped retry schedule, 10-attempt poison/backlog policy, and operator replay in `src/Modules/Operations/Application/AuditDeliveryJobs.cs`; References: Operations contract; Depends: T011,T177,T156,T157,T161,T195; Verify: T177 passes with original event/correlation/causation retained for PASS or reports FAIL.
+- [ ] T205 [US5] [BLOCKED_BY_PACKAGE_POLICY] Register Audit consumer/repositories, delivery handler, dispatcher, and Operations delivery jobs in `src/Api/Program.cs`, `src/Worker/Program.cs`, `src/Api/IUMP.Api.csproj`, and `src/Worker/IUMP.Worker.csproj`; References: persistence-adapters; Depends: T193,T198,T199,T202,T203,T204; Verify: approved package builds resolve API query and Worker runtime for PASS/FAIL, otherwise BLOCKED.
+- [ ] T206 [US5] [BLOCKED_BY_DATABASE_ACCESS] Execute 0010/0011 Integration/Audit/Operations tests on approved PostgreSQL and record `specs/002-asset-simulator-latest/checklists/migrations-0010-0011.md`; References: ADR-015; Depends: T190,T191,T192,T193,T200,T201,T202,T203,T204,T205; Verify: constraints, SKIP LOCKED, leases, atomics, poison/replay PASS/FAIL or BLOCKED.
 
-**Independent test**: The Administrator bootstrap and scoped Engineer journey configures and starts
-the Simulator; Operator sees Latest/Health; authorized reviewer sees immutable Audit; all states are
-scope-safe, responsive and keyboard-usable.
+### API endpoint groups and Web
 
-- [ ] T135 [P] [US1] [RUNNABLE_NOW] Add failing HTTP contract tests for hierarchy, Catalog, Mapping, configuration and Point activation routes in `tests/Unit/Api/ConfigurationEndpointTests.cs`; References: `contracts/organization.md`, `catalog.md`, `simulator.md`; Depends: T134; Verify: unit command records red route/result contracts.
-- [ ] T136 [P] [US2] [RUNNABLE_NOW] Add failing HTTP contract tests for Simulator Start/Pause/Resume/Stop/status in `tests/Unit/Api/SimulatorEndpointTests.cs`; References: US2, P-018; Depends: T134; Verify: red output covers Idempotency-Key/If-Match semantics.
-- [ ] T137 [P] [US3] [RUNNABLE_NOW] Add failing HTTP contract tests for Latest and Source Health queries in `tests/Unit/Api/TelemetryQueryEndpointTests.cs`; References: Telemetry Query surface; Depends: T134; Verify: red output includes quality/timestamps/NoData fields.
-- [ ] T138 [P] [US5] [RUNNABLE_NOW] Add failing Audit query/capability/redaction tests in `tests/Unit/Api/AuditEndpointTests.cs`; References: US5, AUDIT_READ; Depends: T134; Verify: red output proves immutable scoped audit.
-- [ ] T139 [US1] [RUNNABLE_NOW] Record API/Web red evidence in `specs/002-asset-simulator-latest/checklists/phase-09-red.md`; References: constitution IV; Depends: T135-T138; Verify: exact failures and unavailable frontend-test packages are classified.
-- [ ] T140 [P] [US1] [RUNNABLE_NOW] Implement hierarchy/Catalog/configuration/activation endpoints in `src/Api/ConfigurationEndpoints.cs`; References: US1, contracts, P-018; Depends: T054-T055, T066-T067, T077 and T135; Verify: T135 passes with server-side authorization.
-- [ ] T141 [P] [US2] [RUNNABLE_NOW] Implement Simulator run endpoints in `src/Api/SimulatorEndpoints.cs`; References: US2, Simulator HTTP surface; Depends: T096 and T136; Verify: T136 passes.
-- [ ] T142 [P] [US3] [RUNNABLE_NOW] Implement Latest/Source Health endpoints in `src/Api/TelemetryQueryEndpoints.cs`; References: US3; Depends: T127-T130 and T137; Verify: T137 passes and NoData never serializes as numeric zero.
-- [ ] T143 [P] [US5] [RUNNABLE_NOW] Implement capability-gated Audit query endpoint in `src/Api/AuditEndpoints.cs`; References: US5, FR-035..039; Depends: T016, T056, T097, T120 and T138; Verify: T138 passes safe scope/redaction cases.
-- [ ] T144 [US5] [RUNNABLE_NOW] Create `database/migrations/0010_audit_event.sql` for append-only Audit storage/indexes/permissions; References: migration design 0010; Depends: T056, T097, T120, T143; Verify: SQL review prevents update/delete and stores safe snapshots only.
-- [ ] T145 [US5] [REQUIRES_APPROVED_POSTGRESQL] Add append-only/scoped Audit PostgreSQL tests in `tests/Integration/Audit/AuditPersistenceTests.cs`; References: 0010; Depends: T006-T007 and T144; Verify: approved PostgreSQL only or BLOCKED.
-- [ ] T146 [P] [US1] [RUNNABLE_NOW] Build the Industrial Light application shell, auth/session/scope context and safe route guards in `src/Web/src/app/AppShell.tsx`; References: DOC-08 UX-D01/D03, US1/US4; Depends: T021, T140; Verify: `npm --prefix src/Web run lint` and `npm --prefix src/Web run build`.
-- [ ] T147 [P] [US1] [RUNNABLE_NOW] Implement Site/Area/Asset/Point configuration pages and Metric/Unit/Mapping forms in `src/Web/src/features/configuration/ConfigurationRoutes.tsx`; References: US1, DOC-08 section 19; Depends: T140 and T146; Verify: lint/build plus observable loading/empty/validation/conflict states.
-- [ ] T148 [P] [US2] [RUNNABLE_NOW] Implement Simulator configuration/version and Start/Pause/Resume/Stop workspace in `src/Web/src/features/simulator/SimulatorRoute.tsx`; References: US2, DOC-08 section 22; Depends: T141 and T146; Verify: lint/build and UI shows run status/counters/errors without pretending to be equipment.
-- [ ] T149 [P] [US3] [RUNNABLE_NOW] Implement Point Latest/Source Health view with value, unit, source/received timestamps, quality/reason and previous-Latest-versus-NoData presentation in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`; References: US3, DOC-08 section 14/18; Depends: T142 and T146; Verify: lint/build and no history chart/aggregate is added.
-- [ ] T150 [P] [US5] [RUNNABLE_NOW] Implement read-only AuditReview route/diff/redaction states in `src/Web/src/features/audit/AuditRoute.tsx`; References: US5, DOC-08 section 23; Depends: T143 and T146; Verify: lint/build and unauthorized action is absent while direct-route denial stays safe.
-- [ ] T151 [P] [US1] [RUNNABLE_NOW] Implement reusable loading, skeleton, empty, blocked, forbidden/not-found, validation, conflict and transient-database states in `src/Web/src/components/feedback/FeedbackStates.tsx`; References: DOC-08 sections 13/25; Depends: T146; Verify: lint/build and each named state has text, not color alone.
-- [ ] T152 [US1] [RUNNABLE_NOW] Implement desktop-first responsive layout, visible keyboard focus, skip link, labels/error associations and quality text/icon semantics in `src/Web/src/App.css`; References: DOC-08 sections 10/12/14; Depends: T146-T151; Verify: lint/build plus documented keyboard/zoom/contrast review; no dark-mode commitment.
-- [ ] T153 [P] [US4] [BLOCKED_BY_PACKAGE_POLICY] Add frontend behavior tests for auth, scope-safe routing and error states in `src/Web/src/test/auth-scope.test.tsx`; References: US4, DOC-08 accessibility; Depends: approved locked test packages and T146-T152; Verify: run only the approved test command or record BLOCKED_BY_PACKAGE_POLICY.
-- [ ] T154 [US1] [RUNNABLE_NOW] Refactor API endpoint registration and Web feature ownership, then extend architecture checks in `tests/Verification/architecture.tests.ps1`; References: ADR-001/004/007; Depends: T140-T153; Verify: Fast architecture, Web lint and Web build pass.
-- [ ] T155 [US1] [RUNNABLE_NOW] Complete the Phase 9 review/checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-09-api-web.md`; References: SC-001..009 UI/API portions; Depends: T139-T154; Verify: API/Web evidence, accessibility and architecture reviews, Standards/Spec reviews, code-review checkpoint and blockers are recorded before Phase 10.
+- [ ] T207 [US1] [RUNNABLE_NOW] Implement IAM admin/post-Site fixture and hierarchy/Catalog/configuration/activation mutation/query endpoints in `src/Api/ConfigurationEndpoints.cs`; References: US1,FR-028,FR-IAM-006,P-018/P-020; Depends: T011,T178,T187,T026,T069,T067,T068,T047,T084,T101; Verify: T178 passes and every mutation calls common executor for PASS or reports FAIL.
+- [ ] T208 [US2] [RUNNABLE_NOW] Implement Simulator mutation/query endpoints in `src/Api/SimulatorEndpoints.cs`; References: US2,FR-009,P-018/P-020; Depends: T011,T179,T187,T120; Verify: T179 passes and every mutation calls common executor for PASS or reports FAIL.
+- [ ] T209 [US3] [RUNNABLE_NOW] Implement Latest/Source Health query endpoints in `src/Api/TelemetryQueryEndpoints.cs`; References: US3,FR-023/027; Depends: T011,T180,T138,T159,T160; Verify: T180 passes and query does not use command registry for PASS or reports FAIL.
+- [ ] T210 [US5] [RUNNABLE_NOW] Implement Audit query endpoint in `src/Api/AuditEndpoints.cs`; References: FR-035..039; Depends: T011,T181,T199; Verify: T181 passes and endpoint is not treated complete without consumer/runtime for PASS or reports FAIL.
+- [ ] T211 [US1] [RUNNABLE_NOW] Add failing Web shell/auth/scope/feedback tests in `src/Web/src/test/app-shell.test.tsx`; References: DOC-08,US1/US4; Depends: T182; Verify: approved existing frontend test command yields expected FAIL before UI or BLOCKED_BY_PACKAGE_POLICY is recorded separately in T218.
+- [ ] T212 [US1] [RUNNABLE_NOW] Implement Web application shell/auth/scope/feedback states in `src/Web/src/app/AppShell.tsx`; References: DOC-08; Depends: T011,T211,T033,T207; Verify: lint/build PASS/FAIL and red tests pass when executable.
+- [ ] T213 [P] [US1] [RUNNABLE_NOW] Implement hierarchy/configuration UI in `src/Web/src/features/configuration/ConfigurationRoutes.tsx`; References: US1,DOC-08; Depends: T212,T207; Verify: lint/build PASS/FAIL with loading/empty/validation/conflict states.
+- [ ] T214 [P] [US2] [RUNNABLE_NOW] Implement Simulator UI in `src/Web/src/features/simulator/SimulatorRoute.tsx`; References: US2,DOC-08; Depends: T212,T208; Verify: lint/build PASS/FAIL with Run controls/status/counters.
+- [ ] T215 [P] [US3] [RUNNABLE_NOW] Implement Latest/Health UI in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`; References: US3,DOC-08; Depends: T212,T209; Verify: lint/build PASS/FAIL and No Data is textual/nonzero.
+- [ ] T216 [P] [US5] [RUNNABLE_NOW] Implement read-only Audit UI in `src/Web/src/features/audit/AuditRoute.tsx`; References: US5,DOC-08; Depends: T212,T210; Verify: lint/build PASS/FAIL with scope/redaction/keyset states.
+- [ ] T217 [US1] [RUNNABLE_NOW] Implement responsive keyboard/accessibility styles in `src/Web/src/App.css`; References: DOC-08; Depends: T213,T214,T215,T216; Verify: lint/build plus keyboard/zoom/text-not-color review PASS/FAIL.
+- [ ] T218 [US4] [BLOCKED_BY_PACKAGE_POLICY] Execute approved frontend behavior tests for `src/Web/src/test/`; References: DOC-08,US4; Depends: T211,T212,T213,T214,T215,T216,T217; Verify: approved locked test packages yield PASS/FAIL, otherwise BLOCKED.
+
+### Phase 9 verification and checkpoint
+
+- [ ] T219 [US4] [BLOCKED_BY_DATABASE_ACCESS] Execute command-idempotency API integration tests in `tests/Integration/Integration/CommandIdempotencyApiTests.cs`; References: P-020; Depends: T187,T190,T192,T193,T207,T208; Verify: exact status/body/Location/ETag/original correlation replay, conflict, concurrent duplicate, live/expired Pending, both crashes, one mutation/outbox, no secrets, 24-hour cleanup PASS/FAIL or BLOCKED.
+- [ ] T220 [US5] [BLOCKED_BY_DATABASE_ACCESS] Execute end-to-end Audit delivery tests in `tests/Integration/Audit/AuditDeliveryTests.cs`; References: P-021,SC-006; Depends: T195,T198,T199,T202,T203,T204,T205,T206,T210; Verify: owner+outbox atomic, append+inbox atomic, both crashes, dedup/hash conflict, failed exhaustion, replay IDs, five-second visibility PASS/FAIL or BLOCKED.
+- [ ] T221 [US1] [RUNNABLE_NOW] Refactor API/Worker/module seams and extend project-reference/ownership checks in `tests/Verification/architecture.tests.ps1`; References: P-022,ADR-007; Depends: T187,T195,T198,T199,T203,T204,T207,T208,T209,T210,T217; Verify: Fast PASS/FAIL for runnable source ownership/no cross-schema writes; blocked composition reachability remains explicitly incomplete under T205.
+- [ ] T222 [US1] [RUNNABLE_NOW] Run Phase 9 Standards/Spec review in `specs/002-asset-simulator-latest/checklists/phase-09-review.md`; References: US1-US5; Depends: T221; Verify: zero Critical/High PASS, otherwise FAIL.
+- [ ] T223 [US1] [RUNNABLE_NOW] Record Phase 9 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-09-api-audit-web.md`; References: SC-001..009; Depends: T222; Verify: runnable PASS count, FAIL count, BLOCKED count by classification, NOT_RUN count, capability status, progression decision, and release blocker are recorded for PASS or malformed evidence reports FAIL; blocked runtime/E2E never counts PASS.
 
 ## Phase 10: Acceptance hardening and release evidence
 
-**Stories**: US1-US5 complete acceptance and traceability.
+**Stories**: US1-US5. **Independent test**: all requirements and criteria map to implementation and
+fresh evidence; mandatory blocked gates keep Full/release non-passing.
 
-**Independent test**: Every FR, story and success criterion maps to executable evidence or an honest
-blocker; restricted-environment Full harness remains non-passing while mandatory blockers remain.
-
-- [ ] T156 [P] [US4] [RUNNABLE_NOW] Add role/scope negative and object-ID enumeration tests in `tests/Unit/Acceptance/AuthorizationNegativeTests.cs`; References: US4, SC-005; Depends: T155; Verify: unit command passes safe 401/403/404 behavior without target leakage.
-- [ ] T157 [P] [US1] [RUNNABLE_NOW] Add lifecycle/decommission and audit-completeness acceptance tests in `tests/Unit/Acceptance/LifecycleAuditTests.cs`; References: US1/US5, SC-006/008/009; Depends: T155; Verify: unit command covers no cascade and terminal state.
-- [ ] T158 [P] [US2] [REQUIRES_APPROVED_POSTGRESQL] Add concurrent Mapping activation, Point activation and Simulator Start-versus-decommission tests in `tests/Integration/Acceptance/ConfigurationRaceTests.cs`; References: SC-007/009, P-016; Depends: approved PostgreSQL and T155; Verify: real PostgreSQL evidence or BLOCKED.
-- [ ] T159 [P] [US2] [REQUIRES_APPROVED_POSTGRESQL] Add production-attempt crash-before/after-Telemetry and Accepted/Rejected Duplicate replay tests in `tests/Integration/Acceptance/SimulatorCrashRecoveryTests.cs`; References: Simulator crash recovery, Telemetry terminal result; Depends: approved PostgreSQL and T155; Verify: exact counters/payload replay or BLOCKED.
-- [ ] T160 [P] [US3] [REQUIRES_APPROVED_POSTGRESQL] Add Latest concurrency and health-scheduler restart/recovery tests in `tests/Integration/Acceptance/LatestHealthRaceTests.cs`; References: US3, SC-003/004; Depends: approved PostgreSQL and T155; Verify: real PostgreSQL evidence or BLOCKED.
-- [ ] T161 [P] [RUNNABLE_NOW] Extend correlation-ID and structured-log verification across API/Worker/module events in `tests/Verification/observability.tests.ps1`; References: ADR-011, constitution VI; Depends: T155; Verify: script proves safe correlation propagation and no credential values.
-- [ ] T162 [P] [BLOCKED_BY_ENVIRONMENT] Add database-unavailable readiness and explicit failure-state smoke checks in `tests/Verification/database-readiness.tests.ps1`; References: ADR-011, quickstart classification; Depends: T006 and T155; Verify: missing database reports blocked/unready, never healthy PASS.
-- [ ] T163 [RUNNABLE_NOW] Create `database/migrations/0011_r1_infrastructure_expand.sql` only if reviewed VS-01 evidence proves additive columns are required; otherwise record a no-change decision in `specs/002-asset-simulator-latest/checklists/migration-0011.md`; References: R0 `0001_r0_foundation.sql`; Depends: T144; Verify: never recreates `integration.outbox_event`, `integration.inbox_message` or `operations.job`.
-- [ ] T164 [RUNNABLE_NOW] Create `database/migrations/0012_r1_idempotent_seeds.sql` for fixed roles/capability/users and Catalog definitions without pre-Site scope, credentials or cross-schema writes; References: plan P-019; Depends: T163 and schema migrations 0002-0010; Verify: SQL review proves deterministic IDs and rerun idempotency.
-- [ ] T165 [RUNNABLE_NOW] Create `database/migrations/0013_r1_validation_reconciliation.sql` for owner-reference, registry/raw, Latest/status and migration validation queries; References: migration design 0013; Depends: T164; Verify: queries are read-only/reconciling and preserve module ownership.
-- [ ] T166 [REQUIRES_APPROVED_POSTGRESQL] Execute ordered migrations 0001-0013 on clean and N-1 approved PostgreSQL and record forward-fix/rollback evidence in `specs/002-asset-simulator-latest/checklists/migrations-full.md`; References: ADR-015; Depends: T006-T007, T026, T042, T057, T069-T070, T098, T115, T131, T144, T163-T165; Verify: checksums/order/constraints pass or remain BLOCKED.
-- [ ] T167 [RUNNABLE_NOW] Build the 68-FR requirement-to-test matrix in `specs/002-asset-simulator-latest/checklists/requirements-traceability.md`; References: spec FR index, plan Traceability; Depends: T156-T166; Verify: script/count review shows every unique FR exactly once with evidence classification.
-- [ ] T168 [RUNNABLE_NOW] Build the five-story and nine-success-criterion evidence matrix in `specs/002-asset-simulator-latest/checklists/acceptance-traceability.md`; References: US1-US5, SC-001..009; Depends: T156-T167; Verify: current authoritative counts are 5/5 stories and 9/9 success criteria.
-- [ ] T169 [RUNNABLE_NOW] Run the complete quickstart journey and record each observable PASS/FAIL/BLOCKED result in `specs/002-asset-simulator-latest/checklists/quickstart-evidence.md`; References: `quickstart.md`; Depends: T167-T168; Verify: no blocked database/package/environment step is called PASS.
-- [ ] T170 [RUNNABLE_NOW] Run Standards and Spec-compliance code reviews and record all findings in `docs/code-review.md`; References: repository workflow step 9; Depends: T169; Verify: every Critical/High finding is fixed or completion remains stopped.
-- [ ] T171 [RUNNABLE_NOW] Run `.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest` and record `verification-results.json` summary in `specs/002-asset-simulator-latest/checklists/phase-10-fast.md`; References: repository harness; Depends: T170; Verify: exact exit/output recorded.
-- [ ] T172 [REQUIRES_APPROVED_POSTGRESQL] Run `.\scripts\harness.ps1 -Mode Full -Feature 002-asset-simulator-latest` and record all PASS/FAIL/BLOCKED classifications in `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T166 and T171; Verify: Full is not described as passing while PostgreSQL/package/CI/environment blockers remain.
-- [ ] T173 [REQUIRES_COMPANY_APPROVAL] Validate company CI/release evidence in `docs/ci-readiness.md`; References: ADR-016; Depends: T009 and T171-T172; Verify: only approved company runner/template evidence can pass.
-- [ ] T174 [RUNNABLE_NOW] Complete final architecture-boundary and restricted-environment checks in `tests/Verification/architecture.tests.ps1` and `tests/Verification/repository-policy.tests.ps1`; References: constitution I/III/V; Depends: T170-T173; Verify: commands prove no write-back, Modbus, public download, container, alternate DB or cross-schema write.
-- [ ] T175 [RUNNABLE_NOW] Complete the Phase 10 checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-10-acceptance.md`; References: 68 FRs, 5 stories, 9 criteria; Depends: T167-T174; Verify: architecture boundary, Standards/Spec reviews and code-review checkpoint are recorded, unresolved task dependencies are zero, and all non-passing evidence is explicit.
+- [ ] T224 [P] [US4] [RUNNABLE_NOW] Add role/scope/enumeration acceptance tests in `tests/Unit/Acceptance/AuthorizationNegativeTests.cs`; References: FR-028,FR-IAM-004/005,SC-005; Depends: T223; Verify: tests PASS/FAIL for safe 401/403/404.
+- [ ] T225 [P] [US1] [RUNNABLE_NOW] Add lifecycle/deletion/decommission acceptance tests in `tests/Unit/Acceptance/LifecycleAcceptanceTests.cs`; References: SC-008/009; Depends: T223; Verify: tests PASS/FAIL for dependency rule/no cascade/audit-only deletion.
+- [ ] T226 [P] [US2] [RUNNABLE_NOW] Add Mapping/activation/start race-test source in `tests/Integration/Acceptance/ConfigurationRaceTests.cs`; References: SC-007/009,P-016; Depends: T223; Verify: source review/compile PASS/FAIL.
+- [ ] T227 [P] [US2] [RUNNABLE_NOW] Add Simulator/Telemetry crash-test source in `tests/Integration/Acceptance/SimulatorCrashRecoveryTests.cs`; References: P-015/P-015A,FR-018; Depends: T223; Verify: source review/compile PASS/FAIL.
+- [ ] T228 [P] [US3] [RUNNABLE_NOW] Add Latest/Health race/restart-test source in `tests/Integration/Acceptance/LatestHealthRaceTests.cs`; References: SC-003/004; Depends: T223; Verify: source review/compile PASS/FAIL.
+- [ ] T229 [P] [US5] [RUNNABLE_NOW] Add Audit/idempotency E2E acceptance-test source in `tests/Integration/Acceptance/AuditIdempotencyE2ETests.cs`; References: SC-006,P-020/P-021; Depends: T223; Verify: source review/compile PASS/FAIL.
+- [ ] T230 [RUNNABLE_NOW] Create reviewed deterministic `database/migrations/0012_r1_idempotent_seeds.sql`; References: migration order 0012,P-019; Depends: T190,T200,T027,T048,T070,T086,T087,T123,T144,T162; Verify: fixed IDs/no credentials/no pre-Site scope/rerun review PASS/FAIL.
+- [ ] T231 [RUNNABLE_NOW] Create reviewed `database/migrations/0013_r1_validation_reconciliation.sql`; References: migration order 0013; Depends: T230; Verify: read-only/reconciling owner/registry/Latest/Audit/delivery checks review PASS/FAIL.
+- [ ] T232 [BLOCKED_BY_DATABASE_ACCESS] Execute ordered 0001-0013 clean/N-1 migrations and record `specs/002-asset-simulator-latest/checklists/migrations-full.md`; References: ADR-015; Depends: T231,T031,T052,T074,T090,T127,T148,T166,T206; Verify: checksum/order/constraints/forward-fix PASS/FAIL or BLOCKED.
+- [ ] T233 [P] [BLOCKED_BY_DATABASE_ACCESS] Execute T226-T229 race/crash/E2E suites on approved PostgreSQL; References: SC-003/004/006/007/009; Depends: T226,T227,T228,T229,T232; Verify: suite PASS/FAIL or exact BLOCKED, never substitute DB.
+- [ ] T234 [P] [BLOCKED_BY_MISSING_TOOL] Execute API/Worker/Web/quickstart smoke with required local tools and record `specs/002-asset-simulator-latest/checklists/quickstart-evidence.md`; References: quickstart; Depends: T223; Verify: observable PASS/FAIL or exact missing-tool BLOCKED.
+- [ ] T235 [P] [RUNNABLE_NOW] Extend correlation/causation/log-redaction verification in `tests/Verification/observability.tests.ps1`; References: ADR-011,P-021; Depends: T223; Verify: script PASS/FAIL and no secrets.
+- [ ] T236 [RUNNABLE_NOW] Build 68-FR implementation-and-evidence traceability in `specs/002-asset-simulator-latest/checklists/requirements-traceability.md`; References: spec FR index; Depends: T224,T225,T226,T227,T228,T229,T230,T231,T235; Verify: 68/68 unique FRs each map to green task and evidence task, PASS/FAIL.
+- [ ] T237 [RUNNABLE_NOW] Build five-story/nine-criterion traceability in `specs/002-asset-simulator-latest/checklists/acceptance-traceability.md`; References: US1-US5,SC-001..009; Depends: T236; Verify: 5/5 and 9/9 with implementation/evidence mappings, PASS/FAIL.
+- [ ] T238 [RUNNABLE_NOW] Run Standards and Spec-compliance reviews and resolve every Critical/High finding in `docs/code-review.md`; References: repository workflow step 9; Depends: T237; Verify: zero unresolved Critical/High PASS, otherwise FAIL.
+- [ ] T239 [RUNNABLE_NOW] Run `.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest` and record `specs/002-asset-simulator-latest/checklists/phase-10-fast.md`; References: repository harness; Depends: T238; Verify: fresh command exit/output yields PASS or FAIL.
+- [ ] T240 [BLOCKED_BY_DATABASE_ACCESS] Run Full harness database checks and record `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T232,T233,T239; Verify: PASS/FAIL with approved DB or BLOCKED; Full remains non-passing while mandatory blocker exists.
+- [ ] T241 [BLOCKED_BY_PACKAGE_POLICY] Run Full harness package-dependent checks in `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T239; Verify: PASS/FAIL with approved packages or BLOCKED.
+- [ ] T242 [BLOCKED_BY_MISSING_TOOL] Run Full harness tool-dependent smoke checks in `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T239; Verify: PASS/FAIL with tools or BLOCKED.
+- [ ] T243 [BLOCKED_BY_COMPANY_APPROVAL] Execute approved company CI/release evidence and update `docs/ci-readiness.md`; References: ADR-016; Depends: T239; Verify: approved runner evidence PASS/FAIL or BLOCKED; no public/container substitute.
+- [ ] T244 [RUNNABLE_NOW] Run final architecture/repository-policy verification in `tests/Verification/architecture.tests.ps1` and `tests/Verification/repository-policy.tests.ps1`; References: constitution I/III/V; Depends: T238,T239; Verify: PASS/FAIL for ownership and excluded scope.
+- [ ] T245 [RUNNABLE_NOW] Record Phase 10 final checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-10-acceptance.md`; References: 68 FRs,5 stories,9 criteria; Depends: T236,T237,T238,T239,T244; Verify: record PASS/FAIL/BLOCKED by class/NOT_RUN, capability status, progression/release decision; any mandatory blocker keeps release NO.
 
 ## Dependencies and execution order
 
@@ -293,91 +355,68 @@ Phase 0 governance
   -> Phase 1 IAM/bootstrap
   -> Phase 2 Catalog
   -> Phase 3 Organization
-  -> Phase 4 Simulator configuration/Mapping
-  -> Phase 5 Point activation
+  -> Phase 4 configuration/Mapping
+  -> Phase 5 Point activation/host transaction
   -> Phase 6 Simulator Run/Worker
   -> Phase 7 Telemetry
-  -> Phase 8 Latest/Health
-  -> Phase 9 API/Web
-  -> Phase 10 Acceptance hardening
+  -> Phase 8 Latest/Health/Operations
+  -> Phase 9 idempotency/delivery/Audit/API/Web
+  -> Phase 10 acceptance/release evidence
 ```
 
-- T003 and T010 are hard prerequisites for every green application-source implementation task.
-- Migration source order is 0002 (T026), 0003 (T042), 0004 (T057), 0005/0006 (T069/T070),
-  0007 (T098), 0008 (T115), 0009 (T131), 0010 (T144), then 0011-0013 (T163-T165).
-- PostgreSQL execution depends on T006/T007 and never uses a substitute database.
-- Phase checkpoints T011, T030, T045, T060, T073, T083, T103, T122, T134, T155 and T175 are
-  explicit stops; the next phase does not begin automatically.
+- Green application-source tasks require T011; red-test source may proceed after T012, but Phase 0
+  progression remains NO until T010-T011 pass and T012 is refreshed.
+- Migration source order is T027 -> T048 -> T070 -> T086 -> T087 -> T123 -> T144 -> T162 ->
+  T183/T200 -> T190 -> T230 -> T231, corresponding to 0002..0013.
+- Checkpoint stops are T012,T037,T055,T077,T093,T107,T130,T151,T169,T223,T245.
+- Blocked execution tasks are evidence leaves, not prerequisites for runnable reviews/checkpoints;
+  checkpoints inspect their state and mark capability incomplete.
 
 ## User-story dependencies and independent tests
 
-| Story | Primary phases | Dependency | Independent completion criterion |
+| Story | Primary phases | Dependency | Independent criterion |
 |---|---|---|---|
-| US1 Configure hierarchy | 1-5, 9-10 | Governance, IAM, Catalog | Admin creates Site/scope; Engineer creates and activates valid hierarchy; invalid prerequisites fail |
-| US2 Operate Simulator | 2, 4, 6-7, 9-10 | Active Point from US1 | Literal generator vectors pass; run controls and crash-safe ingestion work |
-| US3 Observe Latest/Health | 7-10 | Accepted Telemetry from US2 | Scoped latest/quality/timestamps and Online/Stale/NoData/recovery are correct |
-| US4 Enforce scope | 1, 3, 9-10 | IAM foundation | Every command/query is server-authorized and out-of-scope IDs leak nothing |
-| US5 Audit trail | 1-10 | Owner events + Audit storage | Authorized reviewer sees immutable, redacted configuration/control evidence |
+| US1 Configure hierarchy | 1-5,9-10 | governance,IAM,Catalog | Admin bootstraps Site/scope; Engineer configures/activates valid hierarchy |
+| US2 Operate Simulator | 2,4,6-7,9-10 | active Point | literal vectors, controls, Pending-first crash-safe ingestion |
+| US3 Observe Latest/Health | 7-10 | Accepted Telemetry | scoped current value/quality/timestamps and correct health/recovery |
+| US4 Enforce scope | 1,3,9-10 | IAM | every command/query is server-authorized with no enumeration |
+| US5 Audit trail | 1-10 | owner events and delivery runtime | immutable redacted evidence reaches authorized query within five seconds |
 
-## Parallel opportunities
+## Parallel execution examples
 
-- Phase 0: T004, T005, T008 and T009 touch independent governance/evidence files.
-- Phase 1: domain, authorization and session red tests (T012, T013, T018, T020) are independent;
-  green work converges before persistence/API integration.
-- Phases 2-9: tasks marked `[P]` touch different files and do not depend on an incomplete mutation
-  of the same seam. Migration files and shared architecture checks are deliberately serial.
-- Phase 10: negative, lifecycle, concurrency, crash, health and observability checks can be authored
-  independently, but evidence matrices wait for all results.
+- Phase 1 red tests T013-T017 are parallel; green converges after T018.
+- Phase 6 red tests T108-T113 are parallel; generator/identity work T118-T119 uses separate files.
+- Phase 9 red tests T170-T181 are parallel. Web feature tasks T213-T216 are parallel after T212.
+- Phase 10 source tasks T224-T229 and observability T235 are parallel; blocked executions remain
+  separate from runnable source creation.
 
-### Parallel example: US2 literal generator work
+## Requirement and evidence coverage
 
-```text
-T085 tests Constant and first Normal vectors.
-T086 tests persisted-state restart vector.
-T087 tests sequence and Pending retry semantics.
-T088 tests Run lifecycle and pinned snapshots.
-After the common red checkpoint T089, T090 and T091 may implement independent initialization/state
-files; T092 integrates them before any Worker production task begins.
-```
+| Requirement group | Count | Implementation tasks | Verification/evidence tasks |
+|---|---:|---|---|
+| FR-001..007, FR-AP-001..005, FR-DC-001..005 | 17 | T065-T069,T100-T102 | T056-T060,T094-T096,T225,T226 |
+| FR-008..016 | 9 | T084-T085,T118-T122 | T078-T080,T108-T113,T226-T227 |
+| FR-017..021 | 5 | T119,T140-T143 | T109,T131-T135,T227 |
+| FR-022..027 | 6 | T159-T161 | T152-T154,T228 |
+| FR-028..039 | 12 | T023,T047,T067-T068,T102,T187,T195,T198-T210 | T014,T040,T058-T059,T096,T172-T181,T219-T220,T224,T229 |
+| FR-IAM-001..008 | 8 | T022-T026,T033 | T013-T017,T032 |
+| FR-DS-001..004, FR-CAT-001..004 | 8 | T045-T047 | T038-T040,T225-T226 |
+| FR-DO-001..003 | 3 | T022,T101 | T013,T094 |
+| **Total** | **68** | **mapped** | **mapped** |
 
-### Parallel example: US3 observation work
+Specific coverage: FR-018 T109/T119/T131/T140/T148/T227; FR-028 and FR-IAM-004/005
+T014/T023/T178-T181/T207-T210/T224; FR-035..039 T096/T102/T113/T135/T175-T176/T198-T210/T220;
+SC-006 T174-T177/T195-T205/T220/T229; SC-007 T039/T080/T087/T090/T226/T233; SC-008
+T039/T046/T225; SC-009 T057/T066/T225/T226/T233.
 
-```text
-T123 tests Latest ordering.
-T124 tests Source Health derivation.
-T125 tests durable scheduled evaluation.
-After T126, T127 and T128 may proceed in separate domain files; T129 integrates scheduling.
-```
+## Implementation strategy and readiness
 
-## Requirement coverage
-
-| Requirement group | Count | Primary task ranges |
-|---|---:|---|
-| FR-001..FR-007, FR-DC-001..005 | 12 | T046-T060, T157 |
-| FR-008..FR-016 | 9 | T061-T073, T084-T103 |
-| FR-017..FR-021 | 5 | T104-T122 |
-| FR-022..FR-027 | 6 | T123-T134 |
-| FR-028..FR-039 | 12 | T012-T030, T135-T155, T156-T157 |
-| FR-AP-001..005, FR-DO-001..003 | 8 | T048, T074-T083 |
-| FR-IAM-001..008 | 8 | T012-T030 |
-| FR-DS-001..004, FR-CAT-001..004 | 8 | T031-T045 |
-| **Total** | **68** | **T012-T175** |
-
-## Implementation strategy
-
-1. Complete Phase 0 and pass `/speckit.analyze`; this is the implementation gate.
-2. Implement exactly one phase using red -> green -> refactor -> review -> checkpoint.
-3. Stop at the phase checkpoint and review evidence before invoking `/speckit.implement` again.
-4. The smallest demonstrable foundation is Phases 1-5 (US1 hierarchy activation). It is not a
-   release until Phases 6-10 and all mandatory evidence are complete.
-5. `/speckit.implement` is **not ready now**: T003 constitution amendment, T010 analysis and
-   environment/package/PostgreSQL gates remain prerequisites.
-
-## Task-list completion status
-
-- Functional requirements represented: **68/68**
-- User stories represented: **5/5**
-- Success criteria represented: **9/9**
-- Unresolved task dependencies: **0** (all prerequisites are explicit)
-- Ready for `/speckit.analyze`: **YES**
-- Ready for `/speckit.implement`: **NO**
+1. Complete analysis before constitution work; do not make analysis depend on external approvals.
+2. Apply red -> evidence -> minimal green -> refactor -> architecture verification -> Standards/Spec
+   review -> checkpoint for each phase.
+3. The smallest demonstrable increment is US1 through Phase 5; it is not a release.
+4. Current coverage: FR 68/68, stories 5/5, success criteria 9/9.
+5. Invalid dependencies: 0; dependency cycles: 0; unresolved dependencies: 0.
+6. Ready for `/speckit.analyze`: YES.
+7. Ready for constitution amendment: NO, until T006-T008 analysis is clean.
+8. Ready for `/speckit.implement`: NO, until Phase 0 governance gate permits progression.
