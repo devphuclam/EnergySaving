@@ -10,13 +10,25 @@
 - **No secrets**: Placeholder password hashes, no real credentials
 - **No dependencies added**: Zero NuGet packages, zero external downloads
 
-### Findings (corrective)
+### Findings (first corrective cycle)
 
 | ID | Severity | Finding | Status |
 |---|---|---|---|
-| SR-01 | Resolved | AuthEndpoints.cs previously used placeholder handlers | FIXED: real AuthHandler in Application; endpoints delegate via IAuthService |
-| SR-02 | Medium | Integration test source (T028) references non-existent Npgsql; will not compile without approved packages | BLOCKED_BY_PACKAGE_POLICY |
-| SR-03 | Minor | AuthSecurityOptions.cs `ConfigureRateLimiting` removed — unused framework wrapper; `AuthenticationPolicy` retained and tested | PASS |
+| SR-01 | Resolved | AuthEndpoints.cs used placeholder handlers | FIXED: real AuthHandler in Application; endpoints delegate via IAuthService |
+| SR-02 | Medium | Integration test source (T028) references non-existent Npgsql | BLOCKED_BY_PACKAGE_POLICY |
+| SR-03 | Minor | AuthSecurityOptions.cs `ConfigureRateLimiting` removed — unused wrapper; `AuthenticationPolicy` retained | PASS |
+
+### Findings (second corrective cycle — defects A–J)
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| SR-04 | High | Logout endpoint had no `IAntiforgery` validation | FIXED: `RequireAntiforgeryCheckAttribute` + `HandleLogout` validates via `IAntiforgery` |
+| SR-05 | High | Login response body exposed `.token`/`.hash` — spec requires `{"message":"Authenticated."}` only | FIXED: `LoginResult` hides hash/token; body is clean |
+| SR-06 | High | `PocIdentityFixture` had committed POC hash literal and was always enabled | FIXED: `IPocCredentialHashProvider` interface; defaults disabled; hash injected at runtime |
+| SR-07 | Medium | `FakeIamTransaction.RollbackAsync` was no-op — did not restore state | FIXED: snapshot-then-restore pattern on all repo dicts |
+| SR-08 | Medium | `IamRepositoryContractRunner` was comment-only placeholder | FIXED: 16 executable contract tests |
+| SR-09 | Low | T001–T012 checkboxes all `[ ]` despite Phase 0 completion | FIXED: marked PASS/BLOCKED/NOT_RUN appropriately |
+| SR-10 | Info | RouteMetadataTests cannot inspect real `MapAuthEndpoints` route table before host starts; tests attribute type directly | PASS: `RequireAntiforgeryCheckAttribute` validated as `IAntiforgeryMetadata` |
 
 ## Spec Compliance Review
 
@@ -38,6 +50,7 @@
 ## Conclusion
 
 - **Critical**: 0
-- **High**: 0
-- **Medium**: 1 (SR-02: integration test source blocked by package policy)
-- **Low**: 0
+- **High**: 3 resolved (SR-04, SR-05, SR-06)
+- **Medium**: 2 (SR-02: integration test source blocked — BLOCKED_BY_PACKAGE_POLICY; SR-07: rollback was no-op — FIXED; SR-08: placeholder — FIXED)
+- **Low**: 1 resolved (SR-09: checkboxes)
+- **Info**: 1 (SR-10: route metadata test limitation)

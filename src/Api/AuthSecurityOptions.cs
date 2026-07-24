@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Antiforgery;
 
 namespace IUMP.Api;
 
@@ -53,4 +54,17 @@ public static class AuthSecurityOptions
     public const int MaxAttemptsPerWindow = 5;
 
     public const string LoginError = "Authentication failed.";
+
+    public static IServiceCollection AddAuthAntiforgery(this IServiceCollection services)
+    {
+        services.AddAntiforgery(options =>
+        {
+            options.Cookie.Name = ".IUMP.Xsrf";
+            options.HeaderName = "X-XSRF-TOKEN";
+            options.Cookie.HttpOnly = false;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        });
+        return services;
+    }
 }

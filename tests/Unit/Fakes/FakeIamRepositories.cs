@@ -5,8 +5,16 @@ namespace IUMP.Tests.Unit.Fakes;
 
 public sealed class FakeIamTransaction : IIamTransaction
 {
+    private readonly FakeIamRepositorySnapshot _snapshot;
+    private readonly FakeIamCommandRepository _repo;
     public bool IsCommitted { get; private set; }
     public bool IsRolledBack { get; private set; }
+
+    public FakeIamTransaction(FakeIamCommandRepository repo)
+    {
+        _repo = repo;
+        _snapshot = repo.CreateSnapshot();
+    }
 
     public Task CommitAsync(CancellationToken ct = default)
     {
@@ -17,8 +25,18 @@ public sealed class FakeIamTransaction : IIamTransaction
     public Task RollbackAsync(CancellationToken ct = default)
     {
         IsRolledBack = true;
+        _repo.RestoreSnapshot(_snapshot);
         return Task.CompletedTask;
     }
+}
+
+public sealed class FakeIamRepositorySnapshot
+{
+    public Dictionary<Guid, User> Users { get; } = new();
+    public List<Scope> Scopes { get; } = new();
+    public List<Capability> Capabilities { get; } = new();
+    public List<UserCapability> UserCapabilities { get; } = new();
+    public Dictionary<Guid, List<Role>> UserRoles { get; } = new();
 }
 
 public sealed class FakeIamCommandRepository : IIamCommandRepository
@@ -28,6 +46,35 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
     private readonly List<Capability> _capabilities = new();
     private readonly List<UserCapability> _userCapabilities = new();
     private readonly Dictionary<Guid, List<Role>> _userRoles = new();
+
+    public FakeIamRepositorySnapshot CreateSnapshot()
+    {
+        var snap = new FakeIamRepositorySnapshot();
+        foreach (var kv in _users)
+            snap.Users[kv.Key] = kv.Value;
+        snap.Scopes.AddRange(_scopes);
+        snap.Capabilities.AddRange(_capabilities);
+        snap.UserCapabilities.AddRange(_userCapabilities);
+        foreach (var kv in _userRoles)
+            snap.UserRoles[kv.Key] = new List<Role>(kv.Value);
+        return snap;
+    }
+
+    public void RestoreSnapshot(FakeIamRepositorySnapshot snap)
+    {
+        _users.Clear();
+        foreach (var kv in snap.Users)
+            _users[kv.Key] = kv.Value;
+        _scopes.Clear();
+        _scopes.AddRange(snap.Scopes);
+        _capabilities.Clear();
+        _capabilities.AddRange(snap.Capabilities);
+        _userCapabilities.Clear();
+        _userCapabilities.AddRange(snap.UserCapabilities);
+        _userRoles.Clear();
+        foreach (var kv in snap.UserRoles)
+            _userRoles[kv.Key] = new List<Role>(kv.Value);
+    }
 
     public Task<User?> GetUserAsync(UserId userId, CancellationToken ct = default)
     {
@@ -127,7 +174,7 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
 
     public Task<IIamTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
-        return Task.FromResult<IIamTransaction>(new FakeIamTransaction());
+        return Task.FromResult<IIamTransaction>(new FakeIamTransaction(this));
     }
 
     public void SeedCapability(Capability capability)
@@ -152,6 +199,15 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
             _userRoles[userId.Value] = new List<Role>();
         if (!_userRoles[userId.Value].Contains(role))
             _userRoles[userId.Value].Add(role);
+    }
+
+    public void Clear()
+    {
+        _users.Clear();
+        _scopes.Clear();
+        _capabilities.Clear();
+        _userCapabilities.Clear();
+        _userRoles.Clear();
     }
 }
 

@@ -5,54 +5,74 @@ using IUMP.Tests.Unit.Fakes;
 
 namespace IUMP.Tests.Unit.IAM;
 
+public sealed class TestPocCredentialHashProvider : IPocCredentialHashProvider
+{
+    public string GetPasswordHash(string username) => "AQAAAAIAAYagAAAAE-test-hash-only";
+}
+
 public static class PocIdentityFixtureTests
 {
+    private static readonly IPocCredentialHashProvider TestHash = new TestPocCredentialHashProvider();
+
     public static async Task<List<string>> Run()
     {
         var failures = new List<string>();
 
-        await FiveDeterministicUsers(failures);
+        await FixtureDefaultDisabled(failures);
+        await NoCommittedCredentialHash(failures);
+        await FixtureWithHashCreatesUsers(failures);
         await NoPreSiteScope(failures);
         await PostSiteFixtureAssignsScopes(failures);
         await FixtureIsIdempotent(failures);
+        await TransactionRollbackRestoresState(failures);
 
         return failures;
     }
 
-    private static FakeIamCommandRepository CreateRepoWithUsers()
+    private static FakeIamCommandRepository CreateEmptyRepo()
+    {
+        return new FakeIamCommandRepository();
+    }
+
+    private static FakeIamCommandRepository CreateRepoWithSeed()
     {
         var repo = new FakeIamCommandRepository();
-        var adminId = UserId.Parse("00000000-0000-0000-0000-000000000001");
-        var engineerId = UserId.Parse("00000000-0000-0000-0000-000000000002");
-        var operatorId = UserId.Parse("00000000-0000-0000-0000-000000000003");
-        var managerId = UserId.Parse("00000000-0000-0000-0000-000000000004");
-        var viewerId = UserId.Parse("00000000-0000-0000-0000-000000000005");
-
-        repo.SeedUser(new User(adminId, "admin", "hash", UserStatus.Active, new[] { Role.Administrator }));
-        repo.SeedUser(new User(engineerId, "engineer", "hash", UserStatus.Active, new[] { Role.Engineer }));
-        repo.SeedUser(new User(operatorId, "operator", "hash", UserStatus.Active, new[] { Role.Operator }));
-        repo.SeedUser(new User(managerId, "manager", "hash", UserStatus.Active, new[] { Role.Manager }));
-        repo.SeedUser(new User(viewerId, "viewer", "hash", UserStatus.Active, new[] { Role.Viewer }));
-
-        repo.SeedRole(adminId, Role.Administrator);
-        repo.SeedRole(engineerId, Role.Engineer);
-        repo.SeedRole(operatorId, Role.Operator);
-        repo.SeedRole(managerId, Role.Manager);
-        repo.SeedRole(viewerId, Role.Viewer);
-
         repo.SeedCapability(new Capability(CapabilityId.New(), "AUDIT_READ", "Audit Review"));
-
         return repo;
     }
 
-    private static async Task FiveDeterministicUsers(List<string> failures)
+    private static async Task FixtureDefaultDisabled(List<string> failures)
     {
-        var repo = CreateRepoWithUsers();
+        var repo = CreateEmptyRepo();
         var fixture = new PocIdentityFixture(repo);
+        if (fixture.IsFixtureEnabled)
+            failures.Add("T016-FAIL: PocIdentityFixture must be disabled by default.");
+
+        var users = fixture.GetDeterministicUsers();
+        if (users.Count != 0)
+            failures.Add("T016-FAIL: Disabled fixture with NullPocCredentialHashProvider must return 0 users.");
+    }
+
+    private static async Task NoCommittedCredentialHash(List<string> failures)
+    {
+        var repo = CreateEmptyRepo();
+        var fixture = new PocIdentityFixture(repo, TestHash, true);
+        var users = fixture.GetDeterministicUsers();
+        foreach (var user in users)
+        {
+            if (user.PasswordHash == "AQAAAAIAAYagAAAAEJ7U8Kx8mHs5jKZy6JqV0c7f3e2d1b9a4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8")
+                failures.Add($"T016-FAIL: POC user '{user.Username}' must not have the committed hash literal.");
+        }
+    }
+
+    private static async Task FixtureWithHashCreatesUsers(List<string> failures)
+    {
+        var repo = CreateEmptyRepo();
+        var fixture = new PocIdentityFixture(repo, TestHash, true);
         var users = fixture.GetDeterministicUsers();
 
         if (users.Count != 5)
-            failures.Add("T016-FAIL: PocIdentityFixture must provide exactly 5 deterministic users.");
+            failures.Add("T016-FAIL: Explicitly enabled fixture with hash provider must return 5 users.");
 
         var expectedRoles = new[] { Role.Administrator, Role.Engineer, Role.Operator, Role.Manager, Role.Viewer };
         foreach (var role in expectedRoles)
@@ -64,8 +84,8 @@ public static class PocIdentityFixtureTests
 
     private static async Task NoPreSiteScope(List<string> failures)
     {
-        var repo = CreateRepoWithUsers();
-        var fixture = new PocIdentityFixture(repo);
+        var repo = CreateEmptyRepo();
+        var fixture = new PocIdentityFixture(repo, TestHash, true);
         var users = fixture.GetDeterministicUsers();
 
         var hasAdmin = users.Any(u => u.Roles.Contains(Role.Administrator));
@@ -80,8 +100,8 @@ public static class PocIdentityFixtureTests
 
     private static async Task PostSiteFixtureAssignsScopes(List<string> failures)
     {
-        var repo = CreateRepoWithUsers();
-        var fixture = new PocIdentityFixture(repo);
+        var repo = CreateRepoWithSeed();
+        var fixture = new PocIdentityFixture(repo, TestHash, true);
         var siteId = Guid.NewGuid();
 
         var applied = await fixture.ApplyPostSiteFixtureAsync(siteId);
@@ -97,8 +117,8 @@ public static class PocIdentityFixtureTests
 
     private static async Task FixtureIsIdempotent(List<string> failures)
     {
-        var repo = CreateRepoWithUsers();
-        var fixture = new PocIdentityFixture(repo);
+        var repo = CreateRepoWithSeed();
+        var fixture = new PocIdentityFixture(repo, TestHash, true);
         var siteId = Guid.NewGuid();
 
         await fixture.ApplyPostSiteFixtureAsync(siteId);
@@ -112,5 +132,45 @@ public static class PocIdentityFixtureTests
         var scopesAfterSecond = await repo.GetScopesForUserAsync(engineerUser.Id);
         if (scopesAfterSecond.Count != countBeforeSecond)
             failures.Add("T016-FAIL: Post-Site fixture must be idempotent (scope count unchanged).");
+    }
+
+    private static async Task TransactionRollbackRestoresState(List<string> failures)
+    {
+        var repo = new FakeIamCommandRepository();
+        var userId = UserId.New();
+
+        var originalUser = new User(userId, "rollback-test", "hash", UserStatus.Active, new[] { Role.Viewer });
+        repo.SeedUser(originalUser);
+        repo.SeedRole(userId, Role.Viewer);
+
+        var tx = (FakeIamTransaction)(await repo.BeginTransactionAsync());
+
+        var newUserId = UserId.New();
+        var newUser = new User(newUserId, "new-rollback", "hash", UserStatus.Active, new[] { Role.Engineer });
+        await repo.AddUserAsync(newUser);
+        await repo.AssignRoleAsync(newUserId, Role.Engineer, userId);
+        await repo.AddScopeAsync(new Scope(ScopeId.New(), newUserId, Guid.NewGuid(), null));
+
+        await tx.RollbackAsync();
+
+        var originalAfter = await repo.GetUserAsync(userId);
+        if (originalAfter == null)
+            failures.Add("T016-FAIL: Original user must exist after transaction rollback.");
+
+        var newAfter = await repo.GetUserAsync(newUserId);
+        if (newAfter != null)
+            failures.Add("T016-FAIL: New user must NOT exist after transaction rollback.");
+
+        var newRoles = await repo.GetRolesForUserAsync(newUserId);
+        if (newRoles.Count > 0)
+            failures.Add("T016-FAIL: New user's roles must be removed after rollback.");
+
+        var newScopes = await repo.GetScopesForUserAsync(newUserId);
+        if (newScopes.Count > 0)
+            failures.Add("T016-FAIL: New user's scopes must be removed after rollback.");
+
+        var originalRoles = await repo.GetRolesForUserAsync(userId);
+        if (!originalRoles.Contains(Role.Viewer))
+            failures.Add("T016-FAIL: Original user's roles must be preserved after rollback.");
     }
 }

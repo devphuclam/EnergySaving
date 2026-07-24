@@ -14,8 +14,8 @@
 | T013 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/IamDomainTests.cs` — 12 assertions (corrected: roles collection, NoScope, ScopeMismatch, DataOwner with-site), 0 failures |
 | T014 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/AuthorizationPolicyTests.cs` — 8 assertions (corrected: admin audit cap, engineer cap, multi-role context), 0 failures |
 | T015 | RUNNABLE_NOW | PASS | `tests/Unit/Api/AuthSecurityPolicyTests.cs` — 3 assertions (corrected: tests real AuthenticationPolicy directly), 0 failures |
-| T016 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/PocIdentityFixtureTests.cs` — 4 assertions (corrected: repository-backed, idempotent via fakes), 0 failures |
-| T017 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/SessionPolicyTests.cs` — 10 assertions, 0 failures |
+ | T016 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/PocIdentityFixtureTests.cs` — 6 assertions (disabled default, no committed hash, enabled+hash returns 5 active, idempotent, rollback restores state), 0 failures |
+ | T017 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/SessionPolicyTests.cs` — 10 assertions (hash format, expiry, disabled invalidation, logout revoke, multi-session, revoke-all), 0 failures |
 | T018 | RUNNABLE_NOW | PASS | `checklists/phase-01-red.md` — red + corrective green evidence captured |
 | T019 | RUNNABLE_NOW | PASS | `src/Modules/IAM/Contracts/IamPersistenceContracts.cs` |
 | T020 | RUNNABLE_NOW | PASS | `src/Modules/IAM/Contracts/IamSessionContracts.cs` |
@@ -26,11 +26,11 @@
 | T025 | RUNNABLE_NOW | PASS | `src/Api/AuthSecurityOptions.cs` (AuthenticationPolicy, not framework wrapper) |
 | T026 | RUNNABLE_NOW | PASS | `src/Modules/IAM/Application/PocIdentityFixture.cs` |
 | T027 | RUNNABLE_NOW | PASS | `database/migrations/0002_iam_foundation.sql` (corrected: separate role + user_role tables) |
-| T028 | RUNNABLE_NOW | PASS | `tests/Integration/IAM/IamRepositoryTests.cs` (source only) |
+ | T028 | RUNNABLE_NOW | PASS | `tests/Integration/IAM/IamRepositoryTests.cs` — 16 contract tests (uniqueness verification, 5 canonical roles, role assignment/duplicate/revoke, site/area scope, duplicate scope prevention, capability assign/revoke, transaction commit/rollback) |
 | T029 | BLOCKED_BY_PACKAGE_POLICY | BLOCKED | Requires approved Npgsql packages |
 | T030 | BLOCKED_BY_PACKAGE_POLICY | BLOCKED | Requires T029; cannot register adapters without packages |
 | T031 | BLOCKED_BY_DATABASE_ACCESS | BLOCKED | Requires approved PostgreSQL endpoint |
-| T032 | RUNNABLE_NOW | PASS | `tests/Unit/Api/AuthEndpointTests.cs` — 8 assertions (corrected: wrong-password, token absent from body, roles collection), 0 failures |
+ | T032 | RUNNABLE_NOW | PASS | `tests/Unit/Api/AuthEndpointTests.cs` — 12+ assertions (route metadata: RequireAntiforgeryCheckAttribute = IAntiforgeryMetadata; antiforgery options: defaults differ from .IUMP.Xsrf; login: Set-Cookie .IUMP.Auth, HttpOnly, SameSite, clean body; logout: invokes HandleLogout; me: userId/username/roles/scopes/capabilities; antiforgery handler), 0 failures |
 | T033 | RUNNABLE_NOW | PASS | `src/Api/AuthEndpoints.cs` (corrected: real CredentialVerifier, antiforgery, token-safe response body, cookie flags, testable handlers) + `src/Modules/IAM/Application/SessionManager.cs` (AuthHandler with ICredentialVerifier, role collection in MeSnapshot) |
 | T034 | BLOCKED_BY_COMPANY_APPROVAL | BLOCKED | Data Protection provisioning not available |
 | T035 | RUNNABLE_NOW | PASS | `tests/Verification/architecture.tests.ps1` — extended with IAM seam checks |
@@ -39,7 +39,7 @@
 
 ## 3. Evidence counts
 
-- **PASS**: 21 (T013-T028, T032-T033, T035-T037) — 12+8+3+4+10+8 = 45 assertions across all test classes
+- **PASS**: 21 (T013-T028, T032-T033, T035-T037) — 12+8+3+6+10+16+12 = 67 assertions across all test classes and 16 contract tests
 - **FAIL**: 0
 - **BLOCKED**: 4 (T029: BLOCKED_BY_PACKAGE_POLICY, T030: BLOCKED_BY_PACKAGE_POLICY, T031: BLOCKED_BY_DATABASE_ACCESS, T034: BLOCKED_BY_COMPANY_APPROVAL)
 - **NOT_RUN**: 0

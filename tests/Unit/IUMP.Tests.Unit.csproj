@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
@@ -6,5 +6,8 @@
     <ProjectReference Include="..\..\src\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\Modules\IAM\IUMP.Modules.IAM.csproj" />
     <ProjectReference Include="..\..\src\Api\IUMP.Api.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Integration\IAM\IamRepositoryTests.cs" Link="IAM\IamRepositoryTests.cs" />
   </ItemGroup>
 </Project>

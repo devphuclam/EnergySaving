@@ -1,6 +1,9 @@
 using IUMP.BuildingBlocks.Correlation;
+using IUMP.Modules.IAM.Domain;
 using IUMP.Tests.Unit.IAM;
 using IUMP.Tests.Unit.Api;
+using IUMP.Tests.Integration.IAM;
+using IUMP.Tests.Unit.Fakes;
 
 var failures = new List<string>();
 
@@ -12,6 +15,13 @@ failures.AddRange(SessionPolicyTests.Run());
 failures.AddRange(await PocIdentityFixtureTests.Run());
 failures.AddRange(AuthSecurityPolicyTests.Run());
 failures.AddRange(AuthEndpointTests.Run());
+
+// T028: executable repository contract tests against the deterministic fake
+var repo = new FakeIamCommandRepository();
+repo.SeedCapability(new Capability(CapabilityId.New(), "AUDIT_READ", "Audit Review"));
+var runner = new IamRepositoryContractRunner(repo);
+await runner.RunAllAsync();
+failures.AddRange(runner.Failures);
 
 if (failures.Count > 0)
 {

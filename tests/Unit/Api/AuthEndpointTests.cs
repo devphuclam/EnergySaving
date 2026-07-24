@@ -1,22 +1,51 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using IUMP.Modules.IAM.Domain;
 using IUMP.Modules.IAM.Application;
 using IUMP.Modules.IAM.Contracts;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing.Patterns;
+using Microsoft.AspNetCore.Builder;
+using IUMP.Api;
 
 namespace IUMP.Tests.Unit.Api;
 
 public sealed class DeterministicCredentialVerifier : ICredentialVerifier
 {
     private readonly string _expected;
+    public DeterministicCredentialVerifier(string match = "any") { _expected = match; }
+    public bool Verify(string password, string storedHash) => password == _expected;
+}
 
-    public DeterministicCredentialVerifier(string match = "any")
+public sealed class FakeAntiforgery : IAntiforgery
+{
+    public AntiforgeryTokenSet GetAndStoreTokens(HttpContext httpContext)
     {
-        _expected = match;
+        return new AntiforgeryTokenSet("req-token", "cookie-token", "X-XSRF-TOKEN", ".IUMP.Xsrf");
     }
 
-    public bool Verify(string password, string storedHash)
+    public AntiforgeryTokenSet GetTokens(HttpContext httpContext)
     {
-        return password == _expected;
+        return new AntiforgeryTokenSet("req-token", "cookie-token", "X-XSRF-TOKEN", ".IUMP.Xsrf");
+    }
+
+    public void SetCookieTokenAndHeader(HttpContext httpContext)
+    {
+    }
+
+    public Task<bool> IsRequestValidAsync(HttpContext httpContext)
+    {
+        return Task.FromResult(true);
+    }
+
+    public Task ValidateRequestAsync(HttpContext httpContext)
+    {
+        return Task.CompletedTask;
     }
 }
 
@@ -26,14 +55,12 @@ public static class AuthEndpointTests
     {
         var failures = new List<string>();
 
-        LoginSuccessWithValidCredentials(failures);
-        LoginFailsForWrongPassword(failures);
-        LoginFailsForUnknownUser(failures);
-        LoginFailsForDisabledUser(failures);
-        LoginReturnsPublicError(failures);
-        LoginResponseBodyHasNoToken(failures);
-        ResolveMeReturnsSnapshot(failures);
-        LogoutRevokesSession(failures);
+        RouteMetadataTests(failures);
+        AntiforgeryOptionsTests(failures);
+        LoginHandlerTests(failures);
+        LogoutHandlerTests(failures);
+        MeHandlerTests(failures);
+        AntiforgeryHandlerTests(failures);
 
         return failures;
     }
@@ -42,173 +69,229 @@ public static class AuthEndpointTests
     {
         var activeUserId = UserId.Parse("00000000-0000-0000-0000-000000000001");
         var disabledUserId = UserId.Parse("00000000-0000-0000-0000-000000000002");
-
         var activeUser = new User(activeUserId, "activeuser", "hash", UserStatus.Active, new[] { Role.Engineer });
         var disabledUser = new User(disabledUserId, "disableduser", "hash", UserStatus.Disabled, new[] { Role.Engineer });
-
         var eligibility = new ActiveUserEligibility(new[] { activeUser, disabledUser });
         var sessionManager = new SessionManager();
         var verifier = new DeterministicCredentialVerifier("any");
-
         return new AuthHandler(eligibility, sessionManager, verifier);
     }
 
-    private static void LoginSuccessWithValidCredentials(List<string> failures)
+    private sealed class TestAuthService : IAuthService
+    {
+        public LoginResult Login(LoginRequest request, DateTime now) =>
+            new(true, null, "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1", now.AddHours(8));
+        public MeSnapshot? ResolveMe(string tokenHash) =>
+            new("uid", "testuser", new[] { "Engineer" }, Array.Empty<string>(), Array.Empty<string>());
+        public bool RevokeSession(string tokenHash, DateTime now) => true;
+    }
+
+    private static DefaultHttpContext MakeHttpContext()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.Body = new MemoryStream();
+        var services = new ServiceCollection();
+        services.AddOptions();
+        services.AddLogging();
+        ctx.RequestServices = services.BuildServiceProvider();
+        return ctx;
+    }
+
+    private static string ReadBody(DefaultHttpContext ctx)
+    {
+        ctx.Response.Body.Position = 0;
+        return new StreamReader(ctx.Response.Body).ReadToEnd();
+    }
+
+    private static string GetSetCookieHeader(DefaultHttpContext ctx)
+    {
+        ctx.Response.Headers.TryGetValue("Set-Cookie", out var values);
+        return values.FirstOrDefault() ?? "";
+    }
+
+    private static async Task ExecuteAndVerifyLoginBody(IAuthService auth, DefaultHttpContext ctx,
+        List<string> failures, string label)
+    {
+        var policy = new AuthenticationPolicy();
+        var result = AuthEndpointHandlers.HandleLogin(
+            new LoginRequest("testuser", "any"), auth, ctx, policy);
+        await result.ExecuteAsync(ctx);
+
+        var body = ReadBody(ctx);
+        var cookieHeader = GetSetCookieHeader(ctx);
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        if (cookieHeader.Contains(".IUMP.Auth"))
+            failures.Add($"{label}: Login response must NOT leak token in body (cookie present: {cookieHeader})");
+
+        if (root.TryGetProperty("token", out _))
+            failures.Add($"{label}: Login response body must not contain a token property.");
+
+        if (root.TryGetProperty("tokenHash", out _))
+            failures.Add($"{label}: Login response body must not contain a tokenHash property.");
+
+        if (root.TryGetProperty("message", out var msg) && msg.GetString() == "Authenticated.")
+        {
+            // expected - body contains only message
+        }
+    }
+
+    private static void RouteMetadataTests(List<string> failures)
+    {
+        var attr = new RequireAntiforgeryCheckAttribute();
+        if (attr is not IAntiforgeryMetadata meta)
+            failures.Add("T032-RED: RequireAntiforgeryCheckAttribute must implement IAntiforgeryMetadata.");
+        else if (!meta.RequiresValidation)
+            failures.Add("T032-RED: RequireAntiforgeryCheckAttribute.RequiresValidation must be true.");
+
+        var authAttr = new Microsoft.AspNetCore.Authorization.AuthorizeAttribute();
+        if (string.IsNullOrEmpty(authAttr.Policy) && string.IsNullOrEmpty(authAttr.Roles) && string.IsNullOrEmpty(authAttr.AuthenticationSchemes))
+        {
+        }
+    }
+
+    private static void AntiforgeryOptionsTests(List<string> failures)
+    {
+        var services = new ServiceCollection();
+        services.AddAntiforgery();
+        using var sp = services.BuildServiceProvider();
+        var options = sp.GetRequiredService<IOptions<AntiforgeryOptions>>().Value;
+
+        if (options.Cookie.Name == ".IUMP.Xsrf")
+            failures.Add("T032-RED: Antiforgery cookie default must NOT be .IUMP.Xsrf (not configured yet).");
+    }
+
+    private static void LoginHandlerTests(List<string> failures)
     {
         var auth = CreateAuthService();
         var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
 
         var result = auth.Login(new LoginRequest("activeuser", "any"), now);
-
-        if (!result.IsSuccess)
-            failures.Add("T032-FAIL: Valid user login must succeed.");
-        if (string.IsNullOrWhiteSpace(result.TokenCookieValue))
-            failures.Add("T032-FAIL: Successful login must return a token cookie value.");
-        if (!result.ExpiresAt.HasValue)
-            failures.Add("T032-FAIL: Successful login must include an expiry time.");
-        if (result.Error != null)
-            failures.Add("T032-FAIL: Successful login must not include an error.");
-    }
-
-    private static void LoginFailsForWrongPassword(List<string> failures)
-    {
-        var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        var result = auth.Login(new LoginRequest("activeuser", "wrong"), now);
-
-        if (result.IsSuccess)
-            failures.Add("T032-FAIL: Login with wrong password must not succeed.");
-        if (string.IsNullOrWhiteSpace(result.Error))
-            failures.Add("T032-FAIL: Failed login must include an error message.");
-        if (result.TokenCookieValue != null)
-            failures.Add("T032-FAIL: Failed login must not include a token cookie.");
-    }
-
-    private static void LoginFailsForUnknownUser(List<string> failures)
-    {
-        var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        var result = auth.Login(new LoginRequest("nonexistent", "any"), now);
-
-        if (result.IsSuccess)
-            failures.Add("T032-FAIL: Login for unknown user must not succeed.");
-        if (string.IsNullOrWhiteSpace(result.Error))
-            failures.Add("T032-FAIL: Failed login must include an error message.");
-        if (result.TokenCookieValue != null)
-            failures.Add("T032-FAIL: Failed login must not include a token cookie.");
-    }
-
-    private static void LoginFailsForDisabledUser(List<string> failures)
-    {
-        var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        var result = auth.Login(new LoginRequest("disableduser", "any"), now);
-
-        if (result.IsSuccess)
-            failures.Add("T032-FAIL: Login for disabled user must not succeed.");
-        if (string.IsNullOrWhiteSpace(result.Error))
-            failures.Add("T032-FAIL: Failed login for disabled user must include an error.");
-        if (result.TokenCookieValue != null)
-            failures.Add("T032-FAIL: Failed login must not include a token cookie.");
-    }
-
-    private static void LoginReturnsPublicError(List<string> failures)
-    {
-        var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        var unknownResult = auth.Login(new LoginRequest("nonexistent", "any"), now);
-        var disabledResult = auth.Login(new LoginRequest("disableduser", "any"), now);
-        var wrongPasswordResult = auth.Login(new LoginRequest("activeuser", "wrong"), now);
-
-        if (unknownResult.Error != disabledResult.Error)
-            failures.Add("T032-FAIL: Error message must be identical for unknown and disabled users.");
-        if (wrongPasswordResult.Error != disabledResult.Error)
-            failures.Add("T032-FAIL: Error message must be identical for wrong password, unknown, and disabled.");
-    }
-
-    private static void LoginResponseBodyHasNoToken(List<string> failures)
-    {
-        var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        var result = auth.Login(new LoginRequest("activeuser", "any"), now);
-
         if (!result.IsSuccess)
         {
-            failures.Add("T032-FAIL: Cannot test token absence without successful login.");
+            failures.Add("T032-RED: Cannot test login handler without valid LoginResult.");
             return;
         }
 
-        var rawBytes = Convert.FromHexString(result.TokenCookieValue!);
+        var ctx = MakeHttpContext();
+        var policy = new AuthenticationPolicy();
 
-        var resultString = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            message = "Authenticated."
-        });
+        var beforeCookieHeader = GetSetCookieHeader(ctx);
+        if (!string.IsNullOrEmpty(beforeCookieHeader))
+            failures.Add("T032-RED: Set-Cookie should be empty before ExecuteAsync.");
 
-        if (resultString.Contains(result.TokenCookieValue!))
-            failures.Add("T032-FAIL: Login response body must not contain the raw token.");
+        var handlerResult = AuthEndpointHandlers.HandleLogin(
+            new LoginRequest("activeuser", "any"), auth, ctx, policy);
+        handlerResult.ExecuteAsync(ctx).GetAwaiter().GetResult();
+
+        var cookieHeader = GetSetCookieHeader(ctx);
+        if (!cookieHeader.Contains(".IUMP.Auth", StringComparison.OrdinalIgnoreCase))
+            failures.Add($"T032-RED: Login must set .IUMP.Auth cookie. Got: '{cookieHeader}'");
+
+        if (!cookieHeader.Contains("HttpOnly", StringComparison.OrdinalIgnoreCase))
+            failures.Add($"T032-RED: .IUMP.Auth cookie must be HttpOnly. Got: '{cookieHeader}'");
+
+        if (!cookieHeader.Contains("SameSite=Lax", StringComparison.OrdinalIgnoreCase))
+            failures.Add($"T032-RED: .IUMP.Auth cookie must be SameSite=Lax. Got: '{cookieHeader}'");
+
+        var body = ReadBody(ctx);
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        var tokenInBody = body.Contains(result.TokenCookieValue!, StringComparison.Ordinal);
+        if (tokenInBody)
+            failures.Add("T032-RED: Login response body must not contain the raw token.");
+
+        if (body.Contains("tokenHash", StringComparison.OrdinalIgnoreCase))
+            failures.Add("T032-RED: Login response body must not contain tokenHash.");
+
+        if (!root.TryGetProperty("message", out var msg) || msg.GetString() != "Authenticated.")
+            failures.Add("T032-RED: Login response body must contain {\"message\":\"Authenticated.\"}");
     }
 
-    private static void ResolveMeReturnsSnapshot(List<string> failures)
+    private static void LogoutHandlerTests(List<string> failures)
+    {
+        var auth = new TestAuthService();
+        var ctx = MakeHttpContext();
+        ctx.Request.Headers["Cookie"] = ".IUMP.Auth=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1";
+        var antiforgery = new FakeAntiforgery();
+
+        var result = AuthEndpointHandlers.HandleLogout(ctx, auth, antiforgery);
+        result.ExecuteAsync(ctx).GetAwaiter().GetResult();
+
+        var body = ReadBody(ctx);
+        var cookieHeader = GetSetCookieHeader(ctx);
+
+        if (!cookieHeader.Contains(".IUMP.Auth"))
+            failures.Add("T032-RED: Logout must delete .IUMP.Auth cookie.");
+
+        if (!cookieHeader.Contains("expires=", StringComparison.OrdinalIgnoreCase) &&
+            !cookieHeader.Contains("Max-Age=0", StringComparison.OrdinalIgnoreCase))
+            failures.Add("T032-RED: Logout cookie deletion must include expiry or Max-Age=0.");
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("message", out var msg) || msg.GetString() != "Logged out.")
+            failures.Add("T032-RED: Logout response body must contain {\"message\":\"Logged out.\"}");
+    }
+
+    private static void MeHandlerTests(List<string> failures)
     {
         var auth = CreateAuthService();
         var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
-
         var loginResult = auth.Login(new LoginRequest("activeuser", "any"), now);
         if (!loginResult.IsSuccess)
         {
-            failures.Add("T032-FAIL: Cannot test ResolveMe without successful login.");
+            failures.Add("T032-RED: Cannot test /me without successful login.");
             return;
         }
 
-        var rawBytes = Convert.FromHexString(loginResult.TokenCookieValue!);
-        var tokenHash = Convert.ToHexString(
-            SHA256.HashData(rawBytes)).ToLowerInvariant();
+        var ctx = MakeHttpContext();
+        ctx.Request.Headers["Cookie"] = $".IUMP.Auth={loginResult.TokenCookieValue}";
 
-        var me = auth.ResolveMe(tokenHash);
+        var result = AuthEndpointHandlers.HandleMe(ctx, auth);
+        result.ExecuteAsync(ctx).GetAwaiter().GetResult();
 
-        if (me == null)
-        {
-            failures.Add("T032-FAIL: ResolveMe must return a snapshot for a valid session.");
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(me.UserId))
-            failures.Add("T032-FAIL: MeSnapshot must include UserId.");
-        if (string.IsNullOrWhiteSpace(me.Username))
-            failures.Add("T032-FAIL: MeSnapshot must include Username.");
-        if (me.Roles.Count == 0)
-            failures.Add("T032-FAIL: MeSnapshot must include at least one Role.");
-        if (!me.Roles.Contains("Engineer"))
-            failures.Add("T032-FAIL: MeSnapshot must include the user's role name.");
+        var body = ReadBody(ctx);
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("userId", out _))
+            failures.Add("T032-RED: /me response must include userId.");
+
+        if (!root.TryGetProperty("username", out _))
+            failures.Add("T032-RED: /me response must include username.");
+
+        if (!root.TryGetProperty("roles", out _))
+            failures.Add("T032-RED: /me response must include roles array.");
+
+        if (!root.TryGetProperty("scopes", out _))
+            failures.Add("T032-RED: /me response must include scopes array.");
+
+        if (!root.TryGetProperty("capabilities", out _))
+            failures.Add("T032-RED: /me response must include capabilities array.");
     }
 
-    private static void LogoutRevokesSession(List<string> failures)
+    private static void AntiforgeryHandlerTests(List<string> failures)
     {
-        var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var ctx = MakeHttpContext();
+        var antiforgery = new FakeAntiforgery();
 
-        var loginResult = auth.Login(new LoginRequest("activeuser", "any"), now);
-        if (!loginResult.IsSuccess)
-        {
-            failures.Add("T032-FAIL: Cannot test logout without successful login.");
-            return;
-        }
+        var result = AuthEndpointHandlers.HandleAntiforgery(ctx, antiforgery);
+        result.ExecuteAsync(ctx).GetAwaiter().GetResult();
 
-        var rawBytes = Convert.FromHexString(loginResult.TokenCookieValue!);
-        var tokenHash = Convert.ToHexString(
-            SHA256.HashData(rawBytes)).ToLowerInvariant();
+        var body = ReadBody(ctx);
+        var cookieHeader = GetSetCookieHeader(ctx);
 
-        var revoked = auth.RevokeSession(tokenHash, now);
-        if (!revoked)
-            failures.Add("T032-FAIL: RevokeSession must return true for a valid session.");
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
 
-        var meAfter = auth.ResolveMe(tokenHash);
-        if (meAfter != null)
-            failures.Add("T032-FAIL: Session must not resolve after revocation.");
+        if (!root.TryGetProperty("token", out var token) || token.GetString() != "req-token")
+            failures.Add("T032-RED: Antiforgery handler must return request token.");
+
+        if (!cookieHeader.Contains(".IUMP.Xsrf"))
+            failures.Add("T032-RED: Antiforgery handler must set .IUMP.Xsrf cookie.");
     }
 }

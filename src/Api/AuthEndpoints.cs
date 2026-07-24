@@ -4,6 +4,11 @@ using IUMP.Modules.IAM.Contracts;
 
 namespace IUMP.Api;
 
+public sealed class RequireAntiforgeryCheckAttribute : Attribute, IAntiforgeryMetadata
+{
+    public bool RequiresValidation => true;
+}
+
 public sealed class CredentialVerifier : ICredentialVerifier
 {
     private readonly PasswordHasher<string> _hasher = new();
@@ -57,8 +62,11 @@ public static class AuthEndpointHandlers
         return Results.Ok(new { message = "Authenticated." });
     }
 
-    public static IResult HandleLogout(HttpContext ctx, IAuthService auth)
+    public static IResult HandleLogout(HttpContext ctx, IAuthService auth, IAntiforgery antiforgery)
     {
+        if (!antiforgery.IsRequestValidAsync(ctx).GetAwaiter().GetResult())
+            return Results.Json(new { error = "Antiforgery validation failed." }, statusCode: StatusCodes.Status400BadRequest);
+
         var cookieValue = ctx.Request.Cookies[AuthCookie];
         if (!string.IsNullOrWhiteSpace(cookieValue))
         {
@@ -118,9 +126,10 @@ public static class AuthEndpoints
         group.MapPost("/login", (LoginRequest request, IAuthService auth, HttpContext ctx) =>
             AuthEndpointHandlers.HandleLogin(request, auth, ctx, _authPolicy));
 
-        group.MapPost("/logout", (HttpContext ctx, IAuthService auth) =>
-            AuthEndpointHandlers.HandleLogout(ctx, auth))
-            .RequireAuthorization();
+        group.MapPost("/logout", (HttpContext ctx, IAuthService auth, IAntiforgery af) =>
+            AuthEndpointHandlers.HandleLogout(ctx, auth, af))
+            .RequireAuthorization()
+            .WithMetadata(new RequireAntiforgeryCheckAttribute());
 
         group.MapGet("/antiforgery", (HttpContext ctx, IAntiforgery antiforgery) =>
             AuthEndpointHandlers.HandleAntiforgery(ctx, antiforgery));

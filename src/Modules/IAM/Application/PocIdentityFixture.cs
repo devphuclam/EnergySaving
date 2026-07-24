@@ -3,6 +3,11 @@ using IUMP.Modules.IAM.Contracts;
 
 namespace IUMP.Modules.IAM.Application;
 
+public interface IPocCredentialHashProvider
+{
+    string GetPasswordHash(string username);
+}
+
 public interface IPocIdentityFixture
 {
     IReadOnlyList<User> GetDeterministicUsers();
@@ -13,72 +18,95 @@ public interface IPocIdentityFixture
 
 public sealed class PocIdentityFixture : IPocIdentityFixture
 {
-    private static readonly IReadOnlyList<User> DeterministicUsers = CreateUsers();
-    private static readonly Role[] AllRoles = { Role.Administrator, Role.Engineer, Role.Operator, Role.Manager, Role.Viewer };
-    private static readonly Role[] ScopedRoles = { Role.Engineer, Role.Operator, Role.Manager, Role.Viewer };
-
     private readonly IIamCommandRepository _repository;
+    private readonly IPocCredentialHashProvider _hashProvider;
+    private readonly bool _enabled;
 
     public PocIdentityFixture(IIamCommandRepository repository)
+        : this(repository, new NullPocCredentialHashProvider(), false)
     {
-        _repository = repository;
     }
 
-    public IReadOnlyList<User> GetDeterministicUsers() => DeterministicUsers;
-    public bool IsFixtureEnabled { get; } = true;
+    public PocIdentityFixture(IIamCommandRepository repository,
+        IPocCredentialHashProvider hashProvider, bool enabled = false)
+    {
+        _repository = repository;
+        _hashProvider = hashProvider;
+        _enabled = enabled;
+    }
+
+    public IReadOnlyList<User> GetDeterministicUsers()
+    {
+        var hash = _hashProvider.GetPasswordHash("poc-placeholder");
+        if (string.IsNullOrWhiteSpace(hash))
+            return Array.Empty<User>();
+
+        return CreateUsers(hash);
+    }
+
+    public bool IsFixtureEnabled => _enabled;
 
     public async Task<bool> ApplyPostSiteFixtureAsync(Guid siteId, CancellationToken ct = default)
     {
         if (!IsFixtureEnabled || siteId == Guid.Empty)
             return false;
 
-        foreach (var user in DeterministicUsers)
+        var hash = _hashProvider.GetPasswordHash("poc-placeholder");
+        if (string.IsNullOrWhiteSpace(hash))
+            return false;
+
+        var users = CreateUsers(hash);
+        var tx = await _repository.BeginTransactionAsync(ct);
+
+        try
         {
-            var existing = await _repository.FindUserByUsernameAsync(user.Username, ct);
-            if (existing == null)
+            foreach (var user in users)
             {
-                await _repository.AddUserAsync(user, ct);
-            }
+                var existing = await _repository.FindUserByUsernameAsync(user.Username, ct);
+                if (existing == null)
+                    await _repository.AddUserAsync(user, ct);
 
-            foreach (var role in user.Roles)
-            {
-                var existingRoles = await _repository.GetRolesForUserAsync(user.Id, ct);
-                if (!existingRoles.Contains(role))
+                foreach (var role in user.Roles)
                 {
-                    await _repository.AssignRoleAsync(user.Id, role, user.Id, ct);
+                    var existingRoles = await _repository.GetRolesForUserAsync(user.Id, ct);
+                    if (!existingRoles.Contains(role))
+                        await _repository.AssignRoleAsync(user.Id, role, user.Id, ct);
+                }
+
+                var scopedRoles = new[] { Role.Engineer, Role.Operator, Role.Manager, Role.Viewer };
+                if (scopedRoles.Contains(user.Roles[0]))
+                {
+                    var existingScopes = await _repository.GetScopesForUserAsync(user.Id, ct);
+                    if (!existingScopes.Any(s => s.SiteId == siteId))
+                    {
+                        var scope = new Scope(ScopeId.New(), user.Id, siteId, null);
+                        await _repository.AddScopeAsync(scope, ct);
+                    }
+                }
+
+                if (user.Roles.Contains(Role.Manager))
+                {
+                    var caps = await _repository.GetActiveCapabilitiesForUserAsync(user.Id, ct);
+                    var allCaps = await _repository.GetAllCapabilitiesAsync(ct);
+                    var auditRead = allCaps.FirstOrDefault(c => c.Code == "AUDIT_READ");
+                    if (auditRead != null && !caps.Any(uc => uc.CapabilityId == auditRead.Id))
+                    {
+                        var uc = new UserCapability(
+                            UserCapabilityId.New(), user.Id, auditRead.Id, user.Id,
+                            DateTime.UtcNow, 1);
+                        await _repository.AddUserCapabilityAsync(uc, ct);
+                    }
                 }
             }
 
-            if (ScopedRoles.Contains(user.Roles[0]))
-            {
-                var existingScopes = await _repository.GetScopesForUserAsync(user.Id, ct);
-                if (!existingScopes.Any(s => s.SiteId == siteId))
-                {
-                    var scope = new Scope(ScopeId.New(), user.Id, siteId, null);
-                    await _repository.AddScopeAsync(scope, ct);
-                }
-            }
-
-            if (user.Roles.Contains(Role.Manager))
-            {
-                var caps = await _repository.GetActiveCapabilitiesForUserAsync(user.Id, ct);
-                var allCaps = await _repository.GetAllCapabilitiesAsync(ct);
-                var auditRead = allCaps.FirstOrDefault(c => c.Code == "AUDIT_READ");
-                if (auditRead != null && !caps.Any(uc => uc.CapabilityId == auditRead.Id))
-                {
-                    var uc = new UserCapability(
-                        UserCapabilityId.New(),
-                        user.Id,
-                        auditRead.Id,
-                        user.Id,
-                        DateTime.UtcNow,
-                        1);
-                    await _repository.AddUserCapabilityAsync(uc, ct);
-                }
-            }
+            await tx.CommitAsync(ct);
+            return true;
         }
-
-        return true;
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
     }
 
     public async Task<bool> ApplyPostAreaFixtureAsync(Guid siteId, Guid areaId, CancellationToken ct = default)
@@ -86,24 +114,39 @@ public sealed class PocIdentityFixture : IPocIdentityFixture
         if (!IsFixtureEnabled || siteId == Guid.Empty || areaId == Guid.Empty)
             return false;
 
-        foreach (var user in DeterministicUsers)
+        var users = GetDeterministicUsers();
+        if (users.Count == 0)
+            return false;
+
+        var tx = await _repository.BeginTransactionAsync(ct);
+
+        try
         {
-            var existingScopes = await _repository.GetScopesForUserAsync(user.Id, ct);
-            var siteScope = existingScopes.FirstOrDefault(s => s.SiteId == siteId && s.AreaId == null);
-            if (siteScope != null)
+            foreach (var user in users)
             {
-                var areaScope = new Scope(ScopeId.New(), user.Id, siteId, areaId);
-                if (!existingScopes.Any(s => s.SiteId == siteId && s.AreaId == areaId))
+                var existingScopes = await _repository.GetScopesForUserAsync(user.Id, ct);
+                var siteScope = existingScopes.FirstOrDefault(s => s.SiteId == siteId && s.AreaId == null);
+                if (siteScope != null)
                 {
-                    await _repository.AddScopeAsync(areaScope, ct);
+                    if (!existingScopes.Any(s => s.SiteId == siteId && s.AreaId == areaId))
+                    {
+                        var areaScope = new Scope(ScopeId.New(), user.Id, siteId, areaId);
+                        await _repository.AddScopeAsync(areaScope, ct);
+                    }
                 }
             }
-        }
 
-        return true;
+            await tx.CommitAsync(ct);
+            return true;
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            return false;
+        }
     }
 
-    private static IReadOnlyList<User> CreateUsers()
+    private static IReadOnlyList<User> CreateUsers(string hash)
     {
         var adminId = UserId.Parse("00000000-0000-0000-0000-000000000001");
         var engineerId = UserId.Parse("00000000-0000-0000-0000-000000000002");
@@ -113,11 +156,16 @@ public sealed class PocIdentityFixture : IPocIdentityFixture
 
         return new[]
         {
-            new User(adminId, "admin", "AQAAAAIAAYagAAAAEJ7U8Kx8mHs5jKZy6JqV0c7f3e2d1b9a4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8", UserStatus.Active, new[] { Role.Administrator }),
-            new User(engineerId, "engineer", "AQAAAAIAAYagAAAAEJ7U8Kx8mHs5jKZy6JqV0c7f3e2d1b9a4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8", UserStatus.Active, new[] { Role.Engineer }),
-            new User(operatorId, "operator", "AQAAAAIAAYagAAAAEJ7U8Kx8mHs5jKZy6JqV0c7f3e2d1b9a4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8", UserStatus.Active, new[] { Role.Operator }),
-            new User(managerId, "manager", "AQAAAAIAAYagAAAAEJ7U8Kx8mHs5jKZy6JqV0c7f3e2d1b9a4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8", UserStatus.Active, new[] { Role.Manager }),
-            new User(viewerId, "viewer", "AQAAAAIAAYagAAAAEJ7U8Kx8mHs5jKZy6JqV0c7f3e2d1b9a4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8", UserStatus.Active, new[] { Role.Viewer }),
+            new User(adminId, "admin", hash, UserStatus.Active, new[] { Role.Administrator }),
+            new User(engineerId, "engineer", hash, UserStatus.Active, new[] { Role.Engineer }),
+            new User(operatorId, "operator", hash, UserStatus.Active, new[] { Role.Operator }),
+            new User(managerId, "manager", hash, UserStatus.Active, new[] { Role.Manager }),
+            new User(viewerId, "viewer", hash, UserStatus.Active, new[] { Role.Viewer }),
         };
     }
+}
+
+public sealed class NullPocCredentialHashProvider : IPocCredentialHashProvider
+{
+    public string GetPasswordHash(string username) => "";
 }
