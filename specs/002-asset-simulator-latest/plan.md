@@ -394,8 +394,9 @@ src/Api/  src/Worker/  src/BuildingBlocks/  src/Modules/{IAM,Organization,Catalo
 src/Web/src/  database/migrations/  database/seeds/  tests/{Unit,Integration,Architecture,Verification}/
 ```
 
-The existing `tasks.md` is outside this planning repair and requires the targeted repair identified
-by the readiness gate.
+`tasks.md` is maintained as the implementation graph. The repaired graph remains subject to final
+`/speckit.analyze`; implementation remains gated by clean analysis and Phase 0 constitution
+governance.
 
 ## Migration sequence
 

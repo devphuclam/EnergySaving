@@ -333,23 +333,23 @@ Full/release non-passing.
 - [ ] T228 [P] [US3] [RUNNABLE_NOW] Add Latest/Health race/restart-test source in `tests/Integration/Acceptance/LatestHealthRaceTests.cs`; References: SC-003/004; Depends: T223; Verify: source review/compile PASS/FAIL.
 - [ ] T229 [P] [US5] [RUNNABLE_NOW] Add Audit/idempotency E2E acceptance-test source in `tests/Integration/Acceptance/AuditIdempotencyE2ETests.cs`; References: SC-006,P-020/P-021; Depends: T223; Verify: source review/compile PASS/FAIL.
 - [ ] T230 [P] [US1] [RUNNABLE_NOW] Add deterministic timed-journey acceptance harness/source in `tests/Integration/Acceptance/TimedJourneyAcceptanceTests.cs`; References: SC-001/002; Depends: T223; Verify: source review/compile PASS/FAIL and captures a clean POC foundation with no root Site, authenticated Administrator creation of the Site and Engineer scope, Engineer Draft Area/Asset/Point/Source/configuration/Mapping preparation, top-down activation, SC-001 stop when the configured hierarchy is operational, and SC-002 stop when the first Accepted Measurement is visible through the supported Latest/API/UI journey.
-- [ ] T231 [US1] [BLOCKED_BY_DATABASE_ACCESS] Execute the timed SC-001/SC-002 journeys and record `specs/002-asset-simulator-latest/checklists/sc-001-sc-002-timed-journeys.md`; References: SC-001/002,quickstart; Depends: T230; Verify: use approved PostgreSQL, locked packages, required API/Worker/Web tools, and company-approved runtime prerequisites; start SC-001 before root-Site creation and SC-002 at the successful Point activation result, record start/end/elapsed times, execute SC-001 without consulting documentation and require <=5 minutes, require SC-002 activation-to-first-Accepted-Measurement visibility <=2 minutes, and record exact blocker classification; any prerequisite blocker is BLOCKED and never a timing PASS.
-- [ ] T232 [RUNNABLE_NOW] Create reviewed deterministic `database/migrations/0012_r1_idempotent_seeds.sql`; References: migration order 0012,P-019; Depends: T190,T200,T027,T048,T070,T086,T087,T123,T144,T162; Verify: fixed IDs/no credentials/no pre-Site scope/rerun review PASS/FAIL.
-- [ ] T233 [RUNNABLE_NOW] Create reviewed `database/migrations/0013_r1_validation_reconciliation.sql`; References: migration order 0013; Depends: T232; Verify: read-only/reconciling owner/registry/Latest/Audit/delivery checks review PASS/FAIL.
-- [ ] T234 [BLOCKED_BY_DATABASE_ACCESS] Execute ordered 0001-0013 clean/N-1 migrations and record `specs/002-asset-simulator-latest/checklists/migrations-full.md`; References: ADR-015; Depends: T233,T031,T052,T074,T090,T127,T148,T166,T206; Verify: checksum/order/constraints/forward-fix PASS/FAIL or BLOCKED.
-- [ ] T235 [P] [BLOCKED_BY_DATABASE_ACCESS] Execute T226-T229 race/crash/E2E suites on approved PostgreSQL; References: SC-003/004/006/007/009; Depends: T226,T227,T228,T229,T234; Verify: suite PASS/FAIL or exact BLOCKED, never substitute DB.
-- [ ] T236 [P] [BLOCKED_BY_MISSING_TOOL] Execute API/Worker/Web/quickstart smoke with required local tools and record `specs/002-asset-simulator-latest/checklists/quickstart-evidence.md`; References: quickstart; Depends: T223; Verify: observable PASS/FAIL or exact missing-tool BLOCKED.
+- [ ] T231 [RUNNABLE_NOW] Create reviewed deterministic `database/migrations/0012_r1_idempotent_seeds.sql`; References: migration order 0012,P-019; Depends: T190,T200,T027,T048,T070,T086,T087,T123,T144,T162; Verify: fixed IDs/no credentials/no pre-Site scope/rerun review PASS/FAIL.
+- [ ] T232 [RUNNABLE_NOW] Create reviewed `database/migrations/0013_r1_validation_reconciliation.sql`; References: migration order 0013; Depends: T231; Verify: read-only/reconciling owner/registry/Latest/Audit/delivery checks review PASS/FAIL.
+- [ ] T233 [BLOCKED_BY_DATABASE_ACCESS] Execute ordered 0001-0013 clean/N-1 migrations and record `specs/002-asset-simulator-latest/checklists/migrations-full.md`; References: ADR-015; Depends: T232,T031,T052,T074,T090,T127,T148,T166,T206; Verify: checksum/order/constraints/forward-fix PASS/FAIL or BLOCKED.
+- [ ] T234 [P] [BLOCKED_BY_MISSING_TOOL] Execute API/Worker/Web/quickstart smoke with required local tools and record `specs/002-asset-simulator-latest/checklists/quickstart-evidence.md`; References: quickstart; Depends: T223; Verify: observable PASS/FAIL or exact missing-tool BLOCKED.
+- [ ] T235 [US1] [BLOCKED_BY_DATABASE_ACCESS] Execute the timed SC-001/SC-002 journeys and record `specs/002-asset-simulator-latest/checklists/sc-001-sc-002-timed-journeys.md`; References: SC-001/002,quickstart,T230,T233,T234,T005,T034; Depends: T230,T233,T234,T005,T034; Verify: execute only after the timed harness, reviewed 0012/0013 sources, ordered full migration evidence, quickstart smoke evidence, and approved Data Protection/runtime provisioning are PASS or truthfully BLOCKED; start SC-001 before root-Site creation and SC-002 at the successful Point activation result, record start/end/elapsed times, execute SC-001 without consulting documentation and require <=5 minutes, require SC-002 activation-to-first-Accepted-Measurement visibility <=2 minutes, and record PASS/FAIL/BLOCKED/NOT_RUN exactly; any prerequisite blocker is BLOCKED and never a timing PASS.
+- [ ] T236 [P] [BLOCKED_BY_DATABASE_ACCESS] Execute T226-T229 race/crash/E2E suites on approved PostgreSQL; References: SC-003/004/006/007/009; Depends: T226,T227,T228,T229,T233; Verify: suite PASS/FAIL or exact BLOCKED, never substitute DB.
 - [ ] T237 [P] [RUNNABLE_NOW] Extend correlation/causation/log-redaction verification in `tests/Verification/observability.tests.ps1`; References: ADR-011,P-021; Depends: T223; Verify: script PASS/FAIL and no secrets.
-- [ ] T238 [RUNNABLE_NOW] Build 68-FR implementation-and-evidence traceability in `specs/002-asset-simulator-latest/checklists/requirements-traceability.md`; References: spec FR index; Depends: T224,T225,T226,T227,T228,T229,T230,T231,T232,T233,T237; Verify: 68/68 unique FRs each map to green task and evidence task, PASS/FAIL.
-- [ ] T239 [RUNNABLE_NOW] Build five-story/nine-criterion traceability in `specs/002-asset-simulator-latest/checklists/acceptance-traceability.md`; References: US1-US5,SC-001..009; Depends: T238; Verify: 5/5 and 9/9 with implementation/evidence mappings, including timed SC-001/SC-002 evidence, PASS/FAIL.
+- [ ] T238 [RUNNABLE_NOW] Build 68-FR implementation-and-evidence traceability in `specs/002-asset-simulator-latest/checklists/requirements-traceability.md`; References: spec FR index,SC-001/002 timed task T235 state; Depends: T224,T225,T226,T227,T228,T229,T230,T231,T232,T237; Verify: 68/68 unique FRs each map to green task and evidence task; timed evidence state is recorded without requiring T235 to pass or complete, PASS/FAIL.
+- [ ] T239 [RUNNABLE_NOW] Build five-story/nine-criterion traceability in `specs/002-asset-simulator-latest/checklists/acceptance-traceability.md`; References: US1-US5,SC-001..009,T235; Depends: T238; Verify: 5/5 and 9/9 with implementation/evidence mappings; record T235 as PASS, FAIL, BLOCKED, or NOT_RUN without requiring it to pass or complete, PASS/FAIL.
 - [ ] T240 [RUNNABLE_NOW] Run Standards and Spec-compliance reviews and resolve every Critical/High finding in `docs/code-review.md`; References: repository workflow step 9; Depends: T239; Verify: zero unresolved Critical/High PASS, otherwise FAIL.
 - [ ] T241 [RUNNABLE_NOW] Run `.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest` and record `specs/002-asset-simulator-latest/checklists/phase-10-fast.md`; References: repository harness; Depends: T240; Verify: fresh command exit/output yields PASS or FAIL.
-- [ ] T242 [BLOCKED_BY_DATABASE_ACCESS] Run Full harness database checks and record `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T234,T235,T241; Verify: PASS/FAIL with approved DB or BLOCKED; Full remains non-passing while mandatory blocker exists.
+- [ ] T242 [BLOCKED_BY_DATABASE_ACCESS] Run Full harness database checks and record `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T233,T236,T241; Verify: PASS/FAIL with approved DB or BLOCKED; Full remains non-passing while mandatory blocker exists.
 - [ ] T243 [BLOCKED_BY_PACKAGE_POLICY] Run Full harness package-dependent checks in `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T241; Verify: PASS/FAIL with approved packages or BLOCKED.
 - [ ] T244 [BLOCKED_BY_MISSING_TOOL] Run Full harness tool-dependent smoke checks in `specs/002-asset-simulator-latest/checklists/phase-10-full.md`; References: repository harness; Depends: T241; Verify: PASS/FAIL with tools or BLOCKED.
 - [ ] T245 [BLOCKED_BY_COMPANY_APPROVAL] Execute approved company CI/release evidence and update `docs/ci-readiness.md`; References: ADR-016; Depends: T241; Verify: approved runner evidence PASS/FAIL or BLOCKED; no public/container substitute.
 - [ ] T246 [RUNNABLE_NOW] Run final architecture/repository-policy verification in `tests/Verification/architecture.tests.ps1` and `tests/Verification/repository-policy.tests.ps1`; References: constitution I/III/V; Depends: T240,T241; Verify: PASS/FAIL for ownership and excluded scope.
-- [ ] T247 [RUNNABLE_NOW] Record Phase 10 final checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-10-acceptance.md`; References: 68 FRs,5 stories,9 criteria; Depends: T238,T239,T240,T241,T246; Verify: record PASS/FAIL/BLOCKED by class/NOT_RUN, capability status, progression/release decision; any mandatory blocker keeps release NO.
+- [ ] T247 [RUNNABLE_NOW] Record Phase 10 final checkpoint and stop in `specs/002-asset-simulator-latest/checklists/phase-10-acceptance.md`; References: 68 FRs,5 stories,9 criteria,T235; Depends: T238,T239,T240,T241,T246; Verify: record PASS/FAIL/BLOCKED/NOT_RUN for every capability, explicitly inspect and record timed T235 state; PASS contributes SC-001/SC-002 evidence, BLOCKED or NOT_RUN keeps release readiness NO, FAIL blocks progression and release, and any mandatory blocker keeps release NO.
 
 ## Dependencies and execution order
 
@@ -372,7 +372,7 @@ Phase 0 governance
   T009, T010, and T011 all pass. If T010 is blocked, T012 is NOT_RUN and green implementation is
   forbidden.
 - Migration source order is T027 -> T048 -> T070 -> T086 -> T087 -> T123 -> T144 -> T162 ->
-  T183/T200 -> T190 -> T232 -> T233, corresponding to 0002..0013.
+  T183/T200 -> T190 -> T231 -> T232, corresponding to 0002..0013.
 - Checkpoint stops are T012,T037,T055,T077,T093,T107,T130,T151,T169,T223,T247.
 - Blocked execution tasks are evidence leaves, not prerequisites for runnable reviews/checkpoints;
   checkpoints inspect their state and mark capability incomplete.
@@ -393,8 +393,9 @@ Phase 0 governance
 - Phase 6 red tests T108-T113 are parallel; generator/identity work T118-T119 uses separate files.
 - Phase 9 red tests T170-T181 are parallel. Web feature tasks T213-T216 are parallel after T212.
 - Phase 10 source tasks T224-T230 and observability T237 are parallel; blocked executions remain
-  separate from runnable source creation. T231 is the separately classified timed-journey execution
-  gate and cannot report timing PASS when runtime prerequisites are blocked.
+  separate from runnable source creation. T235 is the separately classified timed-journey execution
+  gate after migration and quickstart prerequisites; it cannot report timing PASS when prerequisites
+  are blocked.
 
 ## Requirement and evidence coverage
 
@@ -412,8 +413,8 @@ Phase 0 governance
 
 Specific coverage: FR-018 T109/T119/T131/T140/T148/T227; FR-028 and FR-IAM-004/005
 T014/T023/T178-T181/T207-T210/T224; FR-035..039 T096/T102/T113/T135/T175-T176/T198-T210/T220;
-SC-001 T230/T231; SC-002 T230/T231; SC-006 T174-T177/T195-T205/T220/T229; SC-007
-T039/T080/T087/T090/T226/T235; SC-008 T039/T046/T225; SC-009 T057/T066/T225/T226/T235.
+SC-001 T230/T235; SC-002 T230/T235; SC-006 T174-T177/T195-T205/T220/T229; SC-007
+T039/T080/T087/T090/T226/T236; SC-008 T039/T046/T225; SC-009 T057/T066/T225/T226/T236.
 
 ## Implementation strategy and readiness
 
