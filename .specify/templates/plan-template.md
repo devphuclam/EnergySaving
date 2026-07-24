@@ -6,6 +6,18 @@
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
+**Governing Constitution Version**: [e.g., 1.1.0]
+
+**Planning Readiness**: **Planning-ready** — determined by completed specification and design inputs.
+
+**Implementation Readiness**: **NO** — remains NO until all implementation gates pass.
+
+**Release Readiness**: **NO** — remains NO until required release evidence passes.
+
+**Constitution Amendment Required**: [YES/NO]
+
+**Active Feature Phase 0 Checkpoint**: `specs/[###-feature-name]/checklists/phase-00-governance.md`
+
 ## Summary
 
 [Extract from feature spec: primary requirement + technical approach from research]
@@ -36,16 +48,86 @@
 
 **Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
 
-## Constitution Check
+## Constitution and Readiness Gates
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+Each gate records `PASS`, `FAIL`, `BLOCKED`, or `NOT_RUN` evidence. Task executability
+classification and evidence status are separate concepts; blocked evidence is never PASS.
 
-- Product boundary and requested release are explicit; conditional scope is excluded.
-- Requirement, ADR, contract, task, and test traceability is present.
-- Module ownership, interfaces, seams, and composition roots are explicit.
-- Executable behavior identifies a red-green-refactor path; blocked checks are not called passed.
-- Tool, package, database, credential, CI, and container constraints are classified with evidence.
-- Logging, correlation, health, idempotency, migration, and operational evidence are planned.
+### Planning gate
+
+The planning gate MUST verify:
+
+- product boundary and requested release are explicit;
+- authoritative sources are registered, with DOC-02 treated as supporting feasibility input;
+- requirements and exclusions are traceable;
+- module ownership and API/Worker composition roots are explicit;
+- environment restrictions are classified with evidence;
+- required specification, research, data-model, contract, and quickstart artifacts exist; and
+- Planning-ready does not authorize green implementation or release.
+
+**Planning gate evidence**: `PASS | FAIL | BLOCKED | NOT_RUN` — [record command, evidence, and blocker ID]
+
+### Implementation gate
+
+The implementation gate MUST require all of the following:
+
+- cross-artifact `/speckit.analyze` is clean;
+- zero unresolved Critical or High findings;
+- constitution impact has been evaluated;
+- every required constitution amendment is approved and applied;
+- affected templates and guidance are synchronized;
+- the final Phase 0 governance checkpoint permits progression;
+- the governing constitution version is recorded; and
+- green implementation has not bypassed Phase 0.
+
+**Implementation gate evidence**: `PASS | FAIL | BLOCKED | NOT_RUN` — [record command, evidence, and blocker ID]
+
+### Release gate
+
+The release gate MUST require all of the following:
+
+- required functionality and acceptance evidence exist;
+- Fast verification has passed;
+- mandatory Full and environment-dependent evidence has passed;
+- no mandatory blocker remains;
+- the release checkpoint permits release; and
+- Planning-ready or Implementation-ready is not represented as Release-ready.
+
+**Release gate evidence**: `PASS | FAIL | BLOCKED | NOT_RUN` — [record command, evidence, and blocker ID]
+
+## Plan Lifecycle and Phase Rules
+
+Use this generic Constitution 1.1.0 lifecycle:
+
+1. Source registration
+2. Specification
+3. Clarification
+4. Plan and design artifacts
+5. Dependency-ordered tasks
+6. Read-only cross-artifact analysis
+7. Critical/High resolution
+8. Constitution-impact evaluation
+9. Approved amendment when required
+10. Template and guidance synchronization
+11. Phase 0 governance checkpoint
+12. Test-first implementation by phase
+13. Standards and Specification review
+14. Fast verification
+15. Full and environment-dependent verification
+16. Acceptance and release evidence
+
+Each implementation phase MUST define red-test work, recorded red evidence, minimal green work,
+refactor, architecture/repository-policy verification, Standards and Specification review, a phase
+checkpoint, and an explicit stop. Each `/speckit.implement` invocation MUST execute one phase only.
+
+## Evidence Vocabulary
+
+Evidence statuses are `PASS`, `FAIL`, `BLOCKED`, and `NOT_RUN`.
+
+Task classifications are `RUNNABLE_NOW`, `BLOCKED_BY_DATABASE_ACCESS`, `BLOCKED_BY_PACKAGE_POLICY`,
+`BLOCKED_BY_MISSING_TOOL`, and `BLOCKED_BY_COMPANY_APPROVAL`. Classification describes
+executability; status describes execution evidence. They MUST NOT be conflated. Mandatory blockers
+prevent Full and release PASS.
 
 ## Project Structure
 
@@ -110,7 +192,7 @@ directories captured above]
 
 ## Complexity Tracking
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+> **Fill ONLY if a constitution or readiness gate records a violation that must be justified**
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
