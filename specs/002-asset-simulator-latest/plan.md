@@ -82,7 +82,10 @@ and No Data is above the threshold.
 ### P-007 - Run-point determinism
 
 Generator state and sequence are per Run + Point. A new Start creates a new Run; Resume continues
-the same state. Worker leases prevent concurrent production for one Run.
+the same state. `next_source_sequence` starts at zero; every successfully inserted new Constant or
+Normal Pending attempt uses the current cursor and advances it exactly once. Retrying an existing
+Pending attempt never advances sequence or Generated. Worker leases prevent concurrent production
+for one Run.
 
 ### P-008 - Conditional deletion
 
@@ -114,9 +117,11 @@ mutates a version referenced by Running, Paused or historical Runs.
 
 `algorithm_id=IUMP-DETERMINISTIC-V1`, with an explicit `algorithm_version`, is part of the immutable
 configuration. See the normative specification in `contracts/simulator.md` for the exact PCG32
-parameters, state derivation, Box-Muller transform, numeric precision, rounding, clamping, state
+parameters, canonical UTF-8/FNV-1a initialization pseudocode, RXS-M-XS output, Box-Muller transform,
+numeric precision, rounding, clamping, state
 serialization, UUID namespace (`02e993bb-c767-5ff6-963f-530e1dfdff6b`), measurement identity
-derivation, and golden test vector requirements.
+derivation, and three literal golden vectors. Their attempt sequences are `0,0,1`, outputs are
+`12.5000,11.6519,17.9149`, and stored next sequences are `1,1,2`.
 
 ### P-013 - Stable Measurement identity
 
@@ -150,9 +155,22 @@ BLOCKED_BY_ENVIRONMENT. No keys are committed.
 
 Acquisition owns `acquisition.simulator_production_attempt` with primary key
 `(simulator_run_id, point_id, source_sequence)`. The Worker inserts a Pending row in the same
-transaction as PRNG state advancement, calls Telemetry outside that transaction, then finalizes
-idempotently. Crash recovery uses Duplicate response from Telemetry to finalize without
-double-counting. No in-memory checkpoint is used. See `contracts/simulator.md` and `data-model.md`.
+transaction as one new-slot PRNG/sequence/Generated advancement. Before generation it loads any
+existing Pending attempt. That row is the authoritative retry payload: retry invokes no generator,
+does not deserialize/advance PRNG state, and changes neither sequence nor Generated. Telemetry is
+called outside the reservation transaction. Finalization atomically completes the attempt and
+increments exactly one Accepted/Rejected counter from the stable original classification. No
+in-memory checkpoint is used. See `contracts/simulator.md` and `data-model.md`.
+
+### P-015A - Stable Telemetry terminal result
+
+Telemetry extends `telemetry.measurement_identity` as its immutable terminal-result registry.
+A valid trusted Simulator identity commits one Accepted or Rejected result. Accepted result and raw
+Measurement commit atomically; identity-addressable Rejected result commits without a raw row.
+Duplicate returns the exact stored original result, while same ID/different fingerprint is an
+idempotency conflict. Missing/malformed identity and untrusted producer failures happen before
+identity reservation. The immutable duplicate preflight is non-locking; new-result writes retain
+Organization -> Catalog -> Telemetry -> Integration lock order.
 
 ### P-016 - Cross-module lock order
 
@@ -203,7 +221,7 @@ PostgreSQL and package blockers.
 | Organization / `organization` | Site, Area, Asset, Point, hierarchy lifecycle, code uniqueness, interval checks |
 | Catalog / `catalog` | Metric, Unit, compatibility, Data Source, Source-Point Mapping, effective periods and overlap |
 | Acquisition / `acquisition` | Simulator configuration head/versions, Runs, per-Point state (pinned snapshot), production-attempt checkpoint, generation and counters |
-| Telemetry / `telemetry` | trusted internal ingestion, identity (validated, not generated), raw Measurements, Latest, Source Health |
+| Telemetry / `telemetry` | trusted internal ingestion, immutable Accepted/Rejected identity result registry, Accepted raw Measurements, Latest, Source Health |
 | Audit / `audit` | immutable audit events and authorized audit query (AUDIT_READ capability) |
 | Integration / `integration` | existing `outbox_event` and `inbox_message` delivery infrastructure |
 | Operations / `operations` | existing `job`, Worker leases, scheduling and health evaluation |
@@ -284,10 +302,11 @@ checkpoint pass.
 
 ### Phase 7 - Canonical Telemetry ingestion
 
-Validate trusted producer, identity (Acquisition-provided measurement_id), mapping/Point/catalog,
-timestamps, quality and lineage; persist accepted/rejected/duplicate outcomes and update Latest.
+Validate trusted producer, Acquisition-provided identity, mapping/Point/catalog, timestamps,
+quality and lineage; persist one Accepted/Rejected terminal result, persist Accepted raw history,
+return Duplicate by exact registry replay, and update Latest.
 **Checkpoint**: P-001/P-002 behavior, out-of-order storage, stable identity and counter semantics,
-and duplicate returning original classification pass.
+Rejected-without-raw durability, and Duplicate returning the exact stored original result pass.
 
 ### Phase 8 - Latest and Source Health
 
@@ -329,7 +348,7 @@ Migrations are immutable, forward-fix and dependency ordered:
 | 0005 | Acquisition | configuration head and immutable configuration versions |
 | 0006 | Catalog | Source-Point Mapping after Point exists, effective periods and overlap |
 | 0007 | Acquisition | Run, per-Point state (extended with pinned snapshot), production-attempt checkpoint and leases |
-| 0008 | Telemetry | identity registry and raw Measurement |
+| 0008 | Telemetry | immutable terminal identity/result registry and Accepted raw Measurement |
 | 0009 | Telemetry | Latest and physical point_source_status projections/indexes |
 | 0010 | Audit | append-only audit storage and permissions |
 | 0011 | Integration/Operations | additive R1 changes to existing `integration.outbox_event`, `integration.inbox_message`, `operations.job` (only if proven necessary) |
@@ -345,7 +364,7 @@ migration.
 ## Traceability
 
 | Phase / requirement group | Count | Owner / design phase | Evidence |
-|---|---|---:|---|---|
+|---|---:|---|---|
 | Phase 1: FR-IAM-001..008 | 8 | IAM / 1 | sessions, fixed roles, scopes, capabilities, bootstrap negatives |
 | Phase 2: FR-CAT-001..004, FR-DS-001..004 | 8 | Catalog / 2 | compatibility, seeds, mapping lifecycle/overlap/delete |
 | Phase 3: FR-001..007, FR-DC-001..005 | 12 | Organization / 3 | Draft hierarchy, codes, terminal non-cascade decommission |
@@ -414,7 +433,8 @@ jobs compare references and report drift. This applies to:
 
 TDD covers lifecycle, bootstrap, sessions, role/scope, capabilities, uniqueness, compatibility, Data
 Owner, configuration version immutability, mapping cardinality, deterministic algorithm (PCG32 +
-Box-Muller), stable identity (UUIDv5 namespace `02e993bb-c767-5ff6-963f-530e1dfdff6b`), Run state,
+Box-Muller and the three literal vectors in `contracts/simulator.md`), stable identity (UUIDv5
+namespace `02e993bb-c767-5ff6-963f-530e1dfdff6b`), Run state,
 production-attempt checkpoint, decommission, quality, Latest ordering, Health, audit, concurrency,
 global lock order, deduplication and cross-scope enumeration. Fast runs pure/architecture/contract
 checks. Full adds approved PostgreSQL migrations, atomicity, partitions/indexes, outbox/inbox,
@@ -449,6 +469,12 @@ substitute database and do not claim end-to-end completion.
 - R0 infrastructure names are `outbox_event`, `inbox_message`, and `job`.
 - source_sequence alone is never sufficient without the persisted PCG32 state/spare for
   reproducibility; all retries use the production-attempt value and do not consume PRNG state again.
+- source_sequence is zero-based per Run + Point: new Constant and Normal slots both advance exactly
+  once; first Constant and first Normal use 0, and resumed Normal uses 1.
+- Telemetry's immutable terminal-result registry makes both Accepted and Rejected duplicates
+  replayable without reconstruction from raw Measurement.
+- Exact generator initialization and the three literal golden vectors are normative in
+  `contracts/simulator.md`; implementation does not select expected outputs.
 - No "rejection/clamping" ambiguity: deterministic clamping on rounded float64 is the only
   bounding policy.
 - No encrypted identity ticket cookie: `.IUMP.Auth` contains an opaque random session token;

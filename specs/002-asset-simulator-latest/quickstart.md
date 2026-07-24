@@ -57,7 +57,9 @@ artifact result is expected and must not be reported as an end-to-end pass.
 
 16. Start the Simulator. Start must fail if Source, Mapping, Point or any ancestor is inactive.
 17. Observe the production-attempt checkpoint (`simulator_production_attempt`) being created as
-    Pending before each Telemetry call, then finalized as Completed with outcome Accepted/Rejected.
+    Pending before each Telemetry call. Verify a new Constant or Normal slot uses current
+    `next_source_sequence`, then advances it once after Pending insert; an existing Pending retry
+    advances neither sequence nor Generated.
 18. Observe Accepted Measurements with stable identity (UUIDv5 under `02e993bb-c767-5ff6-963f-530e1dfdff6b`),
     counters and the immutable Run configuration version.
 19. Verify pinned Run-Point snapshot identity: inactivating the Mapping does not change already-
@@ -71,8 +73,9 @@ artifact result is expected and must not be reported as an end-to-end pass.
 
 23. Submit duplicate, older, equal-time, future-skew and out-of-range internal records; verify
     Duplicate/Accepted/Rejected outcomes, P-001/P-002/P-003 and no Latest regression.
-24. Verify Duplicate returns `original_classification` so the production-attempt can finalize
-    correctly.
+24. Verify an Accepted terminal registry result commits with its raw Measurement, a Rejected
+    terminal registry result commits without raw Measurement, and Duplicate returns the exact stored
+    `original_result` for both classifications.
 
 ### Query and authorization
 
@@ -98,9 +101,29 @@ artifact result is expected and must not be reported as an end-to-end pass.
 ### Crash recovery
 
 31. Simulate Worker crash mid-production: verify the Pending production-attempt row exists.
-32. On restart, verify the Worker re-derives the same value (no new PRNG consumption), calls
-    Telemetry, receives Duplicate with original classification, and finalizes the Pending row
-    as Completed/Duplicate.
+32. On restart, verify Worker loads the Pending authoritative payload, calls Telemetry with its
+    persisted fields, and never invokes the generator, deserializes/advances PRNG, increments
+    `next_source_sequence`, or increments Generated again.
+33. Test both crash positions: before Telemetry, and after Telemetry terminal persistence but before
+    Acquisition finalization. The latter receives Duplicate with exact stored original result.
+    Finalization transitions once and increments exactly one Accepted/Rejected counter; replay is
+    a no-op.
+
+### Normative generator vectors
+
+34. Execute the three literal vectors from `contracts/simulator.md`; do not substitute generated
+    expectations.
+
+| Vector | Attempt sequence | Output | Result state/spare | Stored next sequence |
+|---|---:|---:|---|---:|
+| Constant first slot | 0 | `12.5000` | initial state unchanged; spare invalid | 1 |
+| Normal first slot | 0 | `11.6519` | `ed99faae39338fb74f8167f77e7b0514013f80c23bc5fbfb3f`; spare valid | 1 |
+| Normal persisted-state restart | 1 | `17.9149` | `ed99faae39338fb74f8167f77e7b0514000000000000000000`; spare invalid | 2 |
+
+All use seed 42, Point `11111111-2222-4333-8444-555555555555`, configuration
+`aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee`, configuration version 7 and algorithm version 1. Verify
+Constant consumes zero draws/state change but advances sequence; Vector 3 uses cached z1 and
+consumes zero new draws.
 
 ## Phase checkpoints and expected criteria
 
@@ -112,7 +135,7 @@ artifact result is expected and must not be reported as an end-to-end pass.
 | 4 Simulator mapping | immutable configuration version, one effective Mapping, non-producing Draft Point |
 | 5 Point activation | IAM/Catalog/Organization checks, REPEATABLE READ + global lock order, specific failures |
 | 6 Run/Worker | Start/Pause/Resume/Stop, lease/restart/counters, deterministic values, production-attempt checkpoint, pinned snapshot |
-| 7 Telemetry | identity (Acquisition-provided), quality, duplicate, accepted/rejected, raw history, Latest |
+| 7 Telemetry | immutable Accepted/Rejected result, exact Duplicate replay, Accepted raw history, Latest |
 | 8 Latest/Status | ordering, Online/Stale/NoData, administrative precedence/recovery |
 | 9 API/Web | supported journey, scope-safe reads, AUDIT_READ capability, errors/empty/blocked states |
 | 10 Hardening | all 68 FRs, five stories and nine criteria with truthful blocker evidence |

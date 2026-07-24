@@ -11,7 +11,7 @@ HTTP routes use /api/v1.
 | Hierarchy lifecycle, Point readiness and decommission dependency | Organization | API, Acquisition, Telemetry |
 | Metric/Unit, Source and Mapping | Catalog | Organization, Acquisition, Telemetry |
 | Simulator configuration and Run | Acquisition | API, Worker, Telemetry |
-| Canonical ingestion, Latest and Source Status | Telemetry | Worker, API |
+| Canonical ingestion, immutable terminal outcome registry, Latest and Source Status | Telemetry | Worker, API |
 | Immutable evidence and AuditReview query | Audit | API and authorized reviewers |
 
 Synchronous ports answer facts needed to accept/reject the current operation. Later effects use
@@ -108,7 +108,7 @@ deadlock:
 2. **Organization** — Site, Area, Asset, Point rows
 3. **Catalog** — Metric, Unit, Source, Mapping rows
 4. **Acquisition** — Run, run-point-state, production-attempt rows
-5. **Telemetry** — identity registry, raw Measurement, Latest projection
+5. **Telemetry** — terminal identity/result registry, Accepted raw Measurement, Latest projection
 6. **Integration** — outbox_event row
 
 ### Applied flow orders
@@ -133,7 +133,14 @@ Organization Point → Acquisition Running-Run dependency → Integration outbox
 Organization Asset → child Organization Points ordered by Point ID → Integration outbox
 
 **Telemetry ingestion:**
-Organization operational Point snapshot → Catalog Source/Mapping/Metric/Unit → Telemetry identity/raw/Latest → Integration outbox
+Organization operational Point snapshot → Catalog Source/Mapping/Metric/Unit → Telemetry terminal
+identity/result registry, Accepted raw Measurement and Latest → Integration outbox
+
+Before this locked new-result flow, Telemetry may perform an immutable non-locking registry lookup.
+A matching fingerprint returns Duplicate plus the exact stored Accepted/Rejected result. A different
+fingerprint returns IDEMPOTENCY_CONFLICT. This preflight performs no write and does not change the
+global lock order. Missing/malformed Measurement identity and untrusted producer failures occur
+before registry reservation.
 
 **Source/Mapping hard delete:**
 Organization reference where required → Catalog Source/Mapping → Acquisition dependencies → Telemetry dependencies → Integration outbox

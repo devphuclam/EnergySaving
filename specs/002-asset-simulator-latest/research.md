@@ -50,10 +50,19 @@ reproducibility).
 
 Acquisition owns `acquisition.simulator_production_attempt` with fields for run, point, sequence,
 measurement ID, mapping/config/algorithm snapshots, status (Pending/Completed), Telemetry outcome
-(Accepted/Rejected/Duplicate), original classification, error code and timestamps. The primary
+(Accepted/Rejected/Duplicate), final classification, persisted time/value/unit and safe
+producer/correlation/lineage references, error code and timestamps. The primary
 identity is `(simulator_run_id, point_id, source_sequence)`. Worker inserts a Pending attempt in
-the same Acquisition transaction as state advancement, then calls Telemetry, then finalizes
-idempotently. Crash recovery uses Duplicate detection to finalize without double-counting.
+the same Acquisition transaction as one new-slot state/sequence/Generated advancement, then calls
+Telemetry, then finalizes the attempt and Accepted/Rejected counter atomically.
+
+Before invoking the generator, Worker loads any existing Pending attempt. Pending is the
+authoritative retry payload: reuse its persisted identity, snapshots, time, value, unit and
+provenance; invoke no generator; deserialize/advance no PRNG state; change neither
+`next_source_sequence` nor Generated. A new reservation uses
+`source_sequence = next_source_sequence`; after the Pending insert succeeds,
+`next_source_sequence = source_sequence + 1`. Constant and Normal both reserve and advance exactly
+one slot. Pause/Resume continues; new Start creates new per-Point state at zero.
 
 Alternatives rejected: in-memory checkpoint (lost on crash), letting Telemetry own the checkpoint
 (violates module ownership), no checkpoint at all (crash between state advance and Telemetry
@@ -70,18 +79,42 @@ Mapping. A replacement Mapping requires an explicit new Start/new Run.
 
 ### Decision: Normative deterministic algorithm (IUMP-DETERMINISTIC-V1)
 
-PCG32 with fixed multiplier `6364136223846793005`, increment `1442695040888963407`, unsigned 64-bit
-overflow, `pcg_output_rxs_m_xs_64_32` output function. Initial state derived from seed, stable
-Point ID, configuration ID/version and algorithm version. UUIDs normalized as canonical lowercase
-dashed strings in UTF-8. Constant emits min=max without PRNG. Normal uses Box-Muller polar form with
-two uint32 draws, open-interval `(0,1]` conversion, midpoint mean, range/6 sigma, cached spare, IEEE
-754 float64 precision, 4-decimal rounding, deterministic clamping to bounds. State serialized as 25
-bytes. Three golden vectors (Constant, first Normal, restart Normal) specified with exact inputs.
-No platform-default Random, current-time seed, system randomness or third-party statistics dependency
-is permitted.
+`contracts/simulator.md` is the single normative definition. Canonical seed material is exact UTF-8
+over seed-as-16-hex, lowercase dashed Point/configuration UUIDs and decimal configuration/algorithm
+versions. FNV-1a-64 mixing uses literal offset/prime and unsigned overflow. Standard PCG seeding,
+state transition, RXS-M-XS output multiplier/projection and every intermediate truncation are
+literal pseudocode. State/spare serialization is 25-byte little-endian.
+
+Constant emits min=max with no draws/state change but advances the reserved source sequence. A fresh
+standard trigonometric Box-Muller pair consumes two draws and returns z0; the next value may consume
+cached z1 with zero draws. Computation is IEEE 754 float64; one bounding policy applies: ties-to-even
+round to four decimals, then clamp. The three literal vectors use attempt sequences `0,0,1`, outputs
+`12.5000,11.6519,17.9149`, and stored next sequences `1,1,2`, with exact initial/result state hex
+and spare values in the contract.
 
 Alternatives rejected: System.Random (not deterministic across platforms), third-party library
-(violates restriction policy), rejection sampling without spare (unbounded worst-case draws).
+(violates restriction policy), implementation-chosen hash/seeding or expected vectors (not
+portable), and rejection sampling without spare (unbounded worst-case draws).
+
+### Decision: Stable Telemetry terminal outcome registry
+
+Telemetry extends `telemetry.measurement_identity` as its immutable terminal-result registry,
+preserving Telemetry schema ownership and the existing global dedup entity. It stores request
+identity/fingerprint, Accepted/Rejected final classification, Measurement-persisted flag/reference,
+quality/reason/rejection, Latest result, completion time and safe correlation/lineage references.
+Accepted result and raw Measurement commit atomically. An identity-addressable Rejected result
+commits atomically without a raw Measurement. Duplicate returns the exact stored original result;
+Rejected is never reconstructed from raw history. Same ID with a different fingerprint is an
+idempotency conflict.
+
+Trusted-producer and well-formed/recomputed Measurement-ID checks happen before identity reservation.
+An immutable non-locking registry preflight may return Duplicate; new results retain the established
+Organization -> Catalog -> Telemetry -> Integration lock order. Acquisition applies stored original
+classification exactly once during the first Pending -> Completed transition.
+
+Alternatives rejected: reconstructing Rejected from absent raw history, storing the registry in
+Acquisition (violates ownership), mutable/in-progress registry rows, or revalidating changed owner
+state before returning an already terminal Duplicate.
 
 ### Decision: Fixed UUID namespace
 
@@ -233,3 +266,6 @@ Migrations are updated to include:
 All repair points have a documented decision. Unresolved questions: **0**. The constitution's
 historical R0-only implementation restriction and missing PostgreSQL/package approvals are execution
 gates, not product questions.
+
+The eight repaired planning artifacts contain no remaining sequence, retry, outcome-persistence or
+generator contradiction. Requirements coverage is 68/68, stories 5/5 and success criteria 9/9.

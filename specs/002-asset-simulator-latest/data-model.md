@@ -36,9 +36,9 @@
 | `simulator_configuration` | Acquisition/`acquisition` | config ID / source aggregate | source ID, current version, metadata; source/current index | `version`; head only | retain; audit version change |
 | `simulator_configuration_version` | Acquisition/`acquisition` | `(config_id,configuration_version)` | scenario, interval, min/max, seed, `algorithm_id`, `algorithm_version`; Constant min=max, Normal min<max | immutable; version identity | never delete if Run references; audit |
 | `simulator_run` | Acquisition/`acquisition` | `run_id` / source+run | source/config/version, Running/Paused/Stopped, counters, error, lease; status/lease indexes | `version`, idempotency; run lifetime | retain after production; stop terminal; audit |
-| `simulator_run_point_state` | Acquisition/`acquisition` | `(run_id,point_id)` | pinned snapshot: point_id, point_version_at_start, mapping_id, mapping_version, metric_id, unit_id, unit_code, source_version, next_source_sequence, prng_state (bytea 25), next_due_at; nonnegative/indexed | version; Run lifetime | retain with Run; operational evidence |
-| `simulator_production_attempt` | Acquisition/`acquisition` | `(run_id,point_id,source_sequence)` | measurement_id, mapping/config/algorithm snapshots, source_timestamp, numeric_value, unit_code, status Pending/Completed, telemetry_outcome Accepted/Rejected/Duplicate, original_classification, latest_advanced, error_code, created_at, completed_at, version | version; unique per sequence | immutable record; never delete |
-| `measurement_identity` | Telemetry/`telemetry` | `measurement_id` / dedup identity | stable identity, source/run/point/mapping/sequence/algorithm; PK + dedup unique/index | immutable | never delete within retention; trace |
+| `simulator_run_point_state` | Acquisition/`acquisition` | `(run_id,point_id)` | pinned snapshot plus zero-based `next_source_sequence`, serialized PCG/spare state and next_due_at | version; Run lifetime | retain with Run; operational evidence |
+| `simulator_production_attempt` | Acquisition/`acquisition` | `(run_id,point_id,source_sequence)` | authoritative persisted Telemetry payload; identity/mapping/config/algorithm/value/provenance snapshots; Pending/Completed; response disposition and final classification | immutable payload + versioned terminal fields; unique sequence and measurement_id | never delete |
+| `measurement_identity` | Telemetry/`telemetry` | `measurement_id` / terminal dedup identity | immutable request identity/fingerprint plus Accepted/Rejected terminal result, persistence flag/reference, quality/reason/rejection, Latest result, completed time and safe lineage | immutable; unique Run+Point+sequence | retain at least through retry/Measurement retention |
 | `measurement_raw` | Telemetry/`telemetry` | `measurement_id` / same | point/source/mapping, source/received/processing time, value/unit/quality/reason/lineage; time partition + Point/time index | immutable; source time | retention policy; trace |
 | `point_latest` | Telemetry/`telemetry` | `point_id` / same | value/unit/timestamps/quality/reason and full ordering tuple; Point PK | atomic compare/version; current | projection rebuild/update; trace |
 | `point_source_status` | Telemetry/`telemetry` | `(point_id,source_id)` / same | run status, last received, counters, Online/Stale/NoData/Suspended/Decommissioned; state/evaluation indexes | atomic version; evaluated-at | projection update; real-change event |
@@ -104,14 +104,15 @@ explicit stop/inactivation, triggers Health reconciliation, and is terminal.
 `simulator_configuration_version`; a Run stores `simulator_configuration_id` and exact
 `configuration_version`. Running/Paused/historical Runs never change when a future version is made.
 
-Algorithm contract: `IUMP-DETERMINISTIC-V1`, with fixed `algorithm_version`. PCG32
-(multiplier `6364136223846793005`, increment `1442695040888963407`, unsigned 64-bit overflow,
-`pcg_output_rxs_m_xs_64_32`). Initial state derived from seed, stable Point ID, configuration
-ID/version and algorithm version. Constant emits exact min=max value. Normal uses Box-Muller polar
-form, midpoint mean, range/6 sigma, IEEE 754 float64, 4-decimal rounding, deterministic clamping
-to bounds, cached spare. State serialized as 25 bytes (state, increment, spare_valid, spare_value).
-No platform-default Random, third-party statistics package, system randomness or current-time seed
-is allowed. Three golden test vectors defined (Constant, first Normal, restart Normal).
+Algorithm contract: `IUMP-DETERMINISTIC-V1`, with fixed `algorithm_version`. The normative
+initialization, FNV-1a-64 mixing, PCG transition/RXS-M-XS 32-bit projection, UTF-8/UUID
+normalization, overflow/truncation, standard trigonometric Box-Muller, binary64 spare
+serialization and round-then-clamp policy are defined only in `contracts/simulator.md`.
+Constant consumes no draws/state but reserves a sequence slot. A fresh Normal pair consumes two
+draws and its cached next value consumes zero. The same contract contains the three literal golden
+vectors: attempt sequences `0,0,1`, outputs `12.5000,11.6519,17.9149`, and stored next sequences
+`1,1,2`. No platform-default Random, third-party statistics package, system randomness or
+current-time seed is allowed.
 
 Simulator Measurement identity is UUIDv5 under the repository namespace UUID
 `02e993bb-c767-5ff6-963f-530e1dfdff6b` (derived from DNS namespace + "iump.idea-technology.com")
@@ -124,12 +125,18 @@ Run/Point/Mapping/sequence differs. Namespace and serialization versions are con
 ### Production-attempt checkpoint
 
 `acquisition.simulator_production_attempt` provides a durable checkpoint for each production slot
-`(simulator_run_id, point_id, source_sequence)`. The Worker inserts a Pending row in the same
-Acquisition transaction as PRNG state advancement, calls Telemetry outside that transaction, then
-finalizes idempotently. Crash recovery uses Duplicate detection to finalize without double-counting.
-The entity stores measurement_id, mapping/config/algorithm snapshots, source_timestamp, numeric_value,
-unit_code, status, telemetry_outcome, original_classification (populated on Duplicate), error_code,
-created_at, completed_at and version. No in-memory checkpoint is used.
+`(simulator_run_id, point_id, source_sequence)`. Before generation, the Worker loads an existing
+Pending row. Existing Pending is the authoritative retry payload: it reuses measurement ID,
+mapping/configuration/algorithm snapshots, source timestamp, numeric value, unit, producer,
+correlation and lineage fields without generator invocation, PRNG deserialization/state change,
+sequence advancement or a second Generated increment.
+
+For a new slot, `source_sequence = next_source_sequence`. Only after the complete Pending insert
+succeeds does the same Acquisition transaction persist generator state, set
+`next_source_sequence = source_sequence + 1`, and increment Generated once. This applies equally
+to Constant and Normal. Finalization atomically performs the first Pending -> Completed transition
+and exactly one Accepted/Rejected counter increment based on Telemetry's stored
+`final_classification`; replay of the same completed result is a no-op.
 
 ### Run-point pinned snapshot
 
@@ -138,13 +145,30 @@ created_at, completed_at and version. No in-memory checkpoint is used.
 - `mapping_id` / `mapping_version` — the active Catalog mapping
 - `metric_id` / `unit_id` / `unit_code` — resolved Metric/Unit
 - `source_version` — Catalog Data Source version at Start
-- `next_source_sequence` — first sequence number
+- `next_source_sequence` - zero-based cursor for the next new production slot; starts at 0
 - `prng_state` (bytea 25 bytes) — PCG32 state and cached spare
 - `next_due_at` — calculated next due timestamp
 
 These pinned identities bind the Run to the exact Catalog and Organization state at creation.
 Changing or inactivating a mapping does not change already-reserved production attempt identity.
-A replacement Mapping requires an explicit new Run.
+A replacement Mapping requires an explicit new Run. Pause/Resume continues the cursor; a new
+Start creates new per-Point state at zero.
+
+### Telemetry terminal ingestion result
+
+`telemetry.measurement_identity` is both identity registry and immutable terminal-result registry.
+It stores the request identity and SHA-256 fingerprint; `final_classification`
+(Accepted/Rejected); `measurement_persisted`; nullable persisted Measurement reference, quality,
+reason, rejection code and `latest_advanced`; `completed_at`; and safe correlation/lineage
+references. Accepted requires a raw Measurement reference and quality. Rejected requires no raw
+Measurement reference and a rejection code. `(simulator_run_id, point_id, source_sequence)` is
+unique in addition to the Measurement ID.
+
+A valid trusted Simulator identity receives one terminal result. Accepted registry result and raw
+Measurement commit atomically. Identity-addressable Rejected registry result commits atomically
+without a raw row. Duplicate returns the exact stored original result; it never reconstructs a
+Rejected outcome. Missing/malformed identity and untrusted producer failures occur before registry
+reservation.
 
 ## Telemetry quality, Latest and status
 
@@ -186,7 +210,7 @@ reconciliation path:
 | Run Start/Pause/Resume/Stop | scoped Engineer/Admin | Start requires active Source/Mapping/Point/ancestors; idempotency key; global lock order | expected version; new Run or continued state, lease/job/event/audit | invalid transition |
 | Source status evaluation | Worker/System | owner snapshot/version still valid | idempotent projection; event only on real change | stale snapshot ignored |
 | Capability assign/revoke | Administrator | user exists, capability exists | user_capability version; audit | not found |
-| Production attempt Pending -> Completed | Worker (system) | Pending row, stable Telemetry outcome | idempotent finalize; Duplicate returns original_classification | state conflict |
+| Production attempt Pending -> Completed | Worker (system) | authoritative Pending payload, stable Telemetry original result | atomic first transition + exactly one final-classification counter increment; identical replay no-op | differing terminal result conflict |
 
 ## Existing R0 infrastructure
 
@@ -206,7 +230,7 @@ tables.
    and overlap
 6. `0007_acquisition_run.sql` — Run, per-Point state (extended with pinned snapshot), production
    attempt checkpoint and leases
-7. `0008_telemetry_measurement.sql` — identity registry and raw Measurement
+7. `0008_telemetry_measurement.sql` - immutable terminal identity/result registry and Accepted raw Measurement
 8. `0009_telemetry_latest_status.sql` — Latest and physical point_source_status projections/indexes
 9. `0010_audit_event.sql` — append-only audit storage and permissions
 10. `0011_r1_infrastructure_expand.sql` — only approved additive changes to R0 tables (if proven

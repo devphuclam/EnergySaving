@@ -20,7 +20,7 @@
 Working defaults:
 
 | Setting | Value |
-|---|---|---|
+|---|---|
 | Cookie name | `.IUMP.Auth` |
 | Cookie content | Opaque random session token (256-bit CSPRNG). Not an ASP.NET encrypted identity ticket |
 | Secure | `true`; `ASPNETCORE_ENVIRONMENT=Development` permits `Cookie.SecurePolicy=Never` |
