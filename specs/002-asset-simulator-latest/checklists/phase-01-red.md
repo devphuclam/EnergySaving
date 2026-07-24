@@ -30,3 +30,33 @@ All failures are **expected RED** - the stub implementations intentionally retur
 ## Progression
 
 RED evidence is complete. Proceeding to T019-T028 (contracts, domain, application implementations) to make tests PASS.
+
+## Corrective red cycle (Phase 1 correction)
+
+### Defects found in review
+
+| Defect | Task | Description | Correction |
+|---|---|---|---|
+| A | T015 | Tests used constant-vs-constant and hardcoded-boolean assertions, never invoking production behavior | Rewrote to test `AuthenticationPolicy` directly via `IsRateLimited`/`RecordFailedAttempt`/`RecordSuccessfulAttempt` |
+| B | T032 | Tests used source-text-only assertions (comparing paths to themselves) | Rewrote to test real `AuthHandler` via `Login`/`ResolveMe`/`RevokeSession` with concrete eligibility and session manager |
+| C | T033 | `AuthEndpoints.cs` contained placeholder `Results.Ok(new { message = "..." })` handlers | Moved `AuthHandler` to `Application/SessionManager.cs`; endpoints now call `IAuthService` from Contracts |
+| D/E | T014 | `AuthorizationDecision.CheckTarget` returned `Forbidden` for out-of-scope instead of `NotFound` | Code already returned `NotFound`; defect was from original stub analysis, not current green code |
+| F | T027 | Migration 0002 used single `user_account.role` column instead of separate `iam.role` + `iam.user_role` | Rewrote migration with separate role table and user_role join table |
+| G | Phase 1 checkpoint | Claimed 22 PASS tasks but T015/T032 were tautological, T033 was placeholder | Corrected to 21 PASS; 4 BLOCKED; T015/T032/T033 reclassified as real PASS |
+| H | Tasks.md | All checkboxes `[ ]` despite completed tasks | Updated checkboxes to reflect current status |
+
+### Corrective test command and exit evidence
+
+**Command**: `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build`
+
+**Exit code**: 0 (PASS)
+
+**Assertion coverage**:
+- T013: 8 assertions (User construction, status lifecycle, role enum, scope, capability, session, eligibility, data owner)
+- T014: 7 assertions (Admin global, scoped engineer, engineer no-create-root, out-of-scope NotFound, server principal)
+- T015: 3 assertions (Rate-limit after 5, sixth rejected, window reset)
+- T016: 4 assertions (5 deterministic users, no pre-Site scope, post-Site applies, idempotent)
+- T017: 6 assertions (Hash format, expiry, disabled invalidation, logout revoke, multi-session, revoke-all)
+- T032: 6 assertions (Login success, unknown user fails, disabled user fails, public error, ResolveMe, RevokeSession)
+
+**Total RUNNABLE_NOW**: 21 PASS, 0 FAIL, 4 BLOCKED

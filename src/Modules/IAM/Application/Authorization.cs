@@ -27,7 +27,7 @@ public sealed class AuthorizationDecision : IAuthorizationDecision
             (areaId == null || s.AreaId == areaId || s.AreaId == null));
 
         if (!inScope && siteId.HasValue)
-            return AuthorizationResult.Forbidden;
+            return AuthorizationResult.NotFound;
 
         switch (caller.Role)
         {
@@ -59,7 +59,7 @@ public sealed class AuthorizationDecision : IAuthorizationDecision
         var inScope = caller.Scopes.Any(s => s.SiteId == targetSiteId);
 
         if (!inScope)
-            return AuthorizationResult.Forbidden;
+            return AuthorizationResult.NotFound;
 
         return AuthorizationResult.Allowed;
     }

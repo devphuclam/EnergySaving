@@ -17,40 +17,49 @@ public interface IActiveUserEligibility
     EligibilityResult Check(UserId userId, Guid? siteId = null, Guid? areaId = null);
     bool IsActiveUser(UserId userId);
     bool IsDataOwnerEligible(UserId userId, Guid? siteId = null);
+    User? FindByUsername(string normalizedUsername);
+    User? FindByUserId(UserId userId);
+    IReadOnlyList<Scope> GetScopesForUser(UserId userId);
 }
 
 public sealed class ActiveUserEligibility : IActiveUserEligibility
 {
     private readonly IIamCommandRepository? _repository;
-    private readonly Dictionary<Guid, UserStatus> _userStatuses;
+    private readonly Dictionary<string, User> _usersByUsername;
+    private readonly Dictionary<Guid, User> _usersById;
     private readonly Dictionary<Guid, HashSet<Guid>> _userSiteScopes;
 
     public ActiveUserEligibility()
     {
-        _userStatuses = new Dictionary<Guid, UserStatus>();
+        _usersByUsername = new Dictionary<string, User>();
+        _usersById = new Dictionary<Guid, User>();
         _userSiteScopes = new Dictionary<Guid, HashSet<Guid>>();
     }
 
     public ActiveUserEligibility(IIamCommandRepository repository)
     {
         _repository = repository;
-        _userStatuses = new Dictionary<Guid, UserStatus>();
+        _usersByUsername = new Dictionary<string, User>();
+        _usersById = new Dictionary<Guid, User>();
         _userSiteScopes = new Dictionary<Guid, HashSet<Guid>>();
     }
 
     public ActiveUserEligibility(IEnumerable<User> users)
     {
-        _userStatuses = new Dictionary<Guid, UserStatus>();
+        _usersByUsername = new Dictionary<string, User>();
+        _usersById = new Dictionary<Guid, User>();
         _userSiteScopes = new Dictionary<Guid, HashSet<Guid>>();
         foreach (var user in users)
         {
-            _userStatuses[user.Id.Value] = user.Status;
+            _usersByUsername[user.Username.ToLowerInvariant()] = user;
+            _usersById[user.Id.Value] = user;
         }
     }
 
     public void AddOrUpdateUser(User user)
     {
-        _userStatuses[user.Id.Value] = user.Status;
+        _usersByUsername[user.Username.ToLowerInvariant()] = user;
+        _usersById[user.Id.Value] = user;
     }
 
     public void AddScope(UserId userId, Guid siteId)
@@ -58,6 +67,23 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
         if (!_userSiteScopes.ContainsKey(userId.Value))
             _userSiteScopes[userId.Value] = new HashSet<Guid>();
         _userSiteScopes[userId.Value].Add(siteId);
+    }
+
+    public User? FindByUsername(string normalizedUsername)
+    {
+        _usersByUsername.TryGetValue(normalizedUsername, out var user);
+        return user;
+    }
+
+    public User? FindByUserId(UserId userId)
+    {
+        _usersById.TryGetValue(userId.Value, out var user);
+        return user;
+    }
+
+    public IReadOnlyList<Scope> GetScopesForUser(UserId userId)
+    {
+        return Array.Empty<Scope>();
     }
 
     public EligibilityResult Check(UserId userId, Guid? siteId = null, Guid? areaId = null)
@@ -78,10 +104,10 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
             return EligibilityResult.Eligible;
         }
 
-        if (!_userStatuses.TryGetValue(userId.Value, out var status))
+        if (!_usersById.TryGetValue(userId.Value, out var found))
             return EligibilityResult.UserNotFound;
 
-        if (status == UserStatus.Disabled)
+        if (found.Status == UserStatus.Disabled)
             return EligibilityResult.UserDisabled;
 
         if (siteId.HasValue && _userSiteScopes.TryGetValue(userId.Value, out var sites))
@@ -95,15 +121,15 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
 
     public bool IsActiveUser(UserId userId)
     {
-        if (_userStatuses.TryGetValue(userId.Value, out var status))
-            return status == UserStatus.Active;
+        if (_usersById.TryGetValue(userId.Value, out var user))
+            return user.IsActive();
         return false;
     }
 
     public bool IsDataOwnerEligible(UserId userId, Guid? siteId = null)
     {
-        if (!_userStatuses.TryGetValue(userId.Value, out var status))
+        if (!_usersById.TryGetValue(userId.Value, out var user))
             return false;
-        return status == UserStatus.Active;
+        return user.IsActive();
     }
 }

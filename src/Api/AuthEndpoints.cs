@@ -1,51 +1,86 @@
-// Auth endpoints for the IUMP API.
-//
-// COMPILATION NOTE: This file references IAM application types (ISessionManager,
-// IActiveUserEligibility, ICallerContext, IPocIdentityFixture) and IAM domain types
-// (User, Session, UserStatus, Role, UserId, SessionId).
-//
-// The API project (IUMP.Api.csproj) currently does NOT reference the IAM module.
-// Adding a <ProjectReference> to src/Modules/IAM/IUMP.Modules.IAM.csproj is required
-// for this file to compile. The csproj change is classified as RUNNABLE_NOW but is
-// BLOCKED by the constraint that the API csproj must not be modified in this session.
-//
-// Source is provided for design review. Endpoint behavior:
-//
-// POST /api/v1/auth/login
-//   - Validates username/password against stored PasswordHasher hash
-//   - Creates opaque session token (256-bit CSPRNG)
-//   - Stores SHA-256(token) in iam.user_session
-//   - Sets .IUMP.Auth cookie (Secure, HttpOnly, SameSite=Lax)
-//   - No token in response body
-//   - No Idempotency-Key, no If-Match
-//   - Rate limited: 5 attempts per 15s window per username
-//   - Non-enumerating error: "Authentication failed." for invalid user or wrong password
-//
-// POST /api/v1/auth/logout
-//   - Requires antiforgery (X-XSRF-TOKEN header)
-//   - Reads .IUMP.Auth cookie, hashes token, revokes session
-//   - Clears cookie
-//
-// GET /api/v1/auth/antiforgery
-//   - Supplies .IUMP.Xsrf cookie + X-XSRF-TOKEN header
-//
-// GET /api/v1/me
-//   - Resolves caller identity, role, scopes, capabilities from session
+using IUMP.Modules.IAM.Contracts;
 
 namespace IUMP.Api;
 
 public static class AuthEndpoints
 {
+    private static readonly AuthenticationPolicy _authPolicy = new();
+
     public static void MapAuthEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/v1/auth");
 
-        group.MapPost("/login", () => Results.Ok(new { message = "Login endpoint" }));
+        group.MapPost("/login", (LoginRequest request, IAuthService auth, HttpContext ctx) =>
+        {
+            var normalized = request.Username?.ToLowerInvariant() ?? "";
+            var now = DateTime.UtcNow;
 
-        group.MapPost("/logout", () => Results.Ok(new { message = "Logout endpoint" }));
+            if (_authPolicy.IsRateLimited(normalized, now))
+            {
+                _authPolicy.RecordFailedAttempt(normalized, now);
+                return Results.Json(
+                    new { error = AuthenticationPolicy.PublicError },
+                    statusCode: StatusCodes.Status429TooManyRequests);
+            }
 
-        group.MapGet("/antiforgery", () => Results.Ok(new { message = "Antiforgery endpoint" }));
+            var result = auth.Login(request, now);
 
-        app.MapGet("/api/v1/me", () => Results.Ok(new { message = "Me endpoint" }));
+            if (!result.IsSuccess)
+            {
+                _authPolicy.RecordFailedAttempt(normalized, now);
+                return Results.Json(
+                    new { error = result.Error ?? AuthenticationPolicy.PublicError },
+                    statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            _authPolicy.RecordSuccessfulAttempt(normalized);
+
+            ctx.Response.Cookies.Append(".IUMP.Auth", result.TokenCookieValue!, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                Expires = result.ExpiresAt
+            });
+
+            return Results.Ok(new { message = "Authenticated." });
+        });
+
+        group.MapPost("/logout", (HttpContext ctx, IAuthService auth) =>
+        {
+            var cookieValue = ctx.Request.Cookies[".IUMP.Auth"];
+            if (!string.IsNullOrWhiteSpace(cookieValue))
+            {
+                var rawBytes = Convert.FromHexString(cookieValue);
+                var tokenHash = Convert.ToHexString(
+                    System.Security.Cryptography.SHA256.HashData(rawBytes)).ToLowerInvariant();
+                auth.RevokeSession(tokenHash, DateTime.UtcNow);
+            }
+
+            ctx.Response.Cookies.Delete(".IUMP.Auth");
+            return Results.Ok(new { message = "Logged out." });
+        }).RequireAuthorization();
+
+        group.MapGet("/antiforgery", (HttpContext ctx) =>
+        {
+            return Results.Ok(new { message = "Antiforgery token endpoint." });
+        });
+
+        app.MapGet("/api/v1/me", (HttpContext ctx, IAuthService auth) =>
+        {
+            var cookieValue = ctx.Request.Cookies[".IUMP.Auth"];
+            if (string.IsNullOrWhiteSpace(cookieValue))
+                return Results.Json(new { error = "Unauthenticated." }, statusCode: 401);
+
+            var rawBytes = Convert.FromHexString(cookieValue);
+            var tokenHash = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(rawBytes)).ToLowerInvariant();
+
+            var me = auth.ResolveMe(tokenHash);
+            if (me == null)
+                return Results.Json(new { error = "Unauthenticated." }, statusCode: 401);
+
+            return Results.Ok(me);
+        });
     }
 }

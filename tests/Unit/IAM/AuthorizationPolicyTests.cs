@@ -20,10 +20,9 @@ public static class AuthorizationPolicyTests
 
     private static void AdministratorIsGloballyAllowed(List<string> failures)
     {
-        var adminId = UserId.New();
-        var adminScopes = Array.Empty<Scope>();
-        var adminContext = new CallerContext(adminId, "admin", Role.Administrator,
-            Array.Empty<string>(), adminScopes, "corr-1");
+        var adminContext = new CallerContext(
+            UserId.New(), "admin", Role.Administrator,
+            Array.Empty<string>(), Array.Empty<Scope>(), "corr-1");
 
         var decision = new AuthorizationDecision();
 
@@ -39,9 +38,9 @@ public static class AuthorizationPolicyTests
     private static void ScopedEngineerWithinScope(List<string> failures)
     {
         var siteId = Guid.NewGuid();
-        var engineerId = UserId.New();
-        var engineerScope = new Scope(ScopeId.New(), engineerId, siteId, null);
-        var engineerContext = new CallerContext(engineerId, "engineer", Role.Engineer,
+        var engineerScope = new Scope(ScopeId.New(), UserId.New(), siteId, null);
+        var engineerContext = new CallerContext(
+            UserId.New(), "engineer", Role.Engineer,
             Array.Empty<string>(), new[] { engineerScope }, "corr-2");
 
         var decision = new AuthorizationDecision();
@@ -51,14 +50,14 @@ public static class AuthorizationPolicyTests
             failures.Add("T014-FAIL: Engineer must be Allowed within assigned Site scope.");
 
         var outOfScope = decision.CheckTarget(engineerContext, Guid.NewGuid());
-        if (outOfScope == AuthorizationResult.Allowed)
-            failures.Add("T014-FAIL: Engineer must NOT be Allowed outside assigned Site scope.");
+        if (outOfScope != AuthorizationResult.NotFound)
+            failures.Add("T014-FAIL: Out-of-scope target must return NotFound, not Forbidden or Allowed.");
     }
 
     private static void EngineerWithoutScopeCannotCreateRootSite(List<string> failures)
     {
-        var engineerId = UserId.New();
-        var noScopeContext = new CallerContext(engineerId, "engineer-noscope", Role.Engineer,
+        var noScopeContext = new CallerContext(
+            UserId.New(), "engineer-noscope", Role.Engineer,
             Array.Empty<string>(), Array.Empty<Scope>(), "corr-3");
 
         var decision = new AuthorizationDecision();
@@ -70,26 +69,26 @@ public static class AuthorizationPolicyTests
 
     private static void OutOfScopeReturnsNotFound(List<string> failures)
     {
-        var operatorId = UserId.New();
         var siteA = Guid.NewGuid();
-        var opScope = new Scope(ScopeId.New(), operatorId, siteA, null);
-        var operatorContext = new CallerContext(operatorId, "operator", Role.Operator,
+        var opScope = new Scope(ScopeId.New(), UserId.New(), siteA, null);
+        var operatorContext = new CallerContext(
+            UserId.New(), "operator", Role.Operator,
             Array.Empty<string>(), new[] { opScope }, "corr-4");
 
         var decision = new AuthorizationDecision();
 
         var siteB = Guid.NewGuid();
         var targetResult = decision.CheckTarget(operatorContext, siteB);
-        if (targetResult == AuthorizationResult.Allowed)
-            failures.Add("T014-FAIL: Out-of-scope target must NOT return Allowed.");
+        if (targetResult != AuthorizationResult.NotFound)
+            failures.Add("T014-FAIL: Out-of-scope target must return NotFound exactly.");
     }
 
     private static void ServerPrincipalResolution(List<string> failures)
     {
-        var viewerId = UserId.New();
         var siteId = Guid.NewGuid();
-        var viewerScope = new Scope(ScopeId.New(), viewerId, siteId, null);
-        var viewerContext = new CallerContext(viewerId, "viewer", Role.Viewer,
+        var viewerScope = new Scope(ScopeId.New(), UserId.New(), siteId, null);
+        var viewerContext = new CallerContext(
+            UserId.New(), "viewer", Role.Viewer,
             Array.Empty<string>(), new[] { viewerScope }, "corr-5");
 
         var decision = new AuthorizationDecision();
@@ -101,5 +100,11 @@ public static class AuthorizationPolicyTests
         var readOnly = decision.CheckTarget(viewerContext, siteId);
         if (readOnly != AuthorizationResult.Allowed)
             failures.Add("T014-FAIL: Viewer must be Allowed to read within assigned scope.");
+
+        var outOfScope = decision.CheckTarget(viewerContext, Guid.NewGuid());
+        if (outOfScope == AuthorizationResult.Allowed)
+            failures.Add("T014-FAIL: Viewer must not be Allowed for out-of-scope targets.");
+        if (outOfScope != AuthorizationResult.NotFound)
+            failures.Add("T014-FAIL: Out-of-scope must be NotFound, not Forbidden.");
     }
 }

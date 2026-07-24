@@ -2,18 +2,42 @@ BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS iam;
 
+CREATE TABLE IF NOT EXISTS iam.role (
+    role_id uuid PRIMARY KEY,
+    code text NOT NULL UNIQUE CHECK (code ~ '^[A-Z][A-Z_]+$'),
+    name text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO iam.role (role_id, code, name) VALUES
+    ('a0000000-0000-0000-0000-000000000001', 'Administrator', 'Administrator'),
+    ('a0000000-0000-0000-0000-000000000002', 'Engineer', 'Engineer'),
+    ('a0000000-0000-0000-0000-000000000003', 'Operator', 'Operator'),
+    ('a0000000-0000-0000-0000-000000000004', 'Manager', 'Manager'),
+    ('a0000000-0000-0000-0000-000000000005', 'Viewer', 'Viewer');
+
 CREATE TABLE IF NOT EXISTS iam.user_account (
     user_id uuid PRIMARY KEY,
     username text NOT NULL UNIQUE CHECK (char_length(username) BETWEEN 3 AND 64),
     password_hash text NOT NULL,
     status text NOT NULL CHECK (status IN ('Active', 'Disabled')),
-    role text NOT NULL CHECK (role IN ('Administrator', 'Engineer', 'Operator', 'Manager', 'Viewer')),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     version bigint NOT NULL DEFAULT 1 CHECK (version > 0)
 );
 
 CREATE INDEX IF NOT EXISTS ix_user_account_username ON iam.user_account (username);
+
+CREATE TABLE IF NOT EXISTS iam.user_role (
+    user_role_id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES iam.user_account (user_id),
+    role_id uuid NOT NULL REFERENCES iam.role (role_id),
+    assigned_by uuid NULL REFERENCES iam.user_account (user_id),
+    assigned_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, role_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_user_role_user_id ON iam.user_role (user_id);
 
 CREATE TABLE IF NOT EXISTS iam.user_scope (
     scope_id uuid PRIMARY KEY,

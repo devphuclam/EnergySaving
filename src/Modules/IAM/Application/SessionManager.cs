@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using System.Text;
 using IUMP.Modules.IAM.Domain;
+using IUMP.Modules.IAM.Contracts;
 
 namespace IUMP.Modules.IAM.Application;
 
@@ -58,5 +60,85 @@ public sealed class SessionManager : ISessionManager
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(token);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+}
+
+public sealed class AuthHandler : IAuthService
+{
+    private readonly IActiveUserEligibility _eligibility;
+    private readonly ISessionManager _sessionManager;
+
+    public AuthHandler(IActiveUserEligibility eligibility, ISessionManager sessionManager)
+    {
+        _eligibility = eligibility;
+        _sessionManager = sessionManager;
+    }
+
+    public LoginResult Login(LoginRequest request, DateTime now)
+    {
+        var normalized = request.Username?.ToLowerInvariant() ?? "";
+
+        var user = _eligibility.FindByUsername(normalized);
+        if (user == null || user.Status == UserStatus.Disabled)
+            return new LoginResult(false, "Authentication failed.", null, null);
+
+        var tokenBytes = new byte[32];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(tokenBytes);
+        }
+        var tokenHash = _sessionManager.HashToken(tokenBytes);
+        var rawToken = Convert.ToHexString(tokenBytes).ToLowerInvariant();
+
+        var session = _sessionManager.CreateSession(user.Id, tokenHash, now);
+
+        return new LoginResult(true, null, rawToken, session.AbsoluteExpiresAt);
+    }
+
+    public MeSnapshot? ResolveMe(string tokenHash)
+    {
+        if (string.IsNullOrWhiteSpace(tokenHash))
+            return null;
+
+        var session = _sessionManager.LookupSession(tokenHash);
+        if (session == null)
+            return null;
+
+        var now = DateTime.UtcNow;
+        if (!_sessionManager.IsSessionValid(session, now))
+            return null;
+
+        var user = _eligibility.FindByUserId(session.UserId);
+        if (user == null || user.Status == UserStatus.Disabled)
+            return null;
+
+        var scopes = _eligibility.GetScopesForUser(user.Id)
+            .Select(s => s.SiteId?.ToString("D") ?? "")
+            .ToList() as IReadOnlyList<string>
+            ?? Array.Empty<string>();
+
+        var caps = new List<string>();
+        if (user.Role == Role.Administrator)
+            caps.Add("AUDIT_READ");
+
+        return new MeSnapshot(
+            user.Id.Value.ToString("D"),
+            user.Username,
+            user.Role.ToString(),
+            scopes,
+            caps);
+    }
+
+    public bool RevokeSession(string tokenHash, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(tokenHash))
+            return false;
+
+        var session = _sessionManager.LookupSession(tokenHash);
+        if (session == null)
+            return false;
+
+        _sessionManager.RevokeSession(session.Id, now);
+        return true;
     }
 }

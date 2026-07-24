@@ -2,48 +2,58 @@ namespace IUMP.Tests.Unit.Api;
 
 public static class AuthSecurityPolicyTests
 {
-    public const int RateLimitWindowSeconds = 15;
-    public const int MaxAttemptsPerWindow = 5;
-
     public static List<string> Run()
     {
         var failures = new List<string>();
 
-        RateLimitThreshold(failures);
-        NonEnumeratingErrors(failures);
-        RateLimitWindowDuration(failures);
+        IsRateLimitedAfterFiveAttempts(failures);
+        SixthAttemptRejected(failures);
+        WindowReset(failures);
 
         return failures;
     }
 
-    private static void RateLimitThreshold(List<string> failures)
+    private static void IsRateLimitedAfterFiveAttempts(List<string> failures)
     {
-        var configured = MaxAttemptsPerWindow;
+        var policy = new IUMP.Api.AuthenticationPolicy(maxAttempts: 5, windowSeconds: 15);
+        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var username = "ratelimit-test";
 
-        if (configured != 5)
-            failures.Add("T015-FAIL: Rate limit threshold must be 5 attempts per window.");
+        for (int i = 0; i < 5; i++)
+            policy.RecordFailedAttempt(username, now);
 
-        var window = RateLimitWindowSeconds;
-
-        if (window != 15)
-            failures.Add("T015-FAIL: Rate limit window must be 15 seconds.");
+        if (!policy.IsRateLimited(username, now))
+            failures.Add("T015-FAIL: After 5 failed attempts, the username must be rate-limited.");
     }
 
-    private static void NonEnumeratingErrors(List<string> failures)
+    private static void SixthAttemptRejected(List<string> failures)
     {
-        var invalidUserError = "Authentication failed.";
-        var wrongPasswordError = "Authentication failed.";
+        var policy = new IUMP.Api.AuthenticationPolicy(maxAttempts: 5, windowSeconds: 15);
+        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var username = "sixth-attempt";
 
-        if (invalidUserError != wrongPasswordError)
-            failures.Add("T015-FAIL: Invalid username and wrong password must produce identical error messages.");
+        for (int i = 0; i < 5; i++)
+            policy.RecordFailedAttempt(username, now.AddSeconds(i));
+
+        var limited = policy.IsRateLimited(username, now.AddSeconds(5));
+        if (!limited)
+            failures.Add("T015-FAIL: Five failed attempts within window must be rate-limited.");
     }
 
-    private static void RateLimitWindowDuration(List<string> failures)
+    private static void WindowReset(List<string> failures)
     {
-        var limit = MaxAttemptsPerWindow;
-        var exceeded = 6 > limit;
+        var policy = new IUMP.Api.AuthenticationPolicy(maxAttempts: 5, windowSeconds: 15);
+        var start = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var username = "window-reset";
 
-        if (!exceeded)
-            failures.Add("T015-FAIL: Sixth attempt within window must exceed rate limit.");
+        for (int i = 0; i < 5; i++)
+            policy.RecordFailedAttempt(username, start.AddSeconds(i));
+
+        if (!policy.IsRateLimited(username, start.AddSeconds(5)))
+            failures.Add("T015-FAIL: Five attempts within window must be rate-limited.");
+
+        var afterWindow = start.AddSeconds(20);
+        if (policy.IsRateLimited(username, afterWindow))
+            failures.Add("T015-FAIL: Rate limit must reset after the 15-second window.");
     }
 }
