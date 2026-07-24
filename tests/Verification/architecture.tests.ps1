@@ -79,4 +79,24 @@ if ($isCanonicalModuleRoot) {
     }
 }
 
+if ($isCanonicalModuleRoot) {
+    $iamContractPath = Join-Path $ModuleRoot 'IAM\Contracts\ModuleContract.cs'
+    if (Test-Path -LiteralPath $iamContractPath) {
+        $iamContract = Get-Content -LiteralPath $iamContractPath -Raw
+        if ($iamContract -notmatch 'OwnedSchema\s*=\s*"iam"') {
+            throw "IAM module must declare OwnedSchema = ""iam""."
+        }
+    }
+
+    $iamInternalPattern = 'IUMP\.Modules\.IAM\.(Domain|Application|Infrastructure)'
+    $iamSourceFiles = Get-ChildItem -LiteralPath $HostSourceRoot -Recurse -Filter '*.cs' |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|Modules\\IAM)[\\/]' }
+    foreach ($source in $iamSourceFiles) {
+        $content = Get-Content -LiteralPath $source.FullName -Raw
+        if ($content -match $iamInternalPattern) {
+            throw "Non-IAM source references IAM internals: $($source.FullName)"
+        }
+    }
+}
+
 Write-Output 'PASS: architecture boundary contract'

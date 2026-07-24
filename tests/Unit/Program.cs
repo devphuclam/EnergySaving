@@ -1,36 +1,50 @@
 using IUMP.BuildingBlocks.Correlation;
+using IUMP.Tests.Unit.IAM;
+using IUMP.Tests.Unit.Api;
 
 var failures = new List<string>();
 
-var supplied = CorrelationId.Create("r0-correlation-123");
-if (supplied.Value != "r0-correlation-123")
-{
-    failures.Add("A valid supplied correlation ID must be preserved.");
-}
+failures.AddRange(R0CorrelationIdTests());
 
-var blank = CorrelationId.Create("   ");
-if (!Guid.TryParse(blank.Value, out _))
-{
-    failures.Add("A blank correlation ID must be replaced by a server-generated GUID.");
-}
-
-var unsafeValue = CorrelationId.Create("unsafe\r\nvalue");
-if (!Guid.TryParse(unsafeValue.Value, out _))
-{
-    failures.Add("A correlation ID with control characters must be replaced.");
-}
-
-var tooLong = CorrelationId.Create(new string('a', 129));
-if (!Guid.TryParse(tooLong.Value, out _))
-{
-    failures.Add("A correlation ID longer than 128 characters must be replaced.");
-}
+failures.AddRange(IamDomainTests.Run());
+failures.AddRange(AuthorizationPolicyTests.Run());
+failures.AddRange(SessionPolicyTests.Run());
+failures.AddRange(PocIdentityFixtureTests.Run());
+failures.AddRange(AuthSecurityPolicyTests.Run());
+failures.AddRange(AuthEndpointTests.Run());
 
 if (failures.Count > 0)
 {
-    Console.Error.WriteLine(string.Join(Environment.NewLine, failures));
+    Console.Error.WriteLine("FAILURES:");
+    foreach (var f in failures)
+    {
+        Console.Error.WriteLine($"  {f}");
+    }
     return 1;
 }
 
-Console.WriteLine("PASS: correlation ID public interface");
+Console.WriteLine("PASS: all tests");
 return 0;
+
+static List<string> R0CorrelationIdTests()
+{
+    var f = new List<string>();
+
+    var supplied = CorrelationId.Create("r0-correlation-123");
+    if (supplied.Value != "r0-correlation-123")
+        f.Add("A valid supplied correlation ID must be preserved.");
+
+    var blank = CorrelationId.Create("   ");
+    if (!Guid.TryParse(blank.Value, out _))
+        f.Add("A blank correlation ID must be replaced by a server-generated GUID.");
+
+    var unsafeValue = CorrelationId.Create("unsafe\r\nvalue");
+    if (!Guid.TryParse(unsafeValue.Value, out _))
+        f.Add("A correlation ID with control characters must be replaced.");
+
+    var tooLong = CorrelationId.Create(new string('a', 129));
+    if (!Guid.TryParse(tooLong.Value, out _))
+        f.Add("A correlation ID longer than 128 characters must be replaced.");
+
+    return f;
+}
