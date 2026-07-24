@@ -18,8 +18,13 @@ code, create migrations or tests, or create `tasks.md`. Scope remains R1 / VS-01
   model for AuditReview, decommission guards, and immutable audit.
 - Excluded: external REST/CSV ingestion, history explorer, aggregates, rules, alerts, notifications,
   reports, Modbus, Edge Collector, write-back, AI/ML, SSO, directory integration, password reset,
-  complete user administration, replay, ramp/spike/advanced-noise/seasonal/ML scenarios, and any
-  R2 capability.
+  complete user administration, business/measurement reprocessing or replay product capability,
+  historical Measurement replay UI, regenerating or resubmitting arbitrary historical telemetry as
+  a user feature, ramp/spike/advanced-noise/seasonal/ML scenarios, and any R2 capability.
+
+Required technical replay remains in scope: exact API command-result replay through command
+idempotency, Duplicate replay of the stored Telemetry terminal result, and operator-authorized
+outbox/inbox/Audit delivery replay that preserves original event, correlation, and causation IDs.
 
 ## Technical context
 
@@ -226,7 +231,8 @@ Audit event consumer -> immutable `audit.audit_event` append -> filtered Audit q
 authorized API/UI. Delivery is at-least-once. Audit append and inbox completion share a
 host-coordinated transaction with Integration last, and a unique source-event constraint makes one
 producer event create at most one Audit row for the Audit consumer. Retry, poison, reconciliation,
-and operator-initiated replay reuse Integration/Operations infrastructure. Payload construction or
+and operator-authorized outbox/inbox/Audit delivery replay reuse Integration/Operations infrastructure;
+all replay preserves the original event, correlation, and causation IDs. Payload construction or
 outbox insertion alone is not complete Audit functionality. See `contracts/audit-events.md`,
 `contracts/integration.md`, and `contracts/operations.md`.
 
@@ -385,7 +391,7 @@ observability defect; blocked evidence is reported, never passed.
 specs/002-asset-simulator-latest/
   spec.md  plan.md  research.md  data-model.md  quickstart.md  contracts/
 src/Api/  src/Worker/  src/BuildingBlocks/  src/Modules/{IAM,Organization,Catalog,Acquisition,Telemetry,Audit,Integration,Operations}/
-Web/src/  database/migrations/  database/seeds/  tests/{Unit,Integration,Architecture,Verification}/
+src/Web/src/  database/migrations/  database/seeds/  tests/{Unit,Integration,Architecture,Verification}/
 ```
 
 The existing `tasks.md` is outside this planning repair and requires the targeted repair identified
