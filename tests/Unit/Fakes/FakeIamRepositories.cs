@@ -90,6 +90,8 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
 
     public Task AddUserAsync(User user, CancellationToken ct = default)
     {
+        if (_users.Values.Any(u => u.Username.Equals(user.Username, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"A user with username '{user.Username}' already exists.");
         _users[user.Id.Value] = user;
         return Task.CompletedTask;
     }
@@ -208,6 +210,11 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
         _capabilities.Clear();
         _userCapabilities.Clear();
         _userRoles.Clear();
+    }
+
+    public IReadOnlyList<UserCapability> GetAllUserCapabilitiesForTest()
+    {
+        return _userCapabilities.ToList();
     }
 }
 

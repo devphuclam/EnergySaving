@@ -18,10 +18,10 @@ public static class PocIdentityFixtureTests
     {
         var failures = new List<string>();
 
-        await FixtureDefaultDisabled(failures);
-        await NoCommittedCredentialHash(failures);
-        await FixtureWithHashCreatesUsers(failures);
-        await NoPreSiteScope(failures);
+        FixtureDefaultDisabled(failures);
+        NoCommittedCredentialHash(failures);
+        FixtureWithHashCreatesUsers(failures);
+        NoPreSiteScope(failures);
         await PostSiteFixtureAssignsScopes(failures);
         await FixtureIsIdempotent(failures);
         await TransactionRollbackRestoresState(failures);
@@ -41,7 +41,7 @@ public static class PocIdentityFixtureTests
         return repo;
     }
 
-    private static async Task FixtureDefaultDisabled(List<string> failures)
+    private static void FixtureDefaultDisabled(List<string> failures)
     {
         var repo = CreateEmptyRepo();
         var fixture = new PocIdentityFixture(repo);
@@ -53,7 +53,7 @@ public static class PocIdentityFixtureTests
             failures.Add("T016-FAIL: Disabled fixture with NullPocCredentialHashProvider must return 0 users.");
     }
 
-    private static async Task NoCommittedCredentialHash(List<string> failures)
+    private static void NoCommittedCredentialHash(List<string> failures)
     {
         var repo = CreateEmptyRepo();
         var fixture = new PocIdentityFixture(repo, TestHash, true);
@@ -65,7 +65,7 @@ public static class PocIdentityFixtureTests
         }
     }
 
-    private static async Task FixtureWithHashCreatesUsers(List<string> failures)
+    private static void FixtureWithHashCreatesUsers(List<string> failures)
     {
         var repo = CreateEmptyRepo();
         var fixture = new PocIdentityFixture(repo, TestHash, true);
@@ -82,7 +82,7 @@ public static class PocIdentityFixtureTests
         }
     }
 
-    private static async Task NoPreSiteScope(List<string> failures)
+    private static void NoPreSiteScope(List<string> failures)
     {
         var repo = CreateEmptyRepo();
         var fixture = new PocIdentityFixture(repo, TestHash, true);

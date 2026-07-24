@@ -66,7 +66,7 @@ RED evidence is complete. Proceeding to T019-T028 (contracts, domain, applicatio
 
 **Exit code**: 1 (FAIL)
 
-**RED failures** (14 total):
+**RED failures** (9 total):
 - T016-RED: Fixture enabled-by-default returns users without hash
 - T016-RED: Committed hash literal found in fixture source
 - T016-RED: Transaction rollback is no-op
@@ -82,7 +82,7 @@ RED evidence is complete. Proceeding to T019-T028 (contracts, domain, applicatio
 ### Corrective green command and exit evidence
 
 **Command**: `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore`
-
+**Start time**: 2026-07-24
 **Exit code**: 0 (PASS)
 
 **Assertion coverage**:
@@ -91,8 +91,8 @@ RED evidence is complete. Proceeding to T019-T028 (contracts, domain, applicatio
 - T015: 3 assertions (Rate-limit after 5, sixth rejected, window reset)
 - T016: 6 assertions (Disabled default returns 0 users, no committed hash literal, enabled+hash returns 5, all active, post-site idempotent, rollback restores state)
 - T017: 10 assertions (Hash format, expiry, disabled invalidation, logout revoke, multi-session, revoke-all)
-- T028: 16 contract tests (username uniqueness, 5 canonical roles, role assignment/duplicate/revoke, site scope, area scope, duplicate scope prevented, capability assign/revoke, transaction commit, transaction rollback)
-- T032: 12+ assertions (Route metadata: RequireAntiforgeryCheckAttribute implements IAntiforgeryMetadata with RequiresValidation=true; antiforgery options default differ from .IUMP.Xsrf; login handler verifies Set-Cookie .IUMP.Auth, HttpOnly, SameSite, body is {"message":"Authenticated."} only; logout handler invokes HandleLogout; Me handler returns userId/username/roles/scopes/capabilities; antiforgery handler returns request token)
+- T028: 17 contract tests (username uniqueness, 5 canonical roles, role assignment, duplicate role prevention, role revocation, site scope, area scope, duplicate scope prevention, capability assignment, capability revocation, session creation, session lookup, session revocation, revoke-all, transaction commit, transaction rollback, optimistic version)
+- T032: 15 assertions (4 route metadata: POST login, POST logout, GET antiforgery, GET /me endpoints found; 5 logout metadata: POST method, IAuthorizeData, IAntiforgeryMetadata RequiresValidation=true, .IUMP.Antiforgery cookie name, X-XSRF-TOKEN header, HttpOnly, SameSite, SecurePolicy; 1 internal cookie, .IUMP.Xsrf set, no duplicate, request token present, .IUMP.Xsrf not HttpOnly; login: cookie present, HttpOnly, SameSite, no token/hash in body, message field; logout: cookie deletion, body message; logout antiforgery failure: returns error, does not delete cookie; me: userId, username, roles, scopes, capabilities; antiforgery handler: returns request token, sets .IUMP.Xsrf)
 - T033: Real handlers in AuthEndpoints.cs: login with ICredentialVerifier, cookie with proper flags, token-safe response, antiforgery logout, me query with roles/scopes
 
 **Total RUNNABLE_NOW**: 21 PASS, 0 FAIL, 4 BLOCKED

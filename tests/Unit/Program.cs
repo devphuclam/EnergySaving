@@ -17,9 +17,10 @@ failures.AddRange(AuthSecurityPolicyTests.Run());
 failures.AddRange(AuthEndpointTests.Run());
 
 // T028: executable repository contract tests against the deterministic fake
-var repo = new FakeIamCommandRepository();
-repo.SeedCapability(new Capability(CapabilityId.New(), "AUDIT_READ", "Audit Review"));
-var runner = new IamRepositoryContractRunner(repo);
+var cmdRepo = new FakeIamCommandRepository();
+cmdRepo.SeedCapability(new Capability(CapabilityId.New(), "AUDIT_READ", "Audit Review"));
+var sessionRepo = new FakeIamPrincipalSessionRepository();
+var runner = new IamRepositoryContractRunner(cmdRepo, sessionRepo);
 await runner.RunAllAsync();
 failures.AddRange(runner.Failures);
 

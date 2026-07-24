@@ -26,9 +26,18 @@
 | SR-05 | High | Login response body exposed `.token`/`.hash` — spec requires `{"message":"Authenticated."}` only | FIXED: `LoginResult` hides hash/token; body is clean |
 | SR-06 | High | `PocIdentityFixture` had committed POC hash literal and was always enabled | FIXED: `IPocCredentialHashProvider` interface; defaults disabled; hash injected at runtime |
 | SR-07 | Medium | `FakeIamTransaction.RollbackAsync` was no-op — did not restore state | FIXED: snapshot-then-restore pattern on all repo dicts |
-| SR-08 | Medium | `IamRepositoryContractRunner` was comment-only placeholder | FIXED: 16 executable contract tests |
+| SR-08 | Medium | `IamRepositoryContractRunner` was comment-only placeholder | FIXED: 17 executable contract tests with session + optimistic version |
 | SR-09 | Low | T001–T012 checkboxes all `[ ]` despite Phase 0 completion | FIXED: marked PASS/BLOCKED/NOT_RUN appropriately |
-| SR-10 | Info | RouteMetadataTests cannot inspect real `MapAuthEndpoints` route table before host starts; tests attribute type directly | PASS: `RequireAntiforgeryCheckAttribute` validated as `IAntiforgeryMetadata` |
+| SR-10 | Resolved | RouteMetadataTests could not inspect real `MapAuthEndpoints` route table | FIXED: now uses `IEndpointRouteBuilder.DataSources` with proper DI registration |
+| SR-11 | High | Antiforgery framework cookie and frontend token cookie used same `.IUMP.Xsrf` name | FIXED: framework cookie is `.IUMP.Antiforgery` (HttpOnly=true), frontend cookie is `.IUMP.Xsrf` (HttpOnly=false) |
+| SR-12 | High | AntiforgeryOptionsTests called `AddAntiforgery()` instead of production `AddAuthAntiforgery()` | FIXED: tests call `AddAuthAntiforgery()` and verify `Cookie.Name==.IUMP.Antiforgery`, `HeaderName==X-XSRF-TOKEN`, HttpOnly, SameSite, SecurePolicy, plus HandleAntiforgery execution |
+| SR-13 | Medium | Username uniqueness contract test did not attempt persistence of duplicate user | FIXED: actually attempts `AddUserAsync`, expects `InvalidOperationException`, verifies count unchanged |
+| SR-14 | Medium | `FakeIamCommandRepository` did not enforce username uniqueness | FIXED: `AddUserAsync` throws `InvalidOperationException` on duplicate normalized username |
+| SR-15 | Medium | T028 lacked session lookup, revoke, revoke-all, and optimistic version tests | FIXED: added 5 contract tests (SessionCreation, SessionLookupByTokenHash, CurrentSessionRevocation, RevokeAllSessions, OptimisticVersionBehavior) |
+| SR-16 | Medium | T028 claimed 16 tests but `RunAllAsync` invoked only 12 | FIXED: `RunAllAsync` now invokes exactly 17 declared tests, runner reports exact TestCount |
+| SR-17 | Medium | Several async test methods contained no `await` causing CS1998 | FIXED: removed `async` from `FixtureDefaultDisabled`, `NoCommittedCredentialHash`, `FixtureWithHashCreatesUsers`, `NoPreSiteScope` |
+| SR-18 | Info | Corrective RED evidence claimed 14 failures but listed only 9 | FIXED: count corrected to 9 |
+| SR-19 | Info | Antiforgery handler not tested with real `IAntiforgery` service | FIXED: `AntiforgeryOptionsTests` executes `HandleAntiforgery` with real ASP.NET Core `IAntiforgery` and verifies both cookies |
 
 ## Spec Compliance Review
 
@@ -50,7 +59,7 @@
 ## Conclusion
 
 - **Critical**: 0
-- **High**: 3 resolved (SR-04, SR-05, SR-06)
-- **Medium**: 2 (SR-02: integration test source blocked — BLOCKED_BY_PACKAGE_POLICY; SR-07: rollback was no-op — FIXED; SR-08: placeholder — FIXED)
+- **High**: 5 resolved (SR-04, SR-05, SR-06, SR-11, SR-12)
+- **Medium**: 6 (SR-02: integration test source blocked — BLOCKED_BY_PACKAGE_POLICY; SR-07, SR-08, SR-13, SR-14, SR-15, SR-16, SR-17 — all FIXED)
 - **Low**: 1 resolved (SR-09: checkboxes)
-- **Info**: 1 (SR-10: route metadata test limitation)
+- **Info**: 2 (SR-18: evidence count corrected; SR-19: real IAntiforgery test added)

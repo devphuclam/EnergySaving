@@ -24,9 +24,17 @@ public sealed class DeterministicCredentialVerifier : ICredentialVerifier
 
 public sealed class FakeAntiforgery : IAntiforgery
 {
+    public bool IsValid { get; set; } = true;
+
     public AntiforgeryTokenSet GetAndStoreTokens(HttpContext httpContext)
     {
-        return new AntiforgeryTokenSet("req-token", "cookie-token", "X-XSRF-TOKEN", ".IUMP.Xsrf");
+        httpContext.Response.Cookies.Append(".IUMP.Antiforgery", "fake-cookie-token", new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = true
+        });
+        return new AntiforgeryTokenSet("req-token", "cookie-token", "X-XSRF-TOKEN", ".IUMP.Antiforgery");
     }
 
     public AntiforgeryTokenSet GetTokens(HttpContext httpContext)
@@ -40,7 +48,7 @@ public sealed class FakeAntiforgery : IAntiforgery
 
     public Task<bool> IsRequestValidAsync(HttpContext httpContext)
     {
-        return Task.FromResult(true);
+        return Task.FromResult(IsValid);
     }
 
     public Task ValidateRequestAsync(HttpContext httpContext)
@@ -59,6 +67,7 @@ public static class AuthEndpointTests
         AntiforgeryOptionsTests(failures);
         LoginHandlerTests(failures);
         LogoutHandlerTests(failures);
+        LogoutAntiforgeryFailureTests(failures);
         MeHandlerTests(failures);
         AntiforgeryHandlerTests(failures);
 
@@ -106,7 +115,7 @@ public static class AuthEndpointTests
     private static string GetSetCookieHeader(DefaultHttpContext ctx)
     {
         ctx.Response.Headers.TryGetValue("Set-Cookie", out var values);
-        return values.FirstOrDefault() ?? "";
+        return string.Join(";; ", values.ToArray());
     }
 
     private static async Task ExecuteAndVerifyLoginBody(IAuthService auth, DefaultHttpContext ctx,
@@ -140,27 +149,117 @@ public static class AuthEndpointTests
 
     private static void RouteMetadataTests(List<string> failures)
     {
-        var attr = new RequireAntiforgeryCheckAttribute();
-        if (attr is not IAntiforgeryMetadata meta)
-            failures.Add("T032-RED: RequireAntiforgeryCheckAttribute must implement IAntiforgeryMetadata.");
-        else if (!meta.RequiresValidation)
-            failures.Add("T032-RED: RequireAntiforgeryCheckAttribute.RequiresValidation must be true.");
+        var builder = WebApplication.CreateBuilder(Array.Empty<string>());
+        builder.Services.AddAuthorizationCore();
+        builder.Services.AddAuthentication();
+        builder.Services.AddAuthAntiforgery();
+        builder.Services.AddSingleton<IAuthService>(new TestAuthService());
+        using var app = builder.Build();
+        app.MapAuthEndpoints();
 
-        var authAttr = new Microsoft.AspNetCore.Authorization.AuthorizeAttribute();
-        if (string.IsNullOrEmpty(authAttr.Policy) && string.IsNullOrEmpty(authAttr.Roles) && string.IsNullOrEmpty(authAttr.AuthenticationSchemes))
+        var routeBuilder = (IEndpointRouteBuilder)app;
+        var endpoints = routeBuilder.DataSources
+            .SelectMany(ds => ds.Endpoints)
+            .ToList();
+
+        var loginEp = endpoints.FirstOrDefault(e =>
+            e is RouteEndpoint re && re.RoutePattern.RawText == "/api/v1/auth/login");
+        if (loginEp == null)
+            failures.Add("T032-RED: POST /api/v1/auth/login endpoint not found.");
+
+        var logoutEp = endpoints.FirstOrDefault(e =>
+            e is RouteEndpoint re && re.RoutePattern.RawText == "/api/v1/auth/logout");
+        if (logoutEp == null)
         {
+            failures.Add("T032-RED: POST /api/v1/auth/logout endpoint not found.");
         }
+        else
+        {
+            var httpMethodMeta = logoutEp.Metadata.GetMetadata<HttpMethodMetadata>();
+            if (httpMethodMeta == null || !httpMethodMeta.HttpMethods.All(m => m.Equals("POST", StringComparison.OrdinalIgnoreCase)))
+                failures.Add("T032-RED: Logout endpoint must have POST method metadata.");
+
+            var authMeta = logoutEp.Metadata.GetMetadata<IAuthorizeData>();
+            if (authMeta == null)
+                failures.Add("T032-RED: Logout endpoint must have IAuthorizeData metadata.");
+
+            var antiforgeryMeta = logoutEp.Metadata.GetMetadata<IAntiforgeryMetadata>();
+            if (antiforgeryMeta == null || !antiforgeryMeta.RequiresValidation)
+                failures.Add("T032-RED: Logout endpoint must have IAntiforgeryMetadata with RequiresValidation=true.");
+        }
+
+        var antiforgeryEp = endpoints.FirstOrDefault(e =>
+            e is RouteEndpoint re && re.RoutePattern.RawText == "/api/v1/auth/antiforgery");
+        if (antiforgeryEp == null)
+            failures.Add("T032-RED: GET /api/v1/auth/antiforgery endpoint not found.");
+
+        var meEp = endpoints.FirstOrDefault(e =>
+            e is RouteEndpoint re && re.RoutePattern.RawText == "/api/v1/me");
+        if (meEp == null)
+            failures.Add("T032-RED: GET /api/v1/me endpoint not found.");
     }
 
     private static void AntiforgeryOptionsTests(List<string> failures)
     {
         var services = new ServiceCollection();
-        services.AddAntiforgery();
+        services.AddLogging();
+        services.AddAuthAntiforgery();
         using var sp = services.BuildServiceProvider();
         var options = sp.GetRequiredService<IOptions<AntiforgeryOptions>>().Value;
 
-        if (options.Cookie.Name == ".IUMP.Xsrf")
-            failures.Add("T032-RED: Antiforgery cookie default must NOT be .IUMP.Xsrf (not configured yet).");
+        if (options.Cookie.Name != ".IUMP.Antiforgery")
+            failures.Add($"T032-RED: Antiforgery cookie name must be .IUMP.Antiforgery, got '{options.Cookie.Name}'.");
+
+        if (options.HeaderName != "X-XSRF-TOKEN")
+            failures.Add($"T032-RED: Antiforgery header name must be X-XSRF-TOKEN, got '{options.HeaderName}'.");
+
+        if (!options.Cookie.HttpOnly)
+            failures.Add("T032-RED: Antiforgery framework cookie must be HttpOnly.");
+
+        if (options.Cookie.SameSite != SameSiteMode.Lax)
+            failures.Add("T032-RED: Antiforgery framework cookie SameSite must be Lax.");
+
+        if (options.Cookie.SecurePolicy != CookieSecurePolicy.Always)
+            failures.Add("T032-RED: Antiforgery framework cookie SecurePolicy must be Always.");
+
+        // Execute HandleAntiforgery with real IAntiforgery and verify cookies
+        var execServices = new ServiceCollection();
+        execServices.AddLogging();
+        execServices.AddAuthAntiforgery();
+        var ctx = new DefaultHttpContext();
+        ctx.Request.IsHttps = true;
+        ctx.Response.Body = new MemoryStream();
+        ctx.RequestServices = execServices.BuildServiceProvider();
+        var realAntiforgery = ctx.RequestServices.GetRequiredService<IAntiforgery>();
+
+        var handlerResult = AuthEndpointHandlers.HandleAntiforgery(ctx, realAntiforgery);
+        handlerResult.ExecuteAsync(ctx).GetAwaiter().GetResult();
+
+        ctx.Response.Headers.TryGetValue("Set-Cookie", out var rawCookieValues);
+        var cookies = rawCookieValues.ToArray();
+        if (cookies == null) cookies = Array.Empty<string>();
+
+        var hasInternalCookie = cookies.Any(c => c != null && c.StartsWith(".IUMP.Antiforgery=", StringComparison.OrdinalIgnoreCase));
+        if (!hasInternalCookie)
+            failures.Add("T032-RED: Antiforgery handler must set .IUMP.Antiforgery internal cookie.");
+
+        var hasXsrfCookie = cookies.Any(c => c != null && c.StartsWith(".IUMP.Xsrf=", StringComparison.OrdinalIgnoreCase));
+        if (!hasXsrfCookie)
+            failures.Add("T032-RED: Antiforgery handler must set .IUMP.Xsrf request-token cookie.");
+
+        var xsrfCookies = cookies.Where(c => c != null && c.StartsWith(".IUMP.Xsrf=", StringComparison.OrdinalIgnoreCase)).Count();
+        if (xsrfCookies > 1)
+            failures.Add("T032-RED: Must not write duplicate .IUMP.Xsrf cookies.");
+
+        var xsrfLine = cookies.FirstOrDefault(c => c != null && c.StartsWith(".IUMP.Xsrf=", StringComparison.OrdinalIgnoreCase));
+        var xsrfValue = xsrfLine?.Split('=') is { Length: > 1 } parts ? parts[1].Split(';')[0] : "";
+        if (string.IsNullOrWhiteSpace(xsrfValue))
+            failures.Add("T032-RED: .IUMP.Xsrf cookie must contain the request token.");
+
+        var xsrfHttpOnly = xsrfLine != null &&
+            xsrfLine.Contains("httponly", StringComparison.OrdinalIgnoreCase);
+        if (xsrfHttpOnly)
+            failures.Add("T032-RED: .IUMP.Xsrf cookie must NOT be HttpOnly.");
     }
 
     private static void LoginHandlerTests(List<string> failures)
@@ -235,6 +334,28 @@ public static class AuthEndpointTests
         var root = doc.RootElement;
         if (!root.TryGetProperty("message", out var msg) || msg.GetString() != "Logged out.")
             failures.Add("T032-RED: Logout response body must contain {\"message\":\"Logged out.\"}");
+    }
+
+    private static void LogoutAntiforgeryFailureTests(List<string> failures)
+    {
+        var auth = new TestAuthService();
+        var ctx = MakeHttpContext();
+        ctx.Request.Headers["Cookie"] = ".IUMP.Auth=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1";
+        var antiforgery = new FakeAntiforgery { IsValid = false };
+
+        var result = AuthEndpointHandlers.HandleLogout(ctx, auth, antiforgery);
+        result.ExecuteAsync(ctx).GetAwaiter().GetResult();
+
+        var body = ReadBody(ctx);
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("error", out _))
+            failures.Add("T032-RED: Logout with invalid antiforgery must return an error.");
+
+        var cookieHeader = GetSetCookieHeader(ctx);
+        if (cookieHeader.Contains(".IUMP.Auth") && cookieHeader.Contains("expires=", StringComparison.OrdinalIgnoreCase))
+            failures.Add("T032-RED: Logout must NOT delete auth cookie when antiforgery validation fails.");
     }
 
     private static void MeHandlerTests(List<string> failures)

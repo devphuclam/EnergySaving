@@ -59,9 +59,9 @@ public static class AuthSecurityOptions
     {
         services.AddAntiforgery(options =>
         {
-            options.Cookie.Name = ".IUMP.Xsrf";
+            options.Cookie.Name = ".IUMP.Antiforgery";
             options.HeaderName = "X-XSRF-TOKEN";
-            options.Cookie.HttpOnly = false;
+            options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         });
