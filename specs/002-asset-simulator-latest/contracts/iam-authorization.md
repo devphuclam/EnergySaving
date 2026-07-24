@@ -43,7 +43,7 @@ Working defaults:
 | HTTPS | Required in Production; Development permits HTTP |
 | Data Protection key store | Required for ASP.NET Data Protection (antiforgery, framework-protected values). Directory must be pre-provisioned and writable by the API service account. Application must not request elevation or alter system ACLs |
 | Key protection (Windows) | DPAPI `ProtectKeysWithDpapi()` using a pre-provisioned directory. Development may use an approved user-writable local path configured outside the repository (e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`) |
-| Key availability | Unavailable/unapproved storage is BLOCKED_BY_ENVIRONMENT. No keys are committed |
+| Key availability | Missing required provisioning/approval is BLOCKED_BY_COMPANY_APPROVAL. No keys are committed |
 | Rate-limit window | 15 seconds |
 | Rate-limit threshold | 5 failed attempts per window per username |
 

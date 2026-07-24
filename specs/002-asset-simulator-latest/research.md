@@ -171,6 +171,26 @@ both Idempotency-Key and If-Match required; stale version returns VERSION_CONFLI
 If-Match nor Idempotency-Key. Logout: no If-Match, antiforgery required. Query: neither If-Match
 nor Idempotency-Key. All contracts updated to reflect this split.
 
+### Decision: Persistent API command-idempotency registry
+
+Integration owns `integration.command_idempotency` and `ICommandIdempotencyStore`. Its unique
+identity is caller user + versioned operation code + Idempotency-Key. A SHA-256 fingerprint uses a
+versioned, typed, length-prefixed canonical encoding of caller, operation, target, If-Match version,
+and operation-specific command fields. It excludes transport order/whitespace, correlation/retry
+metadata, credentials, cookies, session/antiforgery material, and the key itself.
+
+A same-fingerprint Completed request replays the exact original HTTP status/result/resource
+version. A live Pending duplicate waits briefly then returns `IDEMPOTENCY_IN_PROGRESS`; an expired
+Pending row can be reclaimed optimistically by the same fingerprint. A different fingerprint
+returns `IDEMPOTENCY_CONFLICT`. Registration is a short transaction so Pending survives a crash;
+the owner mutation, outbox, and Completed result share the host-coordinated transaction with
+Integration last. Completed retention is 24 hours and the Pending lease is 30 seconds.
+
+Alternatives rejected: no persistent record (cannot replay after restart/concurrency),
+`integration.inbox_message` (consumer-event identity has different ownership and key), Acquisition
+production attempts (generated-slot checkpoint), Telemetry measurement identity (ingestion result),
+and raw-request storage (secret/canonicalization risk).
+
 ### Decision: Session implementation details
 
 Working defaults defined for cookie name (`.IUMP.Auth`), opaque 256-bit CSPRNG token (not an ASP.NET
@@ -181,7 +201,8 @@ allowed), logout revokes current session by `revoked_at`, revocation is `revoked
 revoke-all sets `revoked_at` on all sessions. Antiforgery cookie/header (`.IUMP.Xsrf`/
 `X-XSRF-TOKEN`), same-origin only, HTTPS with Development override. Data Protection keys in a
 pre-provisioned directory writable by the service account (no elevation). Development may use
-`%LOCALAPPDATA%/IUMP/DataProtection-Keys/`. Unavailable key storage is BLOCKED_BY_ENVIRONMENT.
+`%LOCALAPPDATA%/IUMP/DataProtection-Keys/`. Missing required key-storage provisioning/approval is
+BLOCKED_BY_COMPANY_APPROVAL.
 Rate-limit 5 attempts per 15s window.
 
 ### Decision: Immutable configuration versions
@@ -234,10 +255,48 @@ business dependency does. Audit remains append-only with no restrictive target F
 ### Decision: R0 infrastructure and cross-schema references
 
 R0 supplies only `integration.outbox_event`, `integration.inbox_message` and `operations.job` for this
-slice. Existing structures are reused; only minimal approved additive changes are possible. Logical
+slice. Existing structures are reused. R1 migration 0011 adds the separate required
+`integration.command_idempotency` table and nullable inbox lease/retry fields needed for crash-safe
+Audit consumption; it does not recreate R0 tables. Logical
 cross-schema IDs have no FK, are validated by versioned public contracts, carry snapshots in evidence,
 and are checked by reconciliation. No module writes another schema. Audit receives committed events
 through outbox/inbox; originating modules do not insert Audit rows into another schema transaction.
+
+### Decision: Complete Audit delivery
+
+The mandatory path is owner command/event, transactional outbox, leased Worker dispatch, Audit
+inbox claim/dedup, `IAuditEventConsumer`, append-only Audit repository, filtered Audit query
+repository/service, then authorized API/UI. Audit append and inbox completion share a transaction
+with Integration last. Inbox identity plus unique Audit source-event ID provides at-most-one Audit
+row per event for the Audit consumer over at-least-once delivery.
+
+The dispatcher/inbox/Audit adapters implement 30-second leases, maximum 10 attempts, bounded
+backoff, redacted Failed poison state, reconciliation, and operator-authorized identity-preserving
+replay. `operations.job` schedules wakeups/reconciliation and is not a second event store.
+Correlation, causation, and source event IDs survive every retry. Administrator queries globally;
+another active user needs both `AUDIT_READ` and applicable Site/Area scope.
+
+Alternatives rejected: synchronous producer writes to Audit (cross-schema ownership violation),
+payload construction as completion (no durable/queryable evidence), endpoint without consumer or
+repositories, and best-effort delivery without leases/reconciliation.
+
+### Decision: Runtime persistence adapter inventory
+
+IAM, Organization, Catalog, Acquisition, Telemetry, Audit, Integration, and Operations each require
+public repository ports, provider-owned PostgreSQL adapters, host composition registration,
+transaction responsibility, and real-PostgreSQL verification as inventoried in
+`contracts/persistence-adapters.md`. SQL migration files create storage and tests verify behavior;
+neither implements the runtime adapter.
+
+### Decision: Execution evidence semantics
+
+PASS means executed and verified. FAIL means verification executed and failed. BLOCKED means
+runnable source/evidence was produced where possible, the unavailable external dependency and
+classification are recorded, execution could not occur, and the behavior is not passing. NOT_RUN
+means unattempted. A phase may close only for incomplete planning/development progression when all
+runnable work passes, blockers are external/classified, no runnable dependent remains, and the
+checkpoint explicitly says the capability is incomplete. Mandatory Full/release gates cannot pass
+with BLOCKED or NOT_RUN evidence.
 
 ### Decision: Migration sequence update
 
@@ -246,8 +305,8 @@ Migrations are updated to include:
 - Acquisition production-attempt checkpoint (inserted after Run and run-point-state tables).
 - Extended run-point-state columns for pinned snapshot.
 - Session/index additions in the IAM migration.
-- Additive R0 outbox/job changes are included only when proven necessary; no recreation of existing
-  tables.
+- Required 0011 Integration expand creates command idempotency and adds inbox recovery metadata;
+  existing outbox/inbox/job tables are not recreated.
 
 ## Controlled source differences
 
@@ -263,9 +322,10 @@ Migrations are updated to include:
 
 ## Clarification status
 
-All repair points have a documented decision. Unresolved questions: **0**. The constitution's
-historical R0-only implementation restriction and missing PostgreSQL/package approvals are execution
-gates, not product questions.
+All repair points have a documented decision. Unresolved questions: **0**. This repair does not
+request a constitution amendment. PostgreSQL/package approvals and targeted task repair are
+execution gates, not product questions.
 
-The eight repaired planning artifacts contain no remaining sequence, retry, outcome-persistence or
-generator contradiction. Requirements coverage is 68/68, stories 5/5 and success criteria 9/9.
+The repaired planning artifacts contain no remaining command-idempotency, Audit-delivery,
+persistence-adapter, evidence-state, sequence, retry, outcome-persistence, or generator
+contradiction. Requirements coverage is 68/68, stories 5/5 and success criteria 9/9.

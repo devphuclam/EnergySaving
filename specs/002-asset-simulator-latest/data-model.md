@@ -35,22 +35,40 @@
 | `point_lifecycle_history` | Organization/`organization` | history ID / Point+version | append-only old/new status, actor, reason; Point/time index | immutable; occurred-at | never delete; lifecycle audit |
 | `simulator_configuration` | Acquisition/`acquisition` | config ID / source aggregate | source ID, current version, metadata; source/current index | `version`; head only | retain; audit version change |
 | `simulator_configuration_version` | Acquisition/`acquisition` | `(config_id,configuration_version)` | scenario, interval, min/max, seed, `algorithm_id`, `algorithm_version`; Constant min=max, Normal min<max | immutable; version identity | never delete if Run references; audit |
-| `simulator_run` | Acquisition/`acquisition` | `run_id` / source+run | source/config/version, Running/Paused/Stopped, counters, error, lease; status/lease indexes | `version`, idempotency; run lifetime | retain after production; stop terminal; audit |
+| `simulator_run` | Acquisition/`acquisition` | `run_id` / source+run | source/config/version, Running/Paused/Stopped, counters, error, lease; status/lease indexes | `version`; run lifetime | retain after production; stop terminal; audit |
 | `simulator_run_point_state` | Acquisition/`acquisition` | `(run_id,point_id)` | pinned snapshot plus zero-based `next_source_sequence`, serialized PCG/spare state and next_due_at | version; Run lifetime | retain with Run; operational evidence |
 | `simulator_production_attempt` | Acquisition/`acquisition` | `(run_id,point_id,source_sequence)` | authoritative persisted Telemetry payload; identity/mapping/config/algorithm/value/provenance snapshots; Pending/Completed; response disposition and final classification | immutable payload + versioned terminal fields; unique sequence and measurement_id | never delete |
 | `measurement_identity` | Telemetry/`telemetry` | `measurement_id` / terminal dedup identity | immutable request identity/fingerprint plus Accepted/Rejected terminal result, persistence flag/reference, quality/reason/rejection, Latest result, completed time and safe lineage | immutable; unique Run+Point+sequence | retain at least through retry/Measurement retention |
 | `measurement_raw` | Telemetry/`telemetry` | `measurement_id` / same | point/source/mapping, source/received/processing time, value/unit/quality/reason/lineage; time partition + Point/time index | immutable; source time | retention policy; trace |
 | `point_latest` | Telemetry/`telemetry` | `point_id` / same | value/unit/timestamps/quality/reason and full ordering tuple; Point PK | atomic compare/version; current | projection rebuild/update; trace |
 | `point_source_status` | Telemetry/`telemetry` | `(point_id,source_id)` / same | run status, last received, counters, Online/Stale/NoData/Suspended/Decommissioned; state/evaluation indexes | atomic version; evaluated-at | projection update; real-change event |
-| `audit_event` | Audit/`audit` | `audit_event_id` / event ID | actor snapshot, object type/ID, action, before/after JSON, summary, correlation, scope snapshots; query indexes | immutable; occurred-at | append-only database permissions |
+| `audit_event` | Audit/`audit` | `audit_event_id` / unique `source_event_id` | event type/version/producer/aggregate, actor snapshot, object/action, redacted before/after JSON, summary, correlation/causation, scope snapshots; query indexes | immutable; occurred/recorded-at | append-only database permissions |
+| `command_idempotency` | Integration/`integration` | `command_idempotency_id` / `(caller_user_id,operation_code,idempotency_key)` | 32-byte request fingerprint, target scope/aggregate, Pending/Completed, lease/attempt, original HTTP/safe result or reference, resource ID/version, error code, timestamps/expiry; unique identity and status-shape checks; Pending/expiry/target indexes | optimistic `version`; 30s Pending lease; 24h Completed retention | cleanup after expiry; never stores raw request, credentials, tokens, or secrets |
 | `outbox_event` | Integration/`integration` | existing R0 `event_id` | reuse existing payload/status/attempt/lease columns; add only approved nullable metadata | existing claim/lease | operations retention |
-| `inbox_message` | Integration/`integration` | existing `(consumer_name,event_id)` | existing hash/status/error/dedup columns | existing claim state | operations retention |
+| `inbox_message` | Integration/`integration` | existing `(consumer_name,event_id)` | reuse hash/status/error/dedup; 0011 adds lease owner/until, attempts, next-attempt and claim index | additive claim/recovery state | operations retention |
 | `job` | Operations/`operations` | existing job ID / `(job_type,idempotency_key)` | existing payload/status/availability/lease/attempt fields | existing lease/version | retain execution history |
 
 `metric_unit_compatibility`, `simulator_configuration*`, `simulator_run_point_state`,
-`simulator_production_attempt`, `point_lifecycle_history`, `capability`, and `user_capability`
+`simulator_production_attempt`, `point_lifecycle_history`, `capability`, `user_capability`, and
+`command_idempotency`
 are explicit VS-01 additions where DOC-06 does not provide an equivalent; they do not replace R0
 structures.
+
+### Command-idempotency invariants
+
+The unique command scope is `(caller_user_id, operation_code, idempotency_key)`, without a
+cross-schema FK to IAM. `request_fingerprint` is exactly 32 bytes and follows the canonical V1
+algorithm in `contracts/README.md`. `status` is only Pending or Completed. Pending requires no
+original response and may have `pending_owner`, `pending_until`, and nonnegative `attempt_count`.
+Completed requires `original_http_status` in 100..599, a safe result payload or stable reference,
+`completed_at`, cleared lease fields, and positive `version`. `created_at <= completed_at <=
+expires_at` where applicable.
+
+Required indexes are the unique command scope, partial `(pending_until,created_at)` for Pending
+recovery, `expires_at` for cleanup, and partial target aggregate lookup. Same fingerprint replays
+the stored status/result; a different fingerprint conflicts. The short Pending registration and
+the owner-mutation/outbox/Completed transaction boundaries are defined in
+`contracts/integration.md`.
 
 ## IAM and session model
 
@@ -72,7 +90,8 @@ limit (5 attempts per 15-second window). Data Protection keys (required for anti
 framework-protected values, not for reconstructing the session token) reside in a pre-provisioned
 directory writable by the API service account. Development may use an approved user-writable local
 path (e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`). Unavailable storage is
-BLOCKED_BY_ENVIRONMENT. The application must not request elevation or alter system ACLs.
+BLOCKED_BY_COMPANY_APPROVAL when required provisioning/approval is absent. The application must not
+request elevation or alter system ACLs.
 
 Base roles are exactly Administrator, Engineer, Operator, Manager and Viewer. `AUDIT_READ` is a
 capability seeded into `iam.capability` and assigned via `iam.user_capability`. Administrator has
@@ -215,9 +234,10 @@ reconciliation path:
 ## Existing R0 infrastructure
 
 Reuse exactly `integration.outbox_event`, `integration.inbox_message`, and `operations.job` from
-`0001_r0_foundation.sql`. Add only backward-compatible nullable metadata or payload envelope fields
-through an explicit expand migration if a proven VS-01 need exists. Do not recreate delivery/job
-tables.
+`0001_r0_foundation.sql`. The proven crash-safe Audit consumer need requires backward-compatible
+nullable inbox lease/retry fields in 0011. Outbox and job already provide claim/lease/attempt
+fields. Do not recreate delivery/job tables. The R1 `command_idempotency` table is a separate API
+command mechanism, not an R0-table replacement.
 
 ## Ordered migration design
 
@@ -232,9 +252,9 @@ tables.
    attempt checkpoint and leases
 7. `0008_telemetry_measurement.sql` - immutable terminal identity/result registry and Accepted raw Measurement
 8. `0009_telemetry_latest_status.sql` — Latest and physical point_source_status projections/indexes
-9. `0010_audit_event.sql` — append-only audit storage and permissions
-10. `0011_r1_infrastructure_expand.sql` — only approved additive changes to R0 tables (if proven
-    necessary; no recreation)
+9. `0010_audit_event.sql` — append-only audit storage, unique source event and permissions
+10. `0011_r1_infrastructure_expand.sql` — create `integration.command_idempotency`; add nullable
+    inbox lease/retry fields and claim index; never recreate `outbox_event`, `inbox_message`, or `job`
 11. `0012_r1_idempotent_seeds.sql` — deterministic POC users/scopes after Site bootstrap strategy
     and catalog seeds. Does NOT claim to create impossible pre-Site scope rows.
 12. `0013_r1_validation_reconciliation.sql` — reconciliation and validation queries
@@ -243,3 +263,8 @@ Each has owner, checksum/ledger evidence, forward behavior, lock/time estimate, 
 and forward-fix notes. Mapping is placed after the Point table exists even though Catalog owns it;
 the Catalog contract supports a fake Organization readiness port in Phase 2 and the real port in
 Phases 3-4.
+
+Applied migrations remain immutable. Any correction after 0011 deployment uses a new,
+higher-numbered forward-fix migration; Audit storage remains owned by 0010. Repository ports and
+PostgreSQL adapters in `contracts/persistence-adapters.md` remain required runtime work—migration
+SQL and database tests are not substitutes.

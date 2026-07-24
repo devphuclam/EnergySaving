@@ -9,7 +9,6 @@ does not replace tasks.md.
 - Locked package sources and protected local bootstrap credential; no public download or container.
 - Current R0 migration 0001 applied. R1 migrations are applied in documented order only after tasks
   and implementation approval.
-- Constitution R0-only implementation wording amended through its governed process.
 
 ## Fast and Full checks
 
@@ -22,8 +21,8 @@ Fast covers artifacts, policy, architecture and tests that need no database.
     .\scripts\harness.ps1 -Mode Full -Feature 002-asset-simulator-latest
 
 Full additionally requires PostgreSQL/package-backed migration, constraints, transaction,
-deduplication, lease, API/Worker and acceptance evidence. Until tasks.md exists, a missing-task
-artifact result is expected and must not be reported as an end-to-end pass.
+deduplication, lease, API/Worker and acceptance evidence. A targeted tasks repair is still required;
+the current tasks artifact must not be treated as implementation-ready for these repaired paths.
 
 ## Executable business journey
 
@@ -41,6 +40,21 @@ artifact result is expected and must not be reported as an end-to-end pass.
 5. Administrator assigns Engineer, Operator, Manager and Viewer to the Site scope.
 6. Optionally grant AUDIT_READ to Manager per seeded POC policy.
 7. Login as Engineer; verify an Engineer without scope cannot create a Site and has no global bypass.
+
+### API command idempotency
+
+For one representative create and one update/lifecycle command:
+
+- repeat the same caller/operation/key and canonical request; verify the stored original HTTP
+  status/body/resource version/Location/ETag and original correlation ID replay after API restart;
+- reuse the key with a different canonical field or If-Match; expect `IDEMPOTENCY_CONFLICT`;
+- issue concurrent identical requests; verify one owner mutation/outbox event and either bounded
+  winner replay or `IDEMPOTENCY_IN_PROGRESS` plus `Retry-After`;
+- crash after committed Pending registration but before owner mutation; after the 30-second lease,
+  retry the same request and verify optimistic reclaim without a duplicate owner mutation;
+- verify Completed retention/cleanup at 24 hours and Pending reconciliation before removal;
+- inspect evidence to confirm no raw request, cookie, authorization/antiforgery/session material,
+  credential, hash, or secret is stored.
 
 ### Hierarchy and configuration
 
@@ -92,6 +106,15 @@ artifact result is expected and must not be reported as an end-to-end pass.
     stop, decommission is terminal and triggers Source Status reconciliation.
 29. Inspect AuditReview results for bootstrap, scope, configuration, capability, mapping, Run
     controls, auth and decommission.
+
+For one control event, trace the complete Audit path: owner mutation/event and outbox commit;
+leased Worker dispatch; `Audit.v1` inbox claim; Audit consumer; unique `source_event_id` append;
+inbox completion; filtered query. Crash before and after append to prove at-least-once delivery
+produces at most one Audit row. Force retries through attempt 10, verify bounded scheduling and
+redacted Failed poison state, correct the fault, then replay with unchanged event/correlation/
+causation identities. Reconciliation must find expired leases and Published-without-Audit gaps.
+Verify Administrator global query and `AUDIT_READ` **plus** Site/Area scope for every non-Admin;
+global/unscoped events remain Administrator-only.
 
 ### Deletion rules
 
@@ -147,11 +170,27 @@ SC-009 verifies Active-child Asset rejection, no cascade, atomicity and successf
 ## Test classification
 
 - RUNNABLE_NOW: pure domain, session policy, authorization, generator, identity, contract and
-  architecture tests.
-- REQUIRES_APPROVED_POSTGRESQL: migrations, constraints, exclusion/overlap, atomic Latest, dedup,
-  outbox/inbox, production-attempt checkpoint and leases.
+  architecture tests, including every repository port, fake, and composition registration.
+- BLOCKED_BY_DATABASE_ACCESS when approved PostgreSQL is unavailable: migrations, constraints,
+  exclusion/overlap, atomic Latest, command registry/replay, outbox/inbox/Audit delivery,
+  production-attempt checkpoint, repository adapters, leases, concurrency, and query plans.
 - BLOCKED_BY_PACKAGE_POLICY: ORM/driver compilation if locked packages are unavailable.
-- BLOCKED_BY_ENVIRONMENT: missing database/service/tool for API/Worker/Web smoke.
-- REQUIRES_COMPANY_APPROVAL: CI, promotion and target deployment.
+- BLOCKED_BY_MISSING_TOOL: missing required local tool/service other than PostgreSQL for
+  API/Worker/Web smoke.
+- BLOCKED_BY_COMPANY_APPROVAL: CI, promotion and target deployment.
 
-No alternate database is permitted and blocked evidence is never called complete.
+Evidence results are:
+
+| Result | Meaning |
+|---|---|
+| PASS | Behavior executed and the expected result was verified with fresh evidence |
+| FAIL | Executable verification ran and failed |
+| BLOCKED | Runnable artifact/test source was produced where possible; exact external dependency, check ID, blocker ID, classification, and evidence are recorded; verification could not execute; behavior is not passing |
+| NOT_RUN | The task/check has not been attempted |
+
+A phase may close for planning/development progression with BLOCKED evidence only if every
+RUNNABLE_NOW item is PASS, every blocker is external and classified, no runnable dependent requires
+the unavailable behavior, and the checkpoint states the end-to-end capability remains incomplete.
+FAIL or runnable NOT_RUN prevents progression. Full/release cannot PASS while any mandatory
+BLOCKED or NOT_RUN remains; the harness result is nonzero (blocked/not-run exit 20). No alternate
+database is permitted.

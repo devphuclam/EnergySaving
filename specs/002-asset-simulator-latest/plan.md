@@ -1,6 +1,6 @@
 # Implementation Plan: Asset Simulator Latest (Targeted Repair)
 
-**Branch context**: `002-asset-simulator-latest` | **Date**: 2026-07-23 | **Spec**: [spec.md](spec.md)
+**Branch context**: `002-asset-simulator-latest` | **Date**: 2026-07-24 | **Spec**: [spec.md](spec.md)
 
 **Boundary**: This repair updates planning/design artifacts only. It does not implement source
 code, create migrations or tests, or create `tasks.md`. Scope remains R1 / VS-01.
@@ -32,10 +32,10 @@ IDs, optimistic concurrency, deterministic global lock order for strict cross-mo
 restricted offline package policy, and no Docker/Redis/broker/alternate database/public download.
 
 **Environment classification**: Domain, authorization-policy, architecture and contract-shape tests
-are `RUNNABLE_NOW`. PostgreSQL migration/constraint/transaction/dedup/lease/E2E evidence is
-`REQUIRES_APPROVED_POSTGRESQL`; missing approved package sources are `BLOCKED_BY_PACKAGE_POLICY`;
-missing local services/tools are `BLOCKED_BY_ENVIRONMENT`; company CI/deployment is
-`REQUIRES_COMPANY_APPROVAL`.
+are `RUNNABLE_NOW`. PostgreSQL migration/constraint/transaction/dedup/lease/E2E checks are
+`BLOCKED_BY_DATABASE_ACCESS` when approved PostgreSQL is unavailable; missing approved package
+sources are `BLOCKED_BY_PACKAGE_POLICY`; missing required local tools are
+`BLOCKED_BY_MISSING_TOOL`; company CI/deployment is `BLOCKED_BY_COMPANY_APPROVAL`.
 
 ## Plan-time decisions
 
@@ -149,7 +149,7 @@ local environment instructions, never committed. Data Protection keys are stored
 using DPAPI `ProtectKeysWithDpapi()`. The application must not request elevation or alter system
 ACLs. Development may use an approved user-writable local path configured outside the repository
 (e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`). Unavailable/unapproved storage is
-BLOCKED_BY_ENVIRONMENT. No keys are committed.
+BLOCKED_BY_COMPANY_APPROVAL when required provisioning/approval is absent. No keys are committed.
 
 ### P-015 - Production-attempt checkpoint
 
@@ -205,13 +205,55 @@ records. Post-Site fixture (B) uses application commands to assign scopes after 
 optionally grants AUDIT_READ. Fixture is idempotent and disabled outside development/POC.
 See `contracts/iam-authorization.md`.
 
+### P-020 - Persistent API command idempotency
+
+All API create/update/lifecycle/delete commands covered by P-018 use the Integration-owned
+`integration.command_idempotency` registry through `ICommandIdempotencyStore`; they do not use
+`integration.inbox_message`. A short registration transaction commits a unique Pending record
+before business execution. The host-coordinated mutation transaction then locks owner rows in the
+global order, calls the Integration PostgreSQL adapter last, and atomically commits the owner
+mutation, owner event/outbox row, and Completed original result. Concurrent same-fingerprint
+requests wait for the unique-key winner for a bounded interval, replay Completed, or return
+`IDEMPOTENCY_IN_PROGRESS` with `Retry-After`; a different fingerprint returns
+`IDEMPOTENCY_CONFLICT`. An expired Pending lease is reclaimed only by a retry carrying the same
+canonical request. See `contracts/integration.md`.
+
+### P-021 - Complete Audit delivery path
+
+Audit functionality is the mandatory executable chain: business command -> owner-module event ->
+`integration.outbox_event` -> outbox dispatcher -> Audit `integration.inbox_message` reservation ->
+Audit event consumer -> immutable `audit.audit_event` append -> filtered Audit query service ->
+authorized API/UI. Delivery is at-least-once. Audit append and inbox completion share a
+host-coordinated transaction with Integration last, and a unique source-event constraint makes one
+producer event create at most one Audit row for the Audit consumer. Retry, poison, reconciliation,
+and operator-initiated replay reuse Integration/Operations infrastructure. Payload construction or
+outbox insertion alone is not complete Audit functionality. See `contracts/audit-events.md`,
+`contracts/integration.md`, and `contracts/operations.md`.
+
+### P-022 - State-owning persistence adapters
+
+Every state-owning module has a public repository port and a module-owned PostgreSQL adapter.
+Application/composition code depends on ports, not SQL or another module's schema. Migrations create
+storage; tests verify behavior; neither substitutes for implementing the adapter. The required
+adapter inventory, transaction participation, environment classification, and PostgreSQL evidence
+are normative in `contracts/persistence-adapters.md`.
+
+### P-023 - Execution evidence vocabulary
+
+`PASS` means behavior executed and verified; `FAIL` means executable verification ran and failed;
+`BLOCKED` means runnable source/evidence was produced where possible, the exact external dependency
+was recorded, execution could not occur, and the behavior is not passing; `NOT_RUN` means no
+attempt. A phase may close only for planning/development progression with BLOCKED evidence when all
+RUNNABLE_NOW work is complete, blockers are external/classified, no runnable dependent needs the
+unavailable behavior, and the checkpoint explicitly remains capability-incomplete. Full/release
+gates never pass with mandatory blockers.
+
 ## Constitution gate
 
 Core modular-monolith, security, traceability, test-first and restricted-execution principles pass
-for planning. Planning and task generation may proceed. The implementation governance gate is
-BLOCKED by the historical R0-only constitution wording; after task analysis the governed next step
-is to amend the constitution for an active feature/release lifecycle. This is separate from
-PostgreSQL and package blockers.
+for planning. This targeted repair neither amends nor requests amendment of the constitution.
+Planning and targeted task repair may proceed. Implementation remains not ready until the repaired
+tasks are analyzed and all applicable execution gates are satisfied.
 
 ## Module ownership and contracts
 
@@ -223,7 +265,7 @@ PostgreSQL and package blockers.
 | Acquisition / `acquisition` | Simulator configuration head/versions, Runs, per-Point state (pinned snapshot), production-attempt checkpoint, generation and counters |
 | Telemetry / `telemetry` | trusted internal ingestion, immutable Accepted/Rejected identity result registry, Accepted raw Measurements, Latest, Source Health |
 | Audit / `audit` | immutable audit events and authorized audit query (AUDIT_READ capability) |
-| Integration / `integration` | existing `outbox_event` and `inbox_message` delivery infrastructure |
+| Integration / `integration` | API command-idempotency registry plus existing `outbox_event` and `inbox_message` delivery infrastructure |
 | Operations / `operations` | existing `job`, Worker leases, scheduling and health evaluation |
 
 Organization Point activation asks IAM for Data Owner eligibility, Catalog for Metric/Unit
@@ -244,7 +286,12 @@ they never insert Audit rows across schemas.
 - Catalog: `IMetricUnitCompatibility`, `IActiveSimulatorMappingEligibility`, source/mapping snapshot.
 - Acquisition: configuration version, Run control/status, generated-measurement producer adapter.
 - Telemetry: `IngestMeasurement` accepted/rejected/duplicate result, Latest and Health query DTOs.
-- Audit: `AppendAuditEvent` and authorized audit query (AUDIT_READ gated).
+- Audit: `IAuditEventConsumer`, `IAuditAppendRepository`, and scope/capability-filtered
+  `IAuditQueryRepository`.
+- Integration: `ICommandIdempotencyStore`, `ITransactionalOutboxWriter`,
+  `IOutboxClaimRepository`, and `IInboxDeduplicationRepository`.
+- Operations: `IDurableJobScheduler` and `IJobClaimRepository` for scheduling, leases, retries,
+  poison handling, reconciliation, and replay.
 
 ### Asynchronous events
 
@@ -253,7 +300,12 @@ occurredAt, correlationId and causationId. Required events are `UserScopeChanged
 `UserCapabilitiesChanged`, `OrganizationStatusChanged`, `CatalogSourceMappingChanged`,
 `SimulatorRunStateChanged`, `MeasurementAccepted`, `PointLatestAdvanced`,
 `PointSourceHealthChanged`, and audit-consumed control events. Consumers deduplicate through
-`inbox_message`; event delivery is at-least-once.
+`inbox_message`; event delivery is at-least-once. The Worker dispatcher claims leased outbox rows,
+propagates the immutable envelope, and marks publish/reschedule/poison outcomes. The Audit consumer
+reserves its inbox identity, appends through the Audit adapter, then completes the inbox record in
+one transaction; `(consumer_name,event_id)` and unique `audit_event.source_event_id` make retries
+idempotent. Operations jobs wake dispatch/reconciliation/replay work but do not replace the outbox
+or inbox source of truth.
 
 ## Dependency-ordered phases
 
@@ -298,7 +350,8 @@ Start/Pause/Resume/Stop, immutable configuration reference, leases, restart, cou
 deterministic generation, production-attempt checkpoint, and pinned Run-Point input snapshot.
 **Checkpoint**: Start fails unless Source/Mapping/Point/ancestors Active;
 Running-only restart recovery, per-Run+Point repeatability, and crash recovery via production-attempt
-checkpoint pass.
+checkpoint pass. Command retries also prove persistent Pending/Completed reservation, exact original
+result replay, conflict rejection, and concurrent duplicate behavior.
 
 ### Phase 7 - Canonical Telemetry ingestion
 
@@ -317,7 +370,8 @@ and recovery. **Checkpoint**: no synthetic zero and no Latest regression under t
 
 Versioned configuration journey, Simulator controls, Latest/Health, audit review (AUDIT_READ
 capability-gated), authorization, safe errors, loading/empty/blocked states. **Checkpoint**:
-SC-001..SC-009 journey works with Admin bootstrap and Engineer scoped access.
+SC-001..SC-009 journey works with Admin bootstrap and Engineer scoped access; audit evidence is
+query-visible only after dispatcher, inbox deduplication, Audit append, and authorized query.
 
 ### Phase 10 - Acceptance hardening
 
@@ -334,7 +388,8 @@ src/Api/  src/Worker/  src/BuildingBlocks/  src/Modules/{IAM,Organization,Catalo
 Web/src/  database/migrations/  database/seeds/  tests/{Unit,Integration,Architecture,Verification}/
 ```
 
-`tasks.md` is intentionally absent.
+The existing `tasks.md` is outside this planning repair and requires the targeted repair identified
+by the readiness gate.
 
 ## Migration sequence
 
@@ -351,11 +406,15 @@ Migrations are immutable, forward-fix and dependency ordered:
 | 0008 | Telemetry | immutable terminal identity/result registry and Accepted raw Measurement |
 | 0009 | Telemetry | Latest and physical point_source_status projections/indexes |
 | 0010 | Audit | append-only audit storage and permissions |
-| 0011 | Integration/Operations | additive R1 changes to existing `integration.outbox_event`, `integration.inbox_message`, `operations.job` (only if proven necessary) |
+| 0011 | Integration | create `integration.command_idempotency`; add proven nullable lease/retry metadata and indexes to existing `integration.inbox_message`; never recreate `outbox_event`, `inbox_message`, or `job` |
 | 0012 | IAM/Catalog | deterministic POC users/scopes after Site bootstrap strategy and catalog seeds (does not create impossible pre-Site scope rows) |
 | 0013 | Owners | reconciliation and validation queries |
 
-No duplicate outbox table is introduced. The deterministic seed process creates fixed roles and an
+`0011_r1_infrastructure_expand.sql` is a required additive expand migration: it creates the command
+registry after Integration exists and before commands depend on it, and extends the R0 inbox for
+crash-safe consumer leasing. It does not recreate or rename R0 delivery/job tables. `0010` continues
+to own Audit storage. Applied migrations are immutable; later corrections use a higher-numbered
+forward-fix migration in dependency order. No duplicate outbox table is introduced. The deterministic seed process creates fixed roles and an
 Administrator first; Site and Engineer scope are created by the bootstrap journey, not by a seed FK
 that points to a nonexistent Site. Capability seeds (`AUDIT_READ`) and user_capability assignments
 are part of 0002. Post-Site POC scope fixture is a separate application command, not part of any
@@ -435,7 +494,8 @@ TDD covers lifecycle, bootstrap, sessions, role/scope, capabilities, uniqueness,
 Owner, configuration version immutability, mapping cardinality, deterministic algorithm (PCG32 +
 Box-Muller and the three literal vectors in `contracts/simulator.md`), stable identity (UUIDv5
 namespace `02e993bb-c767-5ff6-963f-530e1dfdff6b`), Run state,
-production-attempt checkpoint, decommission, quality, Latest ordering, Health, audit, concurrency,
+production-attempt checkpoint, command-idempotency fingerprint/replay/conflict/Pending recovery,
+decommission, quality, Latest ordering, Health, complete Audit delivery/query, concurrency,
 global lock order, deduplication and cross-scope enumeration. Fast runs pure/architecture/contract
 checks. Full adds approved PostgreSQL migrations, atomicity, partitions/indexes, outbox/inbox,
 leases, API/Worker integration and E2E. When PostgreSQL/packages are unavailable, create no
@@ -482,19 +542,29 @@ substitute database and do not claim end-to-end completion.
   the session token.
 - Login does not use Idempotency-Key; each login creates a new independent session.
 - Data Protection key directory must be pre-provisioned and writable by the API service account;
-  application must not request elevation. BLOCKED_BY_ENVIRONMENT if unavailable.
+  application must not request elevation. Missing required provisioning/approval is
+  BLOCKED_BY_COMPANY_APPROVAL.
 - Deadlock, lock timeout and serialization exhaustion return 503 TRANSIENT_DATABASE_CONFLICT
   (not PRECONDITION_FAILED). PRECONDITION_FAILED reserved for business-state failures only.
 - Every applied lock flow follows the correct order starting at Organization or IAM; no
   Catalog-before-Organization or Acquisition-before-Organization flows exist.
 - Telemetry ingestion lock order is Organization → Catalog → Telemetry → Integration (not
   Telemetry-first).
+- API Idempotency-Key semantics are backed by `integration.command_idempotency`; inbox rows remain
+  consumer-event deduplication only.
+- Audit completion means dispatch, inbox reservation, idempotent Audit append, and authorized query;
+  an event payload or endpoint shape alone is insufficient.
+- Every state owner requires a public repository port plus PostgreSQL adapter; a migration and its
+  integration test do not implement runtime persistence.
+- BLOCKED is non-passing evidence and may permit only explicitly incomplete development progression;
+  it can never satisfy a mandatory Full/release gate.
 
 ## Readiness
 
 - Research/design repair: complete after artifact verification.
 - Unresolved questions: **0**.
 - Contradictions: **0** after the resolutions above.
-- Ready for `/speckit.tasks`: **YES**.
-- Ready for `/speckit.implement`: **NO** until constitution amendment, approved packages/PostgreSQL,
-  and task analysis are complete.
+- Ready for targeted `/speckit.tasks` repair: **YES**.
+- Ready for constitution amendment: **NO**.
+- Ready for `/speckit.implement`: **NO** until targeted task repair/analysis and applicable
+  package/PostgreSQL gates are complete.

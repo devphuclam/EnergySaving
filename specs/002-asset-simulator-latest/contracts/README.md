@@ -13,17 +13,22 @@ HTTP routes use /api/v1.
 | Simulator configuration and Run | Acquisition | API, Worker, Telemetry |
 | Canonical ingestion, immutable terminal outcome registry, Latest and Source Status | Telemetry | Worker, API |
 | Immutable evidence and AuditReview query | Audit | API and authorized reviewers |
+| API command idempotency, transactional outbox and consumer inbox | Integration | API/Worker composition roots and module application services |
+| Durable scheduling, leases, retries and reconciliation | Operations | Worker and module application services |
 
 Synchronous ports answer facts needed to accept/reject the current operation. Later effects use
 integration.outbox_event and integration.inbox_message. Audit consumes committed events through its
 own inbox; an originating module never inserts another schema. No consumer writes a provider schema.
+Detailed runtime contracts are `integration.md`, `operations.md`, `audit-events.md`, and
+`persistence-adapters.md`.
 
 ## Common result and error
 
 Successful mutations return resource ID, status, new version and correlationId. Lists are
 scope-filtered before paging. Errors have errorCode, message, correlationId and field/record details.
 Canonical codes are UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, PRECONDITION_FAILED,
-DOMAIN_CONFLICT, VERSION_CONFLICT, DUPLICATE, DEPENDENT_HISTORY and TRANSIENT_DATABASE_CONFLICT.
+DOMAIN_CONFLICT, VERSION_CONFLICT, DUPLICATE, IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS,
+DEPENDENT_HISTORY and TRANSIENT_DATABASE_CONFLICT.
 
 Known capability denials may return FORBIDDEN. An out-of-scope object lookup is indistinguishable
 NOT_FOUND with no payload.
@@ -57,6 +62,46 @@ NOT_FOUND with no payload.
 - No aggregate If-Match.
 - No Idempotency-Key.
 
+### Durable command mechanism
+
+`integration.command_idempotency` is the sole API-command registry. Its unique scope is
+`(caller_user_id, operation_code, idempotency_key)`. The API composition root uses the
+Integration-owned `ICommandIdempotencyStore`; consumer modules never write Integration tables.
+`integration.inbox_message` is only consumer-event deduplication.
+
+The V1 fingerprint is SHA-256 over a typed, length-prefixed UTF-8 encoding beginning
+`IUMP:COMMAND-IDEMPOTENCY:V1`. Fields are ordered as operation code, caller UUID, target scope
+type/UUID, target aggregate type/UUID, expected version, then the command DTO's frozen
+operation-specific field order. Each name/value uses an unsigned 32-bit big-endian byte length;
+`0xffffffff` denotes null. UUIDs are lowercase dashed, strings Unicode NFC without semantic
+trimming, booleans lowercase, integers invariant base-10, decimals invariant minimal decimal, and
+timestamps UTC RFC3339 with seven fractional digits. The expected version includes If-Match.
+Idempotency-Key, cookies, credentials, authorization/antiforgery headers, correlation/trace IDs,
+retry metadata, JSON whitespace/property order, and transport header order are excluded.
+
+- Same tuple and fingerprint, Completed: replay the original HTTP status, body or stable result
+  reference, resource ID/version, allowlisted `Location`/`ETag`, and original correlation ID.
+- Same tuple and fingerprint, live Pending: bounded wait/reload; if still live, HTTP 409
+  `IDEMPOTENCY_IN_PROGRESS` with `Retry-After`.
+- Same tuple and fingerprint, expired Pending: one caller reclaims with optimistic version and
+  resumes; reconciliation must establish that no owner mutation was committed.
+- Same tuple and different fingerprint: HTTP 409 `IDEMPOTENCY_CONFLICT`, without disclosing stored
+  request or result.
+- Authentication, antiforgery, rate-limit, and request-shape failures happen before registration.
+  Deterministic business outcomes may be Completed; transient infrastructure failures remain
+  reclaimable Pending.
+- Pending lease is 30 seconds. Completed records are retained 24 hours; cleanup uses `expires_at`.
+  An expired Pending row is reclaimed or removed only after reconciliation proves no committed
+  owner mutation/outbox/result. Raw requests, session material, hashes, credentials, and secrets
+  are never stored.
+
+Registration is a short committed Integration transaction so Pending survives a pre-mutation
+crash. Business execution is a host-coordinated PostgreSQL transaction: provider modules lock and
+mutate in global order; Integration is last and atomically verifies the reservation, writes the
+outbox, and records Completed with the owner mutation. A unique-race loser reloads the winner in a
+new bounded transaction. This differs from Acquisition production attempts, Telemetry measurement
+identity, Integration inbox deduplication, and Operations job scheduling. See `integration.md`.
+
 ## Session implementation defaults
 
 | Setting | Working default |
@@ -81,7 +126,7 @@ NOT_FOUND with no payload.
 | Local HTTPS requirement | Required in Production; Development permits HTTP with explicit `Cookie.SecurePolicy=Never` |
 | Data Protection key store | Required for ASP.NET Data Protection (antiforgery, framework-protected values). Directory must be pre-provisioned and writable by the API service account. Application must not request elevation or alter system ACLs |
 | Key storage (Windows) | DPAPI `ProtectKeysWithDpapi()` using a pre-provisioned directory. Development may use an approved user-writable local path configured outside the repository (e.g. `%LOCALAPPDATA%/IUMP/DataProtection-Keys/`) |
-| Key storage classification | Unavailable/unapproved storage is BLOCKED_BY_ENVIRONMENT. No keys are committed |
+| Key storage classification | Missing required provisioning/approval is BLOCKED_BY_COMPANY_APPROVAL. No keys are committed |
 | Rate-limit window | 15 seconds |
 | Rate-limit attempt threshold | 5 failed attempts per window per username |
 
@@ -109,7 +154,7 @@ deadlock:
 3. **Catalog** — Metric, Unit, Source, Mapping rows
 4. **Acquisition** — Run, run-point-state, production-attempt rows
 5. **Telemetry** — terminal identity/result registry, Accepted raw Measurement, Latest projection
-6. **Integration** — outbox_event row
+6. **Integration** — command_idempotency and outbox_event rows
 
 ### Applied flow orders
 
