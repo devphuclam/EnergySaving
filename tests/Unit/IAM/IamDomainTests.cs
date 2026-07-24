@@ -11,12 +11,16 @@ public static class IamDomainTests
 
         UserRecordConstruction(failures);
         UserStatusLifecycle(failures);
+        UserRolesCollection(failures);
         RoleEnumValues(failures);
         ScopeConstruction(failures);
         CapabilityConstruction(failures);
         SessionLifecycle(failures);
         ActiveUserEligibility(failures);
-        DataOwnerEligibility(failures);
+        EligibilityNoScope(failures);
+        EligibilityScopeMismatch(failures);
+        DataOwnerEligibilityNoSiteId(failures);
+        DataOwnerEligibilityWithSiteId(failures);
 
         return failures;
     }
@@ -24,7 +28,7 @@ public static class IamDomainTests
     private static void UserRecordConstruction(List<string> failures)
     {
         var id = UserId.New();
-        var user = new User(id, "testuser", "hash", UserStatus.Active, Role.Engineer);
+        var user = new User(id, "testuser", "hash", UserStatus.Active, new[] { Role.Engineer });
 
         if (user.Id != id)
             failures.Add("T013-FAIL: User.Id must match constructor argument.");
@@ -34,13 +38,13 @@ public static class IamDomainTests
             failures.Add("T013-FAIL: User.PasswordHash must match constructor argument.");
         if (user.Status != UserStatus.Active)
             failures.Add("T013-FAIL: User.Status must be Active after construction.");
-        if (user.Role != Role.Engineer)
-            failures.Add("T013-FAIL: User.Role must match constructor argument.");
+        if (!user.Roles.Contains(Role.Engineer))
+            failures.Add("T013-FAIL: User.Roles must contain the constructor role.");
     }
 
     private static void UserStatusLifecycle(List<string> failures)
     {
-        var user = new User(UserId.New(), "status-test", "hash", UserStatus.Active, Role.Operator);
+        var user = new User(UserId.New(), "status-test", "hash", UserStatus.Active, new[] { Role.Operator });
 
         if (!user.IsActive())
             failures.Add("T013-FAIL: Active user must be IsActive.");
@@ -51,6 +55,21 @@ public static class IamDomainTests
             failures.Add("T013-FAIL: After Disable(), Status must be Disabled.");
         if (user.IsActive())
             failures.Add("T013-FAIL: Disabled user must not be IsActive.");
+    }
+
+    private static void UserRolesCollection(List<string> failures)
+    {
+        var user = new User(UserId.New(), "multi-role", "hash", UserStatus.Active,
+            new[] { Role.Engineer, Role.Operator });
+
+        if (user.Roles.Count != 2)
+            failures.Add("T013-FAIL: User with 2 roles must have Roles.Count == 2.");
+        if (!user.HasRole(Role.Engineer))
+            failures.Add("T013-FAIL: HasRole must return true for assigned role.");
+        if (!user.HasRole(Role.Operator))
+            failures.Add("T013-FAIL: HasRole must return true for second assigned role.");
+        if (user.HasRole(Role.Administrator))
+            failures.Add("T013-FAIL: HasRole must return false for unassigned role.");
     }
 
     private static void RoleEnumValues(List<string> failures)
@@ -142,8 +161,8 @@ public static class IamDomainTests
         var activeUserId = UserId.New();
         var disabledUserId = UserId.New();
 
-        var activeUser = new User(activeUserId, "activeuser", "hash", UserStatus.Active, Role.Engineer);
-        var disabledUser = new User(disabledUserId, "disableduser", "hash", UserStatus.Disabled, Role.Engineer);
+        var activeUser = new User(activeUserId, "activeuser", "hash", UserStatus.Active, new[] { Role.Engineer });
+        var disabledUser = new User(disabledUserId, "disableduser", "hash", UserStatus.Disabled, new[] { Role.Engineer });
 
         var eligibility = new ActiveUserEligibility(new[] { activeUser, disabledUser });
 
@@ -156,21 +175,71 @@ public static class IamDomainTests
             failures.Add("T013-FAIL: Disabled user eligibility must NOT return Eligible.");
     }
 
-    private static void DataOwnerEligibility(List<string> failures)
+    private static void EligibilityNoScope(List<string> failures)
     {
         var userId = UserId.New();
-        var user = new User(userId, "dataowner", "hash", UserStatus.Active, Role.Engineer);
+        var user = new User(userId, "noscope", "hash", UserStatus.Active, new[] { Role.Engineer });
+
+        var eligibility = new ActiveUserEligibility(new[] { user });
+
+        var result = eligibility.Check(userId, siteId: Guid.NewGuid());
+        if (result != EligibilityResult.NoScope)
+            failures.Add("T013-FAIL: Active user without any scope must return NoScope.");
+    }
+
+    private static void EligibilityScopeMismatch(List<string> failures)
+    {
+        var userId = UserId.New();
+        var siteA = Guid.NewGuid();
+        var siteB = Guid.NewGuid();
+        var user = new User(userId, "scoped-user", "hash", UserStatus.Active, new[] { Role.Engineer });
+        var scope = new Scope(ScopeId.New(), userId, siteA, null);
+
+        var eligibility = new ActiveUserEligibility(new[] { user }, new[] { scope });
+
+        var match = eligibility.Check(userId, siteId: siteA);
+        if (match != EligibilityResult.Eligible)
+            failures.Add("T013-FAIL: User with matching Site scope must return Eligible.");
+
+        var mismatch = eligibility.Check(userId, siteId: siteB);
+        if (mismatch != EligibilityResult.ScopeMismatch)
+            failures.Add("T013-FAIL: User with scope for site A accessing site B must return ScopeMismatch.");
+    }
+
+    private static void DataOwnerEligibilityNoSiteId(List<string> failures)
+    {
+        var userId = UserId.New();
+        var user = new User(userId, "dataowner", "hash", UserStatus.Active, new[] { Role.Engineer });
         var eligibility = new ActiveUserEligibility(new[] { user });
 
         var isEligible = eligibility.IsDataOwnerEligible(userId);
 
         if (!isEligible)
-            failures.Add("T013-FAIL: Active user must be Data Owner eligible.");
+            failures.Add("T013-FAIL: Active user must be Data Owner eligible when no siteId is provided.");
 
         var nonExistent = new UserId(Guid.NewGuid());
         var notEligible = eligibility.IsDataOwnerEligible(nonExistent);
 
         if (notEligible)
             failures.Add("T013-FAIL: Non-existent user must NOT be Data Owner eligible.");
+    }
+
+    private static void DataOwnerEligibilityWithSiteId(List<string> failures)
+    {
+        var userId = UserId.New();
+        var siteA = Guid.NewGuid();
+        var siteB = Guid.NewGuid();
+        var user = new User(userId, "scoped-dataowner", "hash", UserStatus.Active, new[] { Role.Engineer });
+        var scope = new Scope(ScopeId.New(), userId, siteA, null);
+
+        var eligibility = new ActiveUserEligibility(new[] { user }, new[] { scope });
+
+        var withMatchingSite = eligibility.IsDataOwnerEligible(userId, siteA);
+        if (!withMatchingSite)
+            failures.Add("T013-FAIL: Active user with scope for site A must be Data Owner eligible for site A.");
+
+        var withOtherSite = eligibility.IsDataOwnerEligible(userId, siteB);
+        if (withOtherSite)
+            failures.Add("T013-FAIL: Active user without scope for site B must NOT be Data Owner eligible for site B.");
     }
 }

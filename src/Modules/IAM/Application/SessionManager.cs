@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using IUMP.Modules.IAM.Domain;
 using IUMP.Modules.IAM.Contracts;
 
@@ -67,11 +66,16 @@ public sealed class AuthHandler : IAuthService
 {
     private readonly IActiveUserEligibility _eligibility;
     private readonly ISessionManager _sessionManager;
+    private readonly ICredentialVerifier _credentialVerifier;
 
-    public AuthHandler(IActiveUserEligibility eligibility, ISessionManager sessionManager)
+    public AuthHandler(
+        IActiveUserEligibility eligibility,
+        ISessionManager sessionManager,
+        ICredentialVerifier credentialVerifier)
     {
         _eligibility = eligibility;
         _sessionManager = sessionManager;
+        _credentialVerifier = credentialVerifier;
     }
 
     public LoginResult Login(LoginRequest request, DateTime now)
@@ -80,6 +84,9 @@ public sealed class AuthHandler : IAuthService
 
         var user = _eligibility.FindByUsername(normalized);
         if (user == null || user.Status == UserStatus.Disabled)
+            return new LoginResult(false, "Authentication failed.", null, null);
+
+        if (!_credentialVerifier.Verify(request.Password ?? "", user.PasswordHash))
             return new LoginResult(false, "Authentication failed.", null, null);
 
         var tokenBytes = new byte[32];
@@ -112,19 +119,22 @@ public sealed class AuthHandler : IAuthService
         if (user == null || user.Status == UserStatus.Disabled)
             return null;
 
+        var roles = user.Roles.Select(r => r.ToString()).ToList() as IReadOnlyList<string>
+            ?? Array.Empty<string>();
+
         var scopes = _eligibility.GetScopesForUser(user.Id)
             .Select(s => s.SiteId?.ToString("D") ?? "")
             .ToList() as IReadOnlyList<string>
             ?? Array.Empty<string>();
 
         var caps = new List<string>();
-        if (user.Role == Role.Administrator)
+        if (user.Roles.Contains(Role.Administrator))
             caps.Add("AUDIT_READ");
 
         return new MeSnapshot(
             user.Id.Value.ToString("D"),
             user.Username,
-            user.Role.ToString(),
+            roles,
             scopes,
             caps);
     }

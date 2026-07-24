@@ -19,7 +19,7 @@ public sealed class AuthorizationDecision : IAuthorizationDecision
 {
     public AuthorizationResult Check(ICallerContext caller, string capability, Guid? siteId = null, Guid? areaId = null)
     {
-        if (caller.Role == Role.Administrator)
+        if (caller.Roles.Contains(Role.Administrator))
             return AuthorizationResult.Allowed;
 
         var inScope = caller.Scopes.Any(s =>
@@ -29,31 +29,16 @@ public sealed class AuthorizationDecision : IAuthorizationDecision
         if (!inScope && siteId.HasValue)
             return AuthorizationResult.NotFound;
 
-        switch (caller.Role)
-        {
-            case Role.Engineer:
-                return IsEngineerCapability(capability) ? AuthorizationResult.Allowed : AuthorizationResult.Forbidden;
+        var anyAllowed = caller.Roles.Any(r => IsRoleAllowed(r, capability));
+        if (!anyAllowed)
+            return AuthorizationResult.Forbidden;
 
-            case Role.Operator:
-                return capability.StartsWith("VIEW_") || capability == "READ"
-                    ? AuthorizationResult.Allowed : AuthorizationResult.Forbidden;
-
-            case Role.Manager:
-                return capability.StartsWith("VIEW_") || capability == "READ"
-                    ? AuthorizationResult.Allowed : AuthorizationResult.Forbidden;
-
-            case Role.Viewer:
-                return capability.StartsWith("VIEW_") || capability == "READ"
-                    ? AuthorizationResult.Allowed : AuthorizationResult.Forbidden;
-
-            default:
-                return AuthorizationResult.Forbidden;
-        }
+        return AuthorizationResult.Allowed;
     }
 
     public AuthorizationResult CheckTarget(ICallerContext caller, Guid targetSiteId, Guid? targetAreaId = null)
     {
-        if (caller.Role == Role.Administrator)
+        if (caller.Roles.Contains(Role.Administrator))
             return AuthorizationResult.Allowed;
 
         var inScope = caller.Scopes.Any(s => s.SiteId == targetSiteId);
@@ -62,6 +47,23 @@ public sealed class AuthorizationDecision : IAuthorizationDecision
             return AuthorizationResult.NotFound;
 
         return AuthorizationResult.Allowed;
+    }
+
+    private static bool IsRoleAllowed(Role role, string capability)
+    {
+        switch (role)
+        {
+            case Role.Engineer:
+                return IsEngineerCapability(capability);
+
+            case Role.Operator:
+            case Role.Manager:
+            case Role.Viewer:
+                return capability.StartsWith("VIEW_") || capability == "READ";
+
+            default:
+                return false;
+        }
     }
 
     private static bool IsEngineerCapability(string capability)

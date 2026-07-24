@@ -28,19 +28,25 @@ public sealed class User
     public string Username { get; }
     public string PasswordHash { get; }
     public UserStatus Status { get; private set; }
-    public Role Role { get; }
+    public IReadOnlyList<Role> Roles { get; }
 
-    public User(UserId id, string username, string passwordHash, UserStatus status, Role role)
+    public User(UserId id, string username, string passwordHash, UserStatus status, IReadOnlyList<Role> roles)
     {
         Id = id;
         Username = username;
         PasswordHash = passwordHash;
         Status = status;
-        Role = role;
+        Roles = roles;
+    }
+
+    public User(UserId id, string username, string passwordHash, UserStatus status, Role role)
+        : this(id, username, passwordHash, status, new[] { role })
+    {
     }
 
     public void Disable() => Status = UserStatus.Disabled;
     public bool IsActive() => Status == UserStatus.Active;
+    public bool HasRole(Role role) => Roles.Contains(role);
 }
 
 public readonly record struct ScopeId(Guid Value)

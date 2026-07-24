@@ -4,7 +4,7 @@ CREATE SCHEMA IF NOT EXISTS iam;
 
 CREATE TABLE IF NOT EXISTS iam.role (
     role_id uuid PRIMARY KEY,
-    code text NOT NULL UNIQUE CHECK (code ~ '^[A-Z][A-Z_]+$'),
+    code text NOT NULL UNIQUE CHECK (code ~ '^[A-Z][A-Za-z_]+$'),
     name text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS ix_user_scope_user_id ON iam.user_scope (user_id);
 
 CREATE TABLE IF NOT EXISTS iam.capability (
     capability_id uuid PRIMARY KEY,
-    code text NOT NULL UNIQUE CHECK (code ~ '^[A-Z][A-Z_]+$'),
+    code text NOT NULL UNIQUE CHECK (code ~ '^[A-Z][A-Za-z_]+$'),
     name text NOT NULL
 );
 

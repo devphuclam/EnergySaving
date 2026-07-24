@@ -29,7 +29,7 @@ $credentialPatterns = @(
     '(?i)Username\s*=\s*iump;Password',
     '(?i)sk-proj-[A-Za-z0-9_-]+',
     '(?i)(ghp|github_pat)_[A-Za-z0-9_]{20,}',
-    '(?i)Password\s*=\s*(?!\$\{|<|REDACTED|CHANGE_ME)[^;\s]+'
+    '(?i)Password\s*=(?!=)\s*(?!\$\{|<|REDACTED|CHANGE_ME)[^;\s]+'
 )
 
 foreach ($file in $textFiles) {

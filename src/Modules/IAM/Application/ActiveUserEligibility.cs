@@ -27,13 +27,13 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
     private readonly IIamCommandRepository? _repository;
     private readonly Dictionary<string, User> _usersByUsername;
     private readonly Dictionary<Guid, User> _usersById;
-    private readonly Dictionary<Guid, HashSet<Guid>> _userSiteScopes;
+    private readonly Dictionary<Guid, List<Scope>> _userScopes;
 
     public ActiveUserEligibility()
     {
         _usersByUsername = new Dictionary<string, User>();
         _usersById = new Dictionary<Guid, User>();
-        _userSiteScopes = new Dictionary<Guid, HashSet<Guid>>();
+        _userScopes = new Dictionary<Guid, List<Scope>>();
     }
 
     public ActiveUserEligibility(IIamCommandRepository repository)
@@ -41,18 +41,30 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
         _repository = repository;
         _usersByUsername = new Dictionary<string, User>();
         _usersById = new Dictionary<Guid, User>();
-        _userSiteScopes = new Dictionary<Guid, HashSet<Guid>>();
+        _userScopes = new Dictionary<Guid, List<Scope>>();
     }
 
     public ActiveUserEligibility(IEnumerable<User> users)
     {
         _usersByUsername = new Dictionary<string, User>();
         _usersById = new Dictionary<Guid, User>();
-        _userSiteScopes = new Dictionary<Guid, HashSet<Guid>>();
+        _userScopes = new Dictionary<Guid, List<Scope>>();
         foreach (var user in users)
         {
             _usersByUsername[user.Username.ToLowerInvariant()] = user;
             _usersById[user.Id.Value] = user;
+        }
+    }
+
+    public ActiveUserEligibility(IEnumerable<User> users, IEnumerable<Scope> scopes)
+        : this(users)
+    {
+        foreach (var scope in scopes)
+        {
+            var key = scope.UserId.Value;
+            if (!_userScopes.ContainsKey(key))
+                _userScopes[key] = new List<Scope>();
+            _userScopes[key].Add(scope);
         }
     }
 
@@ -62,11 +74,18 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
         _usersById[user.Id.Value] = user;
     }
 
+    public void AddScope(UserId userId, Scope scope)
+    {
+        var key = userId.Value;
+        if (!_userScopes.ContainsKey(key))
+            _userScopes[key] = new List<Scope>();
+        _userScopes[key].RemoveAll(s => s.SiteId == scope.SiteId && s.AreaId == scope.AreaId);
+        _userScopes[key].Add(scope);
+    }
+
     public void AddScope(UserId userId, Guid siteId)
     {
-        if (!_userSiteScopes.ContainsKey(userId.Value))
-            _userSiteScopes[userId.Value] = new HashSet<Guid>();
-        _userSiteScopes[userId.Value].Add(siteId);
+        AddScope(userId, new Scope(ScopeId.New(), userId, siteId, null));
     }
 
     public User? FindByUsername(string normalizedUsername)
@@ -83,6 +102,8 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
 
     public IReadOnlyList<Scope> GetScopesForUser(UserId userId)
     {
+        if (_userScopes.TryGetValue(userId.Value, out var scopes))
+            return scopes;
         return Array.Empty<Scope>();
     }
 
@@ -98,7 +119,9 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
             if (siteId.HasValue)
             {
                 var scopes = _repository.GetScopesForUserAsync(userId).GetAwaiter().GetResult();
-                if (!scopes.Any(s => s.SiteId == siteId))
+                if (scopes.Count == 0)
+                    return EligibilityResult.NoScope;
+                if (!scopes.Any(s => s.SiteId == siteId && (areaId == null || s.AreaId == areaId || s.AreaId == null)))
                     return EligibilityResult.ScopeMismatch;
             }
             return EligibilityResult.Eligible;
@@ -110,9 +133,12 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
         if (found.Status == UserStatus.Disabled)
             return EligibilityResult.UserDisabled;
 
-        if (siteId.HasValue && _userSiteScopes.TryGetValue(userId.Value, out var sites))
+        if (siteId.HasValue)
         {
-            if (!sites.Contains(siteId.Value))
+            if (!_userScopes.TryGetValue(userId.Value, out var scopes) || scopes.Count == 0)
+                return EligibilityResult.NoScope;
+
+            if (!scopes.Any(s => s.SiteId == siteId && (areaId == null || s.AreaId == areaId || s.AreaId == null)))
                 return EligibilityResult.ScopeMismatch;
         }
 
@@ -130,6 +156,19 @@ public sealed class ActiveUserEligibility : IActiveUserEligibility
     {
         if (!_usersById.TryGetValue(userId.Value, out var user))
             return false;
-        return user.IsActive();
+
+        if (!user.IsActive())
+            return false;
+
+        if (siteId.HasValue)
+        {
+            if (!_userScopes.TryGetValue(userId.Value, out var scopes) || scopes.Count == 0)
+                return false;
+
+            if (!scopes.Any(s => s.SiteId == siteId))
+                return false;
+        }
+
+        return true;
     }
 }

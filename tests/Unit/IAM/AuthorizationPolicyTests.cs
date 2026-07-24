@@ -10,10 +10,13 @@ public static class AuthorizationPolicyTests
         var failures = new List<string>();
 
         AdministratorIsGloballyAllowed(failures);
+        AdministratorHasAuditCapability(failures);
         ScopedEngineerWithinScope(failures);
         EngineerWithoutScopeCannotCreateRootSite(failures);
+        EngineerHasCapability(failures);
         OutOfScopeReturnsNotFound(failures);
         ServerPrincipalResolution(failures);
+        CallerContextRolesCollection(failures);
 
         return failures;
     }
@@ -35,12 +38,25 @@ public static class AuthorizationPolicyTests
             failures.Add("T014-FAIL: Administrator must be Allowed for any target Site.");
     }
 
+    private static void AdministratorHasAuditCapability(List<string> failures)
+    {
+        var adminContext = new CallerContext(
+            UserId.New(), "admin", new[] { Role.Administrator },
+            new[] { "AUDIT_READ" }, Array.Empty<Scope>(), "corr-1");
+
+        var decision = new AuthorizationDecision();
+
+        var result = decision.Check(adminContext, "AUDIT_READ");
+        if (result != AuthorizationResult.Allowed)
+            failures.Add("T014-FAIL: Administrator with AUDIT_READ capability must be Allowed.");
+    }
+
     private static void ScopedEngineerWithinScope(List<string> failures)
     {
         var siteId = Guid.NewGuid();
         var engineerScope = new Scope(ScopeId.New(), UserId.New(), siteId, null);
         var engineerContext = new CallerContext(
-            UserId.New(), "engineer", Role.Engineer,
+            UserId.New(), "engineer", new[] { Role.Engineer },
             Array.Empty<string>(), new[] { engineerScope }, "corr-2");
 
         var decision = new AuthorizationDecision();
@@ -57,7 +73,7 @@ public static class AuthorizationPolicyTests
     private static void EngineerWithoutScopeCannotCreateRootSite(List<string> failures)
     {
         var noScopeContext = new CallerContext(
-            UserId.New(), "engineer-noscope", Role.Engineer,
+            UserId.New(), "engineer-noscope", new[] { Role.Engineer },
             Array.Empty<string>(), Array.Empty<Scope>(), "corr-3");
 
         var decision = new AuthorizationDecision();
@@ -65,6 +81,23 @@ public static class AuthorizationPolicyTests
         var result = decision.Check(noScopeContext, "CREATE_ROOT_SITE");
         if (result == AuthorizationResult.Allowed)
             failures.Add("T014-FAIL: Engineer without Site scope must NOT be Allowed to create root Site.");
+    }
+
+    private static void EngineerHasCapability(List<string> failures)
+    {
+        var engineerContext = new CallerContext(
+            UserId.New(), "engineer", new[] { Role.Engineer },
+            Array.Empty<string>(), Array.Empty<Scope>(), "corr-6");
+
+        var decision = new AuthorizationDecision();
+
+        var manageArea = decision.Check(engineerContext, "MANAGE_AREA");
+        if (manageArea != AuthorizationResult.Allowed)
+            failures.Add("T014-FAIL: Engineer must be Allowed MANAGE_AREA capability.");
+
+        var manageUser = decision.Check(engineerContext, "MANAGE_USER");
+        if (manageUser == AuthorizationResult.Allowed)
+            failures.Add("T014-FAIL: Engineer must NOT be Allowed MANAGE_USER capability.");
     }
 
     private static void OutOfScopeReturnsNotFound(List<string> failures)
@@ -106,5 +139,19 @@ public static class AuthorizationPolicyTests
             failures.Add("T014-FAIL: Viewer must not be Allowed for out-of-scope targets.");
         if (outOfScope != AuthorizationResult.NotFound)
             failures.Add("T014-FAIL: Out-of-scope must be NotFound, not Forbidden.");
+    }
+
+    private static void CallerContextRolesCollection(List<string> failures)
+    {
+        var multiRoleContext = new CallerContext(
+            UserId.New(), "multi", new[] { Role.Engineer, Role.Operator },
+            Array.Empty<string>(), Array.Empty<Scope>(), "corr-7");
+
+        if (multiRoleContext.Roles.Count != 2)
+            failures.Add("T014-FAIL: CallerContext must preserve multiple roles.");
+        if (multiRoleContext.PrimaryRole != Role.Engineer)
+            failures.Add("T014-FAIL: CallerContext.PrimaryRole must be the first role.");
+        if (!multiRoleContext.Roles.Contains(Role.Operator))
+            failures.Add("T014-FAIL: CallerContext.Roles must contain all assigned roles.");
     }
 }

@@ -3,12 +3,31 @@ using IUMP.Modules.IAM.Contracts;
 
 namespace IUMP.Tests.Unit.Fakes;
 
+public sealed class FakeIamTransaction : IIamTransaction
+{
+    public bool IsCommitted { get; private set; }
+    public bool IsRolledBack { get; private set; }
+
+    public Task CommitAsync(CancellationToken ct = default)
+    {
+        IsCommitted = true;
+        return Task.CompletedTask;
+    }
+
+    public Task RollbackAsync(CancellationToken ct = default)
+    {
+        IsRolledBack = true;
+        return Task.CompletedTask;
+    }
+}
+
 public sealed class FakeIamCommandRepository : IIamCommandRepository
 {
     private readonly Dictionary<Guid, User> _users = new();
     private readonly List<Scope> _scopes = new();
     private readonly List<Capability> _capabilities = new();
     private readonly List<UserCapability> _userCapabilities = new();
+    private readonly Dictionary<Guid, List<Role>> _userRoles = new();
 
     public Task<User?> GetUserAsync(UserId userId, CancellationToken ct = default)
     {
@@ -37,6 +56,34 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
     public Task<IReadOnlyList<User>> GetAllUsersAsync(CancellationToken ct = default)
     {
         return Task.FromResult<IReadOnlyList<User>>(_users.Values.ToList());
+    }
+
+    public Task<IReadOnlyList<Role>> GetRoleCodesAsync(CancellationToken ct = default)
+    {
+        return Task.FromResult<IReadOnlyList<Role>>(Enum.GetValues<Role>().ToList());
+    }
+
+    public Task AssignRoleAsync(UserId userId, Role role, UserId assignedBy, CancellationToken ct = default)
+    {
+        if (!_userRoles.ContainsKey(userId.Value))
+            _userRoles[userId.Value] = new List<Role>();
+        if (!_userRoles[userId.Value].Contains(role))
+            _userRoles[userId.Value].Add(role);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<Role>> GetRolesForUserAsync(UserId userId, CancellationToken ct = default)
+    {
+        if (_userRoles.TryGetValue(userId.Value, out var roles))
+            return Task.FromResult<IReadOnlyList<Role>>(roles.ToList());
+        return Task.FromResult<IReadOnlyList<Role>>(Array.Empty<Role>());
+    }
+
+    public Task RevokeRoleAsync(UserId userId, Role role, CancellationToken ct = default)
+    {
+        if (_userRoles.TryGetValue(userId.Value, out var roles))
+            roles.Remove(role);
+        return Task.CompletedTask;
     }
 
     public Task AddScopeAsync(Scope scope, CancellationToken ct = default)
@@ -78,6 +125,11 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
         return Task.FromResult<IReadOnlyList<UserCapability>>(caps);
     }
 
+    public Task<IIamTransaction> BeginTransactionAsync(CancellationToken ct = default)
+    {
+        return Task.FromResult<IIamTransaction>(new FakeIamTransaction());
+    }
+
     public void SeedCapability(Capability capability)
     {
         _capabilities.RemoveAll(c => c.Code == capability.Code);
@@ -92,6 +144,14 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
     public void SeedScope(Scope scope)
     {
         _scopes.Add(scope);
+    }
+
+    public void SeedRole(UserId userId, Role role)
+    {
+        if (!_userRoles.ContainsKey(userId.Value))
+            _userRoles[userId.Value] = new List<Role>();
+        if (!_userRoles[userId.Value].Contains(role))
+            _userRoles[userId.Value].Add(role);
     }
 }
 

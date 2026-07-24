@@ -11,6 +11,11 @@ public interface IIamPrincipalSessionRepository
     Task RevokeAllSessionsForUserAsync(UserId userId, DateTime revokedAt, CancellationToken ct = default);
 }
 
+public interface ICredentialVerifier
+{
+    bool Verify(string password, string storedHash);
+}
+
 public interface IAuthService
 {
     LoginResult Login(LoginRequest request, DateTime now);
@@ -29,6 +34,6 @@ public sealed record LoginResult(
 public sealed record MeSnapshot(
     string UserId,
     string Username,
-    string Role,
+    IReadOnlyList<string> Roles,
     IReadOnlyList<string> Scopes,
     IReadOnlyList<string> Capabilities);

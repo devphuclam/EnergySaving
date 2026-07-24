@@ -52,11 +52,11 @@ RED evidence is complete. Proceeding to T019-T028 (contracts, domain, applicatio
 **Exit code**: 0 (PASS)
 
 **Assertion coverage**:
-- T013: 8 assertions (User construction, status lifecycle, role enum, scope, capability, session, eligibility, data owner)
-- T014: 7 assertions (Admin global, scoped engineer, engineer no-create-root, out-of-scope NotFound, server principal)
+- T013: 12 assertions (User construction, status lifecycle, roles collection, role enum, scope, capability, session, eligibility, NoScope, ScopeMismatch, DataOwner no-site, DataOwner with-site)
+- T014: 8 assertions (Admin global, admin audit, scoped engineer, engineer no-create-root, engineer capability, out-of-scope NotFound, server principal, multi-role context)
 - T015: 3 assertions (Rate-limit after 5, sixth rejected, window reset)
 - T016: 4 assertions (5 deterministic users, no pre-Site scope, post-Site applies, idempotent)
 - T017: 6 assertions (Hash format, expiry, disabled invalidation, logout revoke, multi-session, revoke-all)
-- T032: 6 assertions (Login success, unknown user fails, disabled user fails, public error, ResolveMe, RevokeSession)
+- T032: 8 assertions (Login success, wrong-password fails, unknown user fails, disabled user fails, public error for all three, token absent from body, ResolveMe with roles, RevokeSession)
 
 **Total RUNNABLE_NOW**: 21 PASS, 0 FAIL, 4 BLOCKED

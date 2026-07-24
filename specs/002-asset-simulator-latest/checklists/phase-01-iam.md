@@ -11,12 +11,12 @@
 
 | Task | Classification | Evidence status | Evidence |
 |---|---|---|---|
-| T013 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/IamDomainTests.cs` — 11 assertions, 0 failures |
-| T014 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/AuthorizationPolicyTests.cs` — 7 assertions, 0 failures |
+| T013 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/IamDomainTests.cs` — 12 assertions (corrected: roles collection, NoScope, ScopeMismatch, DataOwner with-site), 0 failures |
+| T014 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/AuthorizationPolicyTests.cs` — 8 assertions (corrected: admin audit cap, engineer cap, multi-role context), 0 failures |
 | T015 | RUNNABLE_NOW | PASS | `tests/Unit/Api/AuthSecurityPolicyTests.cs` — 3 assertions (corrected: tests real AuthenticationPolicy directly), 0 failures |
-| T016 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/PocIdentityFixtureTests.cs` — 7 assertions, 0 failures |
+| T016 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/PocIdentityFixtureTests.cs` — 4 assertions (corrected: repository-backed, idempotent via fakes), 0 failures |
 | T017 | RUNNABLE_NOW | PASS | `tests/Unit/IAM/SessionPolicyTests.cs` — 10 assertions, 0 failures |
-| T018 | RUNNABLE_NOW | PASS | `checklists/phase-01-red.md` — red evidence captured |
+| T018 | RUNNABLE_NOW | PASS | `checklists/phase-01-red.md` — red + corrective green evidence captured |
 | T019 | RUNNABLE_NOW | PASS | `src/Modules/IAM/Contracts/IamPersistenceContracts.cs` |
 | T020 | RUNNABLE_NOW | PASS | `src/Modules/IAM/Contracts/IamSessionContracts.cs` |
 | T021 | RUNNABLE_NOW | PASS | `tests/Unit/Fakes/FakeIamRepositories.cs` |
@@ -30,8 +30,8 @@
 | T029 | BLOCKED_BY_PACKAGE_POLICY | BLOCKED | Requires approved Npgsql packages |
 | T030 | BLOCKED_BY_PACKAGE_POLICY | BLOCKED | Requires T029; cannot register adapters without packages |
 | T031 | BLOCKED_BY_DATABASE_ACCESS | BLOCKED | Requires approved PostgreSQL endpoint |
-| T032 | RUNNABLE_NOW | PASS | `tests/Unit/Api/AuthEndpointTests.cs` — 6 assertions (corrected: tests real AuthHandler), 0 failures |
-| T033 | RUNNABLE_NOW | PASS | `src/Api/AuthEndpoints.cs` + `src/Modules/IAM/Application/SessionManager.cs` (AuthHandler) — real production endpoint behavior |
+| T032 | RUNNABLE_NOW | PASS | `tests/Unit/Api/AuthEndpointTests.cs` — 8 assertions (corrected: wrong-password, token absent from body, roles collection), 0 failures |
+| T033 | RUNNABLE_NOW | PASS | `src/Api/AuthEndpoints.cs` (corrected: real CredentialVerifier, antiforgery, token-safe response body, cookie flags, testable handlers) + `src/Modules/IAM/Application/SessionManager.cs` (AuthHandler with ICredentialVerifier, role collection in MeSnapshot) |
 | T034 | BLOCKED_BY_COMPANY_APPROVAL | BLOCKED | Data Protection provisioning not available |
 | T035 | RUNNABLE_NOW | PASS | `tests/Verification/architecture.tests.ps1` — extended with IAM seam checks |
 | T036 | RUNNABLE_NOW | PASS | `checklists/phase-01-review.md` — 0 Critical, 0 High |
@@ -39,7 +39,7 @@
 
 ## 3. Evidence counts
 
-- **PASS**: 21 (T013-T028, T032-T033, T035-T037)
+- **PASS**: 21 (T013-T028, T032-T033, T035-T037) — 12+8+3+4+10+8 = 45 assertions across all test classes
 - **FAIL**: 0
 - **BLOCKED**: 4 (T029: BLOCKED_BY_PACKAGE_POLICY, T030: BLOCKED_BY_PACKAGE_POLICY, T031: BLOCKED_BY_DATABASE_ACCESS, T034: BLOCKED_BY_COMPANY_APPROVAL)
 - **NOT_RUN**: 0

@@ -9,7 +9,7 @@ failures.AddRange(R0CorrelationIdTests());
 failures.AddRange(IamDomainTests.Run());
 failures.AddRange(AuthorizationPolicyTests.Run());
 failures.AddRange(SessionPolicyTests.Run());
-failures.AddRange(PocIdentityFixtureTests.Run());
+failures.AddRange(await PocIdentityFixtureTests.Run());
 failures.AddRange(AuthSecurityPolicyTests.Run());
 failures.AddRange(AuthEndpointTests.Run());
 
