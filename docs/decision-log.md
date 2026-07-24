@@ -261,3 +261,34 @@ T011 remains the next governance task. The current feature's planning, implement
 release-gate constitution provenance is recorded by the applied constitution for
 `specs/002-asset-simulator-latest/checklists/phase-00-governance.md`; T010 does not create or modify
 that checklist.
+
+### Post-application synchronization and Phase 0 outcome
+
+**Date**: 2026-07-24
+**Repository HEAD**: `d0f50b5a25e63b7f317c2228f69aed70fcc0567e`
+**Feature**: `specs/002-asset-simulator-latest/`
+
+This is a later outcome record. It preserves the historical T010 snapshot above and does not
+rewrite prior NOT_RUN evidence.
+
+- **T011**: **COMPLETE**.
+- **T011 commit**: `d0f50b5a25e63b7f317c2228f69aed70fcc0567e`.
+- **T011 evidence**: `.specify/templates/plan-template.md`,
+  `.specify/templates/tasks-template.md`, and `docs/repository-harness.md` at the T011 commit.
+- **T012**: **COMPLETE**.
+- **T012 evidence**: `specs/002-asset-simulator-latest/checklists/analysis.md`,
+  `docs/blocker-report.md`, and `specs/002-asset-simulator-latest/checklists/phase-00-governance.md`.
+- **Governing Constitution**: 1.1.0; planning baseline 1.0.0, implementation gate 1.1.0,
+  release gate 1.1.0.
+- **Phase 0 progression**: **YES** for classification-permitted Phase 1 tasks after the
+  checkpoint; unavailable database, package, tool, and company capabilities remain blocked and
+  must not be bypassed.
+- **Implementation readiness**: **YES — governance gate only**; this does not mean all environment
+  capabilities are available.
+- **Release readiness**: **NO**.
+- **Release decision**: **NO**; mandatory Full and acceptance evidence has not been performed.
+- **Remaining environment blockers**: `BLK-T012-DB-001`, `BLK-T012-PKG-001`,
+  `BLK-T012-TOOL-001`, `BLK-T012-APP-001` through `BLK-T012-APP-004`, and existing R0 blockers
+  documented in `docs/blocker-report.md`.
+- **Application implementation**: none performed; no application source, migration, test, package,
+  CI, deployment, or release authorization was created.
