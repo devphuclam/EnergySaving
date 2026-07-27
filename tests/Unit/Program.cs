@@ -4,6 +4,7 @@ using IUMP.Tests.Unit.IAM;
 using IUMP.Tests.Unit.Api;
 using IUMP.Tests.Unit.Catalog;
 using IUMP.Tests.Integration.IAM;
+using IUMP.Tests.Integration.Catalog;
 using IUMP.Tests.Unit.Fakes;
 
 var failures = new List<string>();
@@ -21,6 +22,10 @@ failures.AddRange(AuthEndpointTests.Run());
 failures.AddRange(MetricUnitTests.Run());
 failures.AddRange(SourceMappingTests.Run());
 failures.AddRange(CatalogCommandTests.Run());
+
+var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
+await catalogRunner.RunAllAsync();
+failures.AddRange(catalogRunner.Failures);
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

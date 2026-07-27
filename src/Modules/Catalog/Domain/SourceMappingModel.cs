@@ -20,9 +20,13 @@ public sealed class DataSource
 
     public DataSource(DataSourceId id, string code, string name, SourceType sourceType, SourceStatus status, long version)
     {
+        if (id.Value == Guid.Empty) throw new ArgumentException("Data source ID is required.", nameof(id));
+        if (!Enum.IsDefined(sourceType)) throw new ArgumentOutOfRangeException(nameof(sourceType));
+        if (!Enum.IsDefined(status)) throw new ArgumentOutOfRangeException(nameof(status));
+        if (version <= 0) throw new ArgumentOutOfRangeException(nameof(version));
         Id = id;
-        Code = code.ToUpperInvariant();
-        Name = name;
+        Code = Metric.NormalizeCode(code, nameof(code), 50);
+        Name = Metric.RequireText(name, nameof(name), 200);
         SourceType = sourceType;
         Status = status;
         Version = version;
@@ -70,29 +74,39 @@ public sealed class SourcePointMapping
     public SourcePointMapping(MappingId id, DataSourceId dataSourceId, string pointId,
         MappingStatus status, DateTime effectiveFrom, DateTime? effectiveTo, long version)
     {
+        if (id.Value == Guid.Empty) throw new ArgumentException("Mapping ID is required.", nameof(id));
+        if (dataSourceId.Value == Guid.Empty) throw new ArgumentException("Data source ID is required.", nameof(dataSourceId));
+        if (!Enum.IsDefined(status)) throw new ArgumentOutOfRangeException(nameof(status));
+        if (version <= 0) throw new ArgumentOutOfRangeException(nameof(version));
         Id = id;
         DataSourceId = dataSourceId;
-        PointId = pointId;
+        PointId = Metric.RequireText(pointId, nameof(pointId), 200);
         Status = status;
-        EffectiveFrom = effectiveFrom;
-        EffectiveTo = effectiveTo;
+        EffectiveFrom = NormalizeUtc(effectiveFrom);
+        EffectiveTo = effectiveTo.HasValue ? NormalizeUtc(effectiveTo.Value) : null;
+        if (EffectiveTo.HasValue && EffectiveTo.Value <= EffectiveFrom)
+            throw new ArgumentException("EffectiveTo must be greater than EffectiveFrom.", nameof(effectiveTo));
         Version = version;
     }
 
-    public bool TryActivate() { if (Status == MappingStatus.Draft) { Status = MappingStatus.Active; Version++; return true; } return false; }
-    public bool TryInactivate() { if (Status == MappingStatus.Active) { Status = MappingStatus.Inactive; Version++; return true; } return false; }
-    public bool TrySupersede() { if (Status is MappingStatus.Active or MappingStatus.Inactive) { Status = MappingStatus.Superseded; Version++; return true; } return false; }
+    private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
+
+    public bool TryActivate() { if (Status != MappingStatus.Draft) return false; Status = MappingStatus.Active; Version++; return true; }
+    public bool TryInactivate() { if (Status != MappingStatus.Active) return false; Status = MappingStatus.Inactive; Version++; return true; }
+    public bool TrySupersede() { if (Status is not (MappingStatus.Active or MappingStatus.Inactive)) return false; Status = MappingStatus.Superseded; Version++; return true; }
     public bool IsSuperseded => Status == MappingStatus.Superseded;
     public bool IsActive => Status == MappingStatus.Active;
 
     public bool OverlapsWith(SourcePointMapping other)
     {
-        if (other.PointId != PointId) return false;
-        if (other.Id == Id) return false;
-        var aStart = EffectiveFrom;
+        if (!IsActive || !other.IsActive || other.PointId != PointId || other.Id == Id) return false;
         var aEnd = EffectiveTo ?? DateTime.MaxValue;
-        var bStart = other.EffectiveFrom;
         var bEnd = other.EffectiveTo ?? DateTime.MaxValue;
-        return aStart < bEnd && bStart < aEnd;
+        return EffectiveFrom < bEnd && other.EffectiveFrom < aEnd;
     }
 }

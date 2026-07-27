@@ -111,7 +111,15 @@ public static class AuthEndpointHandlers
         if (me == null)
             return Results.Json(new { error = "Unauthenticated." }, statusCode: 401);
 
-        return Results.Ok(me);
+        // Keep the public contract stable regardless of serializer naming policy.
+        return Results.Json(new Dictionary<string, object?>
+        {
+            ["userId"] = me.UserId,
+            ["username"] = me.Username,
+            ["roles"] = me.Roles,
+            ["scopes"] = me.Scopes,
+            ["capabilities"] = me.Capabilities
+        });
     }
 }
 

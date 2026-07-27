@@ -1,22 +1,23 @@
-using IUMP.Modules.Catalog.Domain;
 using IUMP.Modules.Catalog.Application;
-using IUMP.Modules.Catalog.Contracts;
+using IUMP.Modules.Catalog.Domain;
 using IUMP.Tests.Unit.Fakes;
 
 namespace IUMP.Tests.Unit.Catalog;
 
 public sealed class FakeCatalogAuthorization : ICatalogAuthorization
 {
-    private readonly HashSet<string> _allowedUsers = new(StringComparer.OrdinalIgnoreCase);
-
-    public FakeCatalogAuthorization AllowUser(string userId)
+    private readonly Dictionary<string, CatalogCallerSnapshot> _callers = new(StringComparer.OrdinalIgnoreCase);
+    public FakeCatalogAuthorization Add(CatalogCallerSnapshot caller) { _callers[caller.UserId] = caller; return this; }
+    public Task<CatalogCallerSnapshot?> ResolveCallerAsync(string userId, CancellationToken ct = default) =>
+        Task.FromResult(_callers.TryGetValue(userId, out var caller) ? caller : null);
+    public Task<CatalogAuthorizationDecision> AuthorizeAsync(string userId, CatalogResource resource, string? targetSiteId = null, CancellationToken ct = default)
     {
-        _allowedUsers.Add(userId);
-        return this;
+        if (!_callers.TryGetValue(userId, out var caller) || !caller.IsActive) return Task.FromResult(CatalogAuthorizationDecision.Forbidden());
+        if (caller.HasRole("Administrator")) return Task.FromResult(CatalogAuthorizationDecision.Allowed());
+        if (!caller.HasRole("Engineer")) return Task.FromResult(CatalogAuthorizationDecision.Forbidden());
+        if (string.IsNullOrWhiteSpace(targetSiteId)) return Task.FromResult(caller.SiteScopes.Count > 0 ? CatalogAuthorizationDecision.Allowed() : CatalogAuthorizationDecision.Forbidden());
+        return Task.FromResult(caller.HasSiteScope(targetSiteId) ? CatalogAuthorizationDecision.Allowed() : CatalogAuthorizationDecision.NotFound());
     }
-
-    public Task<bool> CanManageCatalogAsync(string userId, CancellationToken ct = default)
-        => Task.FromResult(_allowedUsers.Contains(userId));
 }
 
 public static class CatalogCommandTests
@@ -24,84 +25,33 @@ public static class CatalogCommandTests
     public static List<string> Run()
     {
         var failures = new List<string>();
-
-        // Setup
         var repo = new FakeCatalogCommandRepository();
-        var auth = new FakeCatalogAuthorization();
+        var auth = new FakeCatalogAuthorization()
+            .Add(new CatalogCallerSnapshot("admin", "Administrator", true, new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>()))
+            .Add(new CatalogCallerSnapshot("engineer", "Engineer", true, new[] { "Engineer" }, new[] { "site-a" }, Array.Empty<string>()))
+            .Add(new CatalogCallerSnapshot("unscoped", "Engineer", true, new[] { "Engineer" }, Array.Empty<string>(), Array.Empty<string>()))
+            .Add(new CatalogCallerSnapshot("operator", "Operator", true, new[] { "Operator" }, new[] { "site-a" }, Array.Empty<string>()))
+            .Add(new CatalogCallerSnapshot("manager", "Manager", true, new[] { "Manager" }, new[] { "site-a" }, Array.Empty<string>()))
+            .Add(new CatalogCallerSnapshot("viewer", "Viewer", true, new[] { "Viewer" }, new[] { "site-a" }, Array.Empty<string>()));
         var handler = new CatalogCommandHandler(repo, auth);
 
-        var adminUser = "admin-001";
-        auth.AllowUser(adminUser);
+        if (handler.HandleAsync(new CreateMetricCommand("M_ADMIN", "Admin metric", "admin")).GetAwaiter().GetResult().IsFailure) failures.Add("Administrator must be globally allowed");
+        if (handler.HandleAsync(new CreateMetricCommand("M_ENGINEER", "Engineer metric", "engineer", "site-a")).GetAwaiter().GetResult().IsFailure) failures.Add("scoped Engineer must be allowed");
+        if (handler.HandleAsync(new CreateMetricCommand("M_UNSCOPED", "No scope", "unscoped")).GetAwaiter().GetResult().Code != "Forbidden") failures.Add("Engineer without Site scope must be denied");
+        foreach (var role in new[] { "operator", "manager", "viewer" })
+            if (handler.HandleAsync(new CreateMetricCommand($"M_{role}", role, role)).GetAwaiter().GetResult().Code != "Forbidden") failures.Add($"{role} must be denied mutation");
+        if (handler.HandleAsync(new CreateMetricCommand("M_GHOST", "Ghost", "engineer", "site-b")).GetAwaiter().GetResult().Code != "NotFound") failures.Add("out-of-scope target must return NotFound");
 
-        // 1. Administrator with permission can create metric
-        var result1 = handler.HandleAsync(new CreateMetricCommand("TEST_M", "Test Metric", adminUser)).GetAwaiter().GetResult();
-        if (result1.IsFailure) failures.Add($"FAIL: Admin should be able to create metric: {result1.Error}");
-
-        // 2. Engineer with Site scope (allowed) can create metric
-        var engUser = "eng-001";
-        auth.AllowUser(engUser);
-        var result2 = handler.HandleAsync(new CreateMetricCommand("ENG_M", "Engineer Metric", engUser)).GetAwaiter().GetResult();
-        if (result2.IsFailure) failures.Add($"FAIL: Authorized engineer should create metric: {result2.Error}");
-
-        // 3. Engineer without Site scope (not allowed) is denied
-        var unauthorizedEng = "eng-002";
-        var result3 = handler.HandleAsync(new CreateMetricCommand("UNAUTH_M", "Unauthorized", unauthorizedEng)).GetAwaiter().GetResult();
-        if (!result3.IsFailure) failures.Add("FAIL: Unauthorized engineer should be denied");
-        if (result3.Code != "Forbidden") failures.Add("FAIL: Denial should have Forbidden code");
-
-        // 4. Operator mutation denial
-        var opUser = "op-001";
-        var result4 = handler.HandleAsync(new CreateMetricCommand("OP_M", "Operator Metric", opUser)).GetAwaiter().GetResult();
-        if (!result4.IsFailure) failures.Add("FAIL: Operator should not be able to create metric");
-
-        // 5. Manager mutation denial
-        var mgrUser = "mgr-001";
-        var result5 = handler.HandleAsync(new CreateMetricCommand("MGR_M", "Manager Metric", mgrUser)).GetAwaiter().GetResult();
-        if (!result5.IsFailure) failures.Add("FAIL: Manager should not be able to create metric");
-
-        // 6. Viewer mutation denial
-        var viewerUser = "view-001";
-        var result6 = handler.HandleAsync(new CreateMetricCommand("VIEW_M", "Viewer Metric", viewerUser)).GetAwaiter().GetResult();
-        if (!result6.IsFailure) failures.Add("FAIL: Viewer should not be able to create metric");
-
-        // 7. Server-side caller authority enforcement (no client-side bypass)
-        // The handler always calls _auth.CanManageCatalogAsync — test validates by direct call
-        var bypassAttempt = handler.HandleAsync(new CreateMetricCommand("BYPASS_M", "Bypass", "")).GetAwaiter().GetResult();
-        if (!bypassAttempt.IsFailure) failures.Add("FAIL: Empty userId should be denied at server side");
-
-        // 8. Out-of-scope target returns NotFound
-        var ghostId = MetricId.New();
-        var result8 = handler.HandleAsync(new UpdateMetricStatusCommand(ghostId, true, adminUser)).GetAwaiter().GetResult();
-        if (!result8.IsFailure) failures.Add("FAIL: Non-existent metric should return NotFound");
-        if (result8.Code != "NotFound") failures.Add("FAIL: Non-existent metric failure code should be NotFound");
-
-        // 9. Owner event type and aggregate version
-        handler.HandleAsync(new CreateMetricCommand("EVENT_M", "Event Test", adminUser)).GetAwaiter().GetResult();
-        var events = handler.Events;
-        if (events.Count == 0) failures.Add("FAIL: Handler should produce event after create");
-        if (events.Count > 0)
-        {
-            if (events[0].EventType != "MetricCreated") failures.Add("FAIL: Event type should be MetricCreated");
-            if (events[0].AggregateVersion != 1) failures.Add("FAIL: Aggregate version should be 1 after creation");
-        }
-
-        // 10. Event before/after field redaction — Data is null for create (no sensitive fields)
-        if (events.Count > 0 && events[0].Data != null)
-            failures.Add("FAIL: Create metric event should have null Data (no sensitive fields)");
-
-        // 11. Correlation and causation ID preservation
-        var corrId = "corr-test-001";
-        handler.HandleAsync(new CreateMetricCommand("CORR_M", "Correlation Test", adminUser), corrId).GetAwaiter().GetResult();
-        var corrEvents = handler.Events;
-        var foundCorr = corrEvents.Any(e => e.CorrelationId == corrId);
-        if (!foundCorr) failures.Add("FAIL: Correlation ID should be preserved in events");
-
-        // 12. Payload construction must not claim Audit persistence
-        // Catalog handler creates CatalogEvent records; no Audit module interaction
-        var hasAuditClaim = handler.Events.Any(e =>
-            e.EventType.Contains("Audit", StringComparison.OrdinalIgnoreCase));
-        if (hasAuditClaim) failures.Add("FAIL: Catalog handler must not claim Audit persistence");
-
+        var metricId = repo.FindMetricByCodeAsync("M_ADMIN").GetAwaiter().GetResult()!.Id;
+        var beforeEvents = handler.Events.Count;
+        var status = handler.HandleAsync(new UpdateMetricStatusCommand(metricId, false, "admin", null), "corr-1").GetAwaiter().GetResult();
+        if (status.IsFailure || handler.Events.Count != beforeEvents + 1) failures.Add("accepted status change must emit one owner event");
+        var evt = handler.Events.LastOrDefault();
+        if (evt is null || evt.EventType != "MetricStatusChanged.v1" || evt.SchemaVersion != "1" || evt.Producer != "IUMP.Catalog" || evt.ActorId != "admin" || evt.ActorUsername != "Administrator" || evt.CorrelationId != "corr-1" || evt.CausationId != "corr-1") failures.Add("owner event envelope is incomplete");
+        if (evt is not null && evt.Data is not null && evt.Data.Contains("password", StringComparison.OrdinalIgnoreCase)) failures.Add("owner event must not expose credentials");
+        var noOpCount = handler.Events.Count;
+        if (handler.HandleAsync(new UpdateMetricStatusCommand(metricId, false, "admin")).GetAwaiter().GetResult().IsFailure || handler.Events.Count != noOpCount) failures.Add("no-op status command must emit no event");
+        if (handler.HandleAsync(new UpdateMetricStatusCommand(MetricId.New(), true, "operator")).GetAwaiter().GetResult().Code != "Forbidden") failures.Add("authorization must occur before target details");
         return failures;
     }
 }

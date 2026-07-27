@@ -265,7 +265,7 @@ public static class AuthEndpointTests
     private static void LoginHandlerTests(List<string> failures)
     {
         var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var now = DateTime.UtcNow;
 
         var result = auth.Login(new LoginRequest("activeuser", "any"), now);
         if (!result.IsSuccess)
@@ -361,7 +361,7 @@ public static class AuthEndpointTests
     private static void MeHandlerTests(List<string> failures)
     {
         var auth = CreateAuthService();
-        var now = new DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc);
+        var now = DateTime.UtcNow;
         var loginResult = auth.Login(new LoginRequest("activeuser", "any"), now);
         if (!loginResult.IsSuccess)
         {
@@ -378,7 +378,6 @@ public static class AuthEndpointTests
         var body = ReadBody(ctx);
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
-
         if (!root.TryGetProperty("userId", out _))
             failures.Add("T032-RED: /me response must include userId.");
 

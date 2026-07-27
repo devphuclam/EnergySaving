@@ -34,13 +34,16 @@ public interface ICatalogCommandRepository
     Task UpdateDataSourceAsync(DataSource source, CancellationToken ct = default);
     Task<IReadOnlyList<DataSource>> GetAllDataSourcesAsync(CancellationToken ct = default);
     Task<bool> HasDependentRunOrMeasurementAsync(DataSourceId id, CancellationToken ct = default);
+    Task<CatalogDependencySnapshot> GetDataSourceDependencySnapshotAsync(DataSourceId id, CancellationToken ct = default);
+    Task<CatalogDeletionDecision> DeleteDataSourceAsync(DataSourceId id, CancellationToken ct = default);
 
     Task<SourcePointMapping?> GetMappingAsync(MappingId id, CancellationToken ct = default);
     Task AddMappingAsync(SourcePointMapping mapping, CancellationToken ct = default);
     Task UpdateMappingAsync(SourcePointMapping mapping, CancellationToken ct = default);
     Task<IReadOnlyList<SourcePointMapping>> GetMappingsForPointAsync(string pointId, CancellationToken ct = default);
     Task<IReadOnlyList<SourcePointMapping>> GetMappingsForSourceAsync(DataSourceId dataSourceId, CancellationToken ct = default);
-    Task DeleteMappingAsync(MappingId id, CancellationToken ct = default);
+    Task<CatalogDependencySnapshot> GetMappingDependencySnapshotAsync(MappingId id, CancellationToken ct = default);
+    Task<CatalogDeletionDecision> DeleteMappingAsync(MappingId id, CancellationToken ct = default);
 
     Task<ICatalogTransaction> BeginTransactionAsync(CancellationToken ct = default);
 }

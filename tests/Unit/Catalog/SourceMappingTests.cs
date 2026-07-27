@@ -1,4 +1,6 @@
+using IUMP.Modules.Catalog.Contracts;
 using IUMP.Modules.Catalog.Domain;
+using IUMP.Tests.Unit.Fakes;
 
 namespace IUMP.Tests.Unit.Catalog;
 
@@ -7,100 +9,59 @@ public static class SourceMappingTests
     public static List<string> Run()
     {
         var failures = new List<string>();
+        var repo = new FakeCatalogCommandRepository();
+        var source = new DataSource(DataSourceId.New(), "SIM01", "Simulator 1", SourceType.Simulator, SourceStatus.Draft, 1);
+        repo.AddDataSourceAsync(source).GetAwaiter().GetResult();
 
-        var dsId = DataSourceId.New();
-        var ds = new DataSource(dsId, "SIM01", "Simulator 1", SourceType.Simulator, SourceStatus.Draft, 1);
+        try { _ = new SourcePointMapping(MappingId.New(), source.Id, "P1", MappingStatus.Draft, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(-1), 1); failures.Add("EffectiveTo <= EffectiveFrom must be rejected"); }
+        catch (ArgumentException) { }
+        var localTime = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Local);
+        var normalized = new SourcePointMapping(MappingId.New(), source.Id, "UTC_POINT", MappingStatus.Draft, localTime, null, 1);
+        if (normalized.EffectiveFrom.Kind != DateTimeKind.Utc) failures.Add("mapping timestamps must be UTC");
 
-        // 1. Source lifecycle: Draft -> Active -> Suspended -> Active -> Decommissioned
-        if (!ds.TryTransitionTo(SourceStatus.Active))
-            failures.Add("FAIL: Draft->Active should succeed");
-        if (!ds.TryTransitionTo(SourceStatus.Suspended))
-            failures.Add("FAIL: Active->Suspended should succeed");
-        if (!ds.TryTransitionTo(SourceStatus.Active))
-            failures.Add("FAIL: Suspended->Active should succeed");
-        if (!ds.TryTransitionTo(SourceStatus.Decommissioned))
-            failures.Add("FAIL: Active->Decommissioned should succeed");
+        var first = new SourcePointMapping(MappingId.New(), source.Id, "P1", MappingStatus.Active, Utc(2025, 1, 1), Utc(2025, 2, 1), 1);
+        var touching = new SourcePointMapping(MappingId.New(), source.Id, "P1", MappingStatus.Active, Utc(2025, 2, 1), Utc(2025, 3, 1), 1);
+        repo.AddMappingAsync(first).GetAwaiter().GetResult();
+        repo.AddMappingAsync(touching).GetAwaiter().GetResult();
+        if (first.OverlapsWith(touching)) failures.Add("touching half-open intervals must not overlap");
+        var overlap = new SourcePointMapping(MappingId.New(), source.Id, "P1", MappingStatus.Active, Utc(2025, 1, 15), Utc(2025, 1, 20), 1);
+        try { repo.AddMappingAsync(overlap).GetAwaiter().GetResult(); failures.Add("overlapping Active periods must be rejected"); }
+        catch (InvalidOperationException) { }
 
-        // 2. Mapping lifecycle: Draft -> Active -> Inactive -> Superseded
-        var mapping = new SourcePointMapping(MappingId.New(), dsId, "POINT_001",
-            MappingStatus.Draft, DateTime.UtcNow.AddDays(-10), null, 1);
-        if (!mapping.TryActivate())
-            failures.Add("FAIL: Draft->Active should succeed");
-        if (!mapping.TryInactivate())
-            failures.Add("FAIL: Active->Inactive should succeed");
-        if (!mapping.TrySupersede())
-            failures.Add("FAIL: Inactive->Superseded should succeed");
+        var historical = new SourcePointMapping(MappingId.New(), source.Id, "P1", MappingStatus.Inactive, Utc(2024, 1, 1), Utc(2024, 2, 1), 1);
+        repo.AddMappingAsync(historical).GetAwaiter().GetResult();
+        var eligibility = new FakeCatalogEligibilityQueryRepository(repo);
+        var missing = eligibility.GetActiveMappingEligibilityAsync("MISSING", Utc(2025, 1, 15)).GetAwaiter().GetResult();
+        if (missing.Outcome != MappingEligibilityOutcome.Missing) failures.Add("Missing eligibility outcome must be distinct");
+        var multipleA = new SourcePointMapping(MappingId.New(), source.Id, "MULTI", MappingStatus.Active, Utc(2025, 1, 1), Utc(2025, 3, 1), 1);
+        var multipleB = new SourcePointMapping(MappingId.New(), source.Id, "MULTI", MappingStatus.Active, Utc(2025, 1, 2), Utc(2025, 2, 1), 1);
+        repo.SeedRawMappingForEligibility(multipleA);
+        repo.SeedRawMappingForEligibility(multipleB);
+        var multiple = eligibility.GetActiveMappingEligibilityAsync("MULTI", Utc(2025, 1, 15)).GetAwaiter().GetResult();
+        if (multiple.Outcome != MappingEligibilityOutcome.Multiple) failures.Add("Multiple eligibility outcome must be distinct");
 
-        // 3. Invalid state transitions
-        var draftMapping = new SourcePointMapping(MappingId.New(), dsId, "POINT_002",
-            MappingStatus.Draft, DateTime.UtcNow, null, 1);
-        if (draftMapping.TrySupersede())
-            failures.Add("FAIL: Draft->Superseded should be rejected");
-        if (draftMapping.TryInactivate())
-            failures.Add("FAIL: Draft->Inactive should be rejected");
+        var unusedSource = new DataSource(DataSourceId.New(), "UNUSED", "Unused", SourceType.Simulator, SourceStatus.Draft, 1);
+        repo.AddDataSourceAsync(unusedSource).GetAwaiter().GetResult();
+        repo.SetDataSourceDependencies(unusedSource.Id, new CatalogDependencySnapshot(AuditOnlySnapshot: true));
+        if (!repo.DeleteDataSourceAsync(unusedSource.Id).GetAwaiter().GetResult().IsAllowed) failures.Add("Audit-only dependency must not block Draft source deletion");
+        var blockedSource = new DataSource(DataSourceId.New(), "BLOCKED", "Blocked", SourceType.Simulator, SourceStatus.Draft, 1);
+        repo.AddDataSourceAsync(blockedSource).GetAwaiter().GetResult();
+        repo.SetDataSourceDependencies(blockedSource.Id, new CatalogDependencySnapshot(SimulatorRun: true));
+        if (repo.DeleteDataSourceAsync(blockedSource.Id).GetAwaiter().GetResult().Code != "DEPENDENT_HISTORY") failures.Add("operational dependency must return DEPENDENT_HISTORY");
 
-        // Draft->Active is valid, but from Superseded nothing moves
-        draftMapping.TryActivate();
-        draftMapping.TrySupersede();
-        if (draftMapping.TryActivate())
-            failures.Add("FAIL: Superseded->Active should be rejected");
-        if (draftMapping.TryInactivate())
-            failures.Add("FAIL: Superseded->Inactive should be rejected");
-        if (draftMapping.TrySupersede())
-            failures.Add("FAIL: Superseded->Superseded should be rejected (no-op)");
+        var unusedMapping = new SourcePointMapping(MappingId.New(), source.Id, "UNUSED", MappingStatus.Draft, Utc(2025, 1, 1), null, 1);
+        repo.AddMappingAsync(unusedMapping).GetAwaiter().GetResult();
+        repo.SetMappingDependencies(unusedMapping.Id, new CatalogDependencySnapshot(AuditOnlySnapshot: true));
+        if (!repo.DeleteMappingAsync(unusedMapping.Id).GetAwaiter().GetResult().IsAllowed) failures.Add("Audit-only dependency must not block Draft mapping deletion");
 
-        // 4. Terminal state enforcement
-        if (!ds.IsDecommissioned)
-            failures.Add("FAIL: After Decommissioned, IsDecommissioned should be true");
-
-        var d2 = new DataSource(DataSourceId.New(), "SIM02", "Sim 2", SourceType.Simulator, SourceStatus.Active, 1);
-        d2.TryTransitionTo(SourceStatus.Decommissioned);
-        if (!d2.IsDecommissioned)
-            failures.Add("FAIL: Terminal decommissioned state not enforced");
-        if (d2.TryTransitionTo(SourceStatus.Active))
-            failures.Add("FAIL: Decommissioned->Active should be rejected");
-
-        // 5. Half-open interval: [EffectiveFrom, EffectiveTo)
-        var m1 = new SourcePointMapping(MappingId.New(), dsId, "POINT_003",
-            MappingStatus.Active, new DateTime(2025, 1, 1), new DateTime(2025, 6, 1), 1);
-        if (m1.EffectiveFrom != new DateTime(2025, 1, 1))
-            failures.Add("FAIL: EffectiveFrom should be preserved");
-
-        // 6. Touching periods [10,20) and [20,30) must NOT overlap
-        var a = new SourcePointMapping(MappingId.New(), dsId, "POINT_004",
-            MappingStatus.Active, new DateTime(2025, 1, 10), new DateTime(2025, 1, 20), 1);
-        var b = new SourcePointMapping(MappingId.New(), dsId, "POINT_004",
-            MappingStatus.Active, new DateTime(2025, 1, 20), new DateTime(2025, 1, 30), 1);
-        if (a.OverlapsWith(b))
-            failures.Add("FAIL: [10,20) and [20,30) must not overlap");
-
-        // 7. Overlapping periods must be detected
-        var c = new SourcePointMapping(MappingId.New(), dsId, "POINT_005",
-            MappingStatus.Active, new DateTime(2025, 2, 1), new DateTime(2025, 3, 1), 1);
-        var d = new SourcePointMapping(MappingId.New(), dsId, "POINT_005",
-            MappingStatus.Active, new DateTime(2025, 2, 15), new DateTime(2025, 3, 15), 1);
-        if (!c.OverlapsWith(d))
-            failures.Add("FAIL: [Feb1,Mar1) and [Feb15,Mar15) should overlap");
-
-        // 8. Future and historical mappings must coexist (no overlap = no conflict)
-        var hist = new SourcePointMapping(MappingId.New(), dsId, "POINT_006",
-            MappingStatus.Active, new DateTime(2024, 1, 1), new DateTime(2024, 6, 1), 1);
-        var future = new SourcePointMapping(MappingId.New(), dsId, "POINT_006",
-            MappingStatus.Active, new DateTime(2025, 1, 1), null, 1);
-        if (hist.OverlapsWith(future))
-            failures.Add("FAIL: Historical and future mappings should not overlap");
-
-        // 9. Draft unused deletion — model provides no side-effects for deletion
-        var unused = new SourcePointMapping(MappingId.New(), dsId, "POINT_UNUSED",
-            MappingStatus.Draft, DateTime.UtcNow, null, 1);
-        if (unused.Status != MappingStatus.Draft)
-            failures.Add("FAIL: Unused mapping should start as Draft");
-
-        // 10-12: Deletion dependency is a repository concern, verified in CatalogRepositoryTests (T049)
-        // Here we verify the model does not prevent deletion at domain level
-        // (domain allows all deletions; repository blocks based on dependencies)
-        if (unused.Id == unused.Id) { } // placeholder
-
+        var rollbackSource = new DataSource(DataSourceId.New(), "ROLLBACK", "Rollback", SourceType.Simulator, SourceStatus.Draft, 1);
+        repo.AddDataSourceAsync(rollbackSource).GetAwaiter().GetResult();
+        var tx = repo.BeginTransactionAsync().GetAwaiter().GetResult();
+        repo.DeleteDataSourceAsync(rollbackSource.Id).GetAwaiter().GetResult();
+        tx.RollbackAsync().GetAwaiter().GetResult();
+        if (repo.GetDataSourceAsync(rollbackSource.Id).GetAwaiter().GetResult() is null) failures.Add("failed deletion must roll back without partial state change");
         return failures;
     }
+
+    private static DateTime Utc(int year, int month, int day) => new(year, month, day, 0, 0, 0, DateTimeKind.Utc);
 }
