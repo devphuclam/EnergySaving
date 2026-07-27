@@ -39,6 +39,7 @@ failures.AddRange(catalogRunner.Failures);
 var organizationRunner = new OrganizationRepositoryContractRunner(new FakeOrganizationRepositoryTestProviderFactory());
 await organizationRunner.RunAllAsync();
 failures.AddRange(organizationRunner.Failures);
+Console.WriteLine($"T071: tests={organizationRunner.TestCount}; assertions={organizationRunner.AssertionCount}; failures={organizationRunner.Failures.Count}");
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

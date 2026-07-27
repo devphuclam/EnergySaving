@@ -129,10 +129,16 @@ public sealed class OrganizationQueryService
         if (IsVisible(scope, siteId, areaId)) return true;
         if (scope.AreaIds.Count > 0)
         {
-            var areas = await _repository.GetAreasForSiteAsync(siteId, OrganizationQueryScope.Global(), new ScopeFilter(1, 200), ct);
-            return areaId.HasValue
-                ? areas.Items.Any(area => area.Id == areaId.Value && scope.AreaIds.Contains(area.Id))
-                : areas.Items.Any(area => scope.AreaIds.Contains(area.Id));
+            if (areaId.HasValue)
+            {
+                var ancestry = await _repository.GetAreaAncestryAsync(areaId.Value, ct);
+                return ancestry is not null && ancestry.SiteId == siteId && scope.AreaIds.Contains(ancestry.AreaId);
+            }
+            foreach (var scopedAreaId in scope.AreaIds)
+            {
+                var ancestry = await _repository.GetAreaAncestryAsync(scopedAreaId, ct);
+                if (ancestry is not null && ancestry.SiteId == siteId) return true;
+            }
         }
         return false;
     }

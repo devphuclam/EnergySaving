@@ -1,5 +1,6 @@
 using IUMP.Modules.Organization.Contracts;
 using IUMP.Modules.Organization.Domain;
+using IUMP.Modules.Organization.Application;
 
 namespace IUMP.Tests.Integration.Organization;
 
@@ -10,6 +11,7 @@ public interface IOrganizationRepositoryTestProvider
 {
     IOrganizationCommandRepository CommandRepository { get; }
     IOrganizationQueryRepository QueryRepository { get; }
+    IRunningSimulatorQuery RunningSimulatorQuery { get; }
     void ConfigureRunningSimulator(string pointId, bool isRunning);
     bool IsRunningSimulator(string pointId);
     void Reset();
@@ -38,12 +40,16 @@ public sealed class OrganizationRepositoryContractRunner
         await AreaCodeUniquenessWithinSite();
         await AreaCodesMayRepeatAcrossSites();
         await AssetAndPointAncestry();
+        await AssetCodeUniquenessAndScope();
         await PointCodeReservation();
         await SiteLifecycleTransition();
+        await AreaLifecycleTransition();
         await PointDecommissionAndHistory();
         await RunningSimulatorDependency();
+        await PointActivationIsPhaseFiveOnly();
         await OptimisticVersionBehavior();
         await TransactionCommitAndRollback();
+        await DeepRollbackExistingAggregate();
         await QueryScopePagingAndStableOrder();
     }
 
@@ -143,6 +149,20 @@ public sealed class OrganizationRepositoryContractRunner
         Pass();
     }
 
+    private async Task AssetCodeUniquenessAndScope()
+    {
+        var repo = NewProvider().CommandRepository;
+        var site = new Site(SiteId.New(), "ASSET-SCOPE-SITE", "Test", null, "UTC", SiteStatus.Active, 1);
+        var area1 = new Area(AreaId.New(), site.Id, "AREA-ONE", "One", null, AreaStatus.Active, 1);
+        var area2 = new Area(AreaId.New(), site.Id, "AREA-TWO", "Two", null, AreaStatus.Active, 1);
+        await repo.AddSiteAsync(site); await repo.AddAreaAsync(area1); await repo.AddAreaAsync(area2);
+        await repo.AddAssetAsync(new Asset(AssetId.New(), site.Id, area1.Id, "COMMON-ASSET", "One", null, AssetStatus.Draft, 1));
+        await repo.AddAssetAsync(new Asset(AssetId.New(), site.Id, area2.Id, "COMMON-ASSET", "Two", null, AssetStatus.Draft, 1));
+        Assert((await repo.GetAssetsForAreaAsync(area1.Id)).Count == 1 && (await repo.GetAssetsForAreaAsync(area2.Id)).Count == 1,
+            "Same Asset code is allowed in another Area but not duplicated within one Area.");
+        Pass();
+    }
+
     private async Task SiteLifecycleTransition()
     {
         var repo = NewProvider().CommandRepository;
@@ -152,6 +172,19 @@ public sealed class OrganizationRepositoryContractRunner
         await repo.UpdateSiteAsync(site);
         var saved = await repo.GetSiteAsync(site.Id);
         Assert(saved?.Status == SiteStatus.Active && saved.Version == 2, "Lifecycle update persists status and version.");
+        Pass();
+    }
+
+    private async Task AreaLifecycleTransition()
+    {
+        var repo = NewProvider().CommandRepository;
+        var site = new Site(SiteId.New(), "AREA-LIFECYCLE-SITE", "Test", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "AREA-LIFECYCLE", "Test", null, AreaStatus.Draft, 1);
+        await repo.AddSiteAsync(site); await repo.AddAreaAsync(area);
+        Assert(area.TryActivate(), "Draft Area activates.");
+        await repo.UpdateAreaAsync(area);
+        var saved = await repo.GetAreaAsync(area.Id);
+        Assert(saved?.Status == AreaStatus.Active && saved.Version == 2, "Area lifecycle update persists status and version.");
         Pass();
     }
 
@@ -177,12 +210,31 @@ public sealed class OrganizationRepositoryContractRunner
     {
         var provider = NewProvider();
         var repo = provider.CommandRepository;
-        var pointId = PointId.New().ToString();
-        provider.ConfigureRunningSimulator(pointId, true);
-        Assert(provider.IsRunningSimulator(pointId), "Provider exposes running simulator state without concrete casts.");
-        provider.Reset();
-        Assert(!provider.IsRunningSimulator(pointId), "Provider reset clears simulator state.");
-        await Task.CompletedTask;
+        var (site, area, asset) = await AddHierarchy(repo, "RUNNING");
+        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "RUNNING-POINT", null, "M", "U", "owner", 60, 300, PointStatus.Active, 1);
+        await repo.AddPointAsync(point);
+        provider.ConfigureRunningSimulator(point.Id.ToString(), true);
+        var handler = new OrganizationCommandHandler(repo, new ContractAdminAuthorization(), provider.RunningSimulatorQuery);
+        var blocked = await handler.HandleAsync(new DecommissionPointCommand(point.Id, 1, "contract-admin"), new OrganizationCommandContext("contract-admin", "c", "x"));
+        Assert(blocked.Code == "RUNNING_SIMULATOR" && (await repo.GetPointAsync(point.Id))!.Status == PointStatus.Active,
+            "Provider-neutral decommission must be blocked by a running Simulator.");
+        provider.ConfigureRunningSimulator(point.Id.ToString(), false);
+        var accepted = await handler.HandleAsync(new DecommissionPointCommand(point.Id, 1, "contract-admin"), new OrganizationCommandContext("contract-admin", "c2", "x2"));
+        Assert(accepted.IsSuccess && (await repo.GetLifecycleForPointAsync(point.Id.ToString())).Count == 1,
+            "The same provider-neutral dependency permits eligible decommission after the run stops.");
+        Pass();
+    }
+
+    private async Task PointActivationIsPhaseFiveOnly()
+    {
+        var provider = NewProvider();
+        var repo = provider.CommandRepository;
+        var (site, area, asset) = await AddHierarchy(repo, "PHASE5");
+        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "PHASE5-POINT", null, "M", "U", "owner", 60, 300, PointStatus.Draft, 1);
+        await repo.AddPointAsync(point);
+        var handler = new OrganizationCommandHandler(repo, new ContractAdminAuthorization(), provider.RunningSimulatorQuery);
+        var result = await handler.HandleAsync(new UpdatePointStatusCommand(point.Id, "activate", 1, "contract-admin"), new OrganizationCommandContext("contract-admin", null, null));
+        Assert(result.Code == "PHASE5_REQUIRED" && !(await repo.GetPointAsync(point.Id))!.IsActive, "Normal Point activation is unavailable before Phase 5.");
         Pass();
     }
 
@@ -215,6 +267,21 @@ public sealed class OrganizationRepositoryContractRunner
         Pass();
     }
 
+    private async Task DeepRollbackExistingAggregate()
+    {
+        var repo = NewProvider().CommandRepository;
+        var site = new Site(SiteId.New(), "TX-DEEP", "Before", null, "UTC", SiteStatus.Draft, 1);
+        await repo.AddSiteAsync(site);
+        var tx = await repo.BeginTransactionAsync();
+        var changed = new Site(site.Id, site.Code, "After", null, "UTC", SiteStatus.Active, 2);
+        await repo.UpdateSiteAsync(changed);
+        await tx.RollbackAsync();
+        var restored = await repo.GetSiteAsync(site.Id);
+        Assert(restored?.Name == "Before" && restored.Status == SiteStatus.Draft && restored.Version == 1,
+            "Rollback must restore a mutation to an existing aggregate.");
+        Pass();
+    }
+
     private async Task QueryScopePagingAndStableOrder()
     {
         var provider = NewProvider();
@@ -225,6 +292,11 @@ public sealed class OrganizationRepositoryContractRunner
         var a1 = new Area(AreaId.New(), s1.Id, "AREA-B", "B", null, AreaStatus.Active, 1);
         var a2 = new Area(AreaId.New(), s1.Id, "AREA-A", "A", null, AreaStatus.Active, 1);
         await repo.AddAreaAsync(a1); await repo.AddAreaAsync(a2);
+        var asset1 = new Asset(AssetId.New(), s1.Id, a1.Id, "ASSET-A", "A", null, AssetStatus.Active, 1);
+        var asset2 = new Asset(AssetId.New(), s1.Id, a2.Id, "ASSET-B", "B", null, AssetStatus.Active, 1);
+        await repo.AddAssetAsync(asset1); await repo.AddAssetAsync(asset2);
+        await repo.AddPointAsync(new MeasurementPoint(PointId.New(), s1.Id, a1.Id, asset1.Id, "POINT-A", null,
+            "M", "U", "owner", 60, 300, PointStatus.Draft, 1));
         var result = await provider.QueryRepository.GetSitesAsync(
             new OrganizationQueryScope(false, new[] { s1.Id.Value }, Array.Empty<Guid>()), new ScopeFilter(1, 1));
         Assert(result.TotalCount == 1 && result.Items.Single().Id == s1.Id.Value, "Site scope filters before paging and totals.");
@@ -232,7 +304,29 @@ public sealed class OrganizationRepositoryContractRunner
             new OrganizationQueryScope(false, new[] { s1.Id.Value }, Array.Empty<Guid>()), new ScopeFilter(1, 10));
         Assert(areas.Items.Count == 2 && areas.Items[0].Code == "AREA-A" && areas.Items[1].Code == "AREA-B",
             "Query ordering is deterministic by code.");
-        Assert(areas.Items.All(a => a.AssetCount == 0), "Area child summaries are populated.");
+        Assert(areas.Items.Single(a => a.Id == a1.Id.Value).AssetCount == 1 &&
+               areas.Items.Single(a => a.Id == a2.Id.Value).AssetCount == 1,
+            "Area child summaries are populated.");
+
+        var areaScope = new OrganizationQueryScope(false, Array.Empty<Guid>(), new[] { a1.Id.Value });
+        var scopedAreas = await provider.QueryRepository.GetAreasForSiteAsync(s1.Id.Value, areaScope, new ScopeFilter(1, 10));
+        Assert(scopedAreas.TotalCount == 1 && scopedAreas.Items.Single().Id == a1.Id.Value,
+            "Area scope filters before paging and totals without leaking a sibling Area.");
+        var scopedAssets = await provider.QueryRepository.GetAssetsForAreaAsync(a1.Id.Value, areaScope, new ScopeFilter(1, 10));
+        Assert(scopedAssets.TotalCount == 1 && scopedAssets.Items.Single().Id == asset1.Id.Value && scopedAssets.Items.Single().PointCount == 1,
+            "Area scope returns only descendant Assets with Point summaries.");
+        var scopedPoints = await provider.QueryRepository.GetPointsForSiteAsync(s1.Id.Value, areaScope, new ScopeFilter(1, 10));
+        Assert(scopedPoints.TotalCount == 1 && scopedPoints.Items.Single().AreaId == a1.Id.Value,
+            "Area scope returns descendant Points and no sibling leakage.");
         Pass();
     }
+}
+
+internal sealed class ContractAdminAuthorization : IOrganizationAuthorization
+{
+    private static readonly OrganizationCallerSnapshot Caller = new("contract-admin", "contract-admin", true,
+        new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>());
+    public Task<OrganizationAuthorizationDecision> AuthorizeAsync(string requestedByUserId, OrganizationResource resource,
+        string? targetSiteId = null, CancellationToken ct = default) => Task.FromResult(OrganizationAuthorizationDecision.Allowed());
+    public Task<OrganizationCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default) => Task.FromResult<OrganizationCallerSnapshot?>(Caller);
 }

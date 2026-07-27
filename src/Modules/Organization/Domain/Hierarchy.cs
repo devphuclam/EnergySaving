@@ -12,9 +12,9 @@ public sealed class Site
 {
     public SiteId Id { get; }
     public string Code { get; }
-    public string Name { get; }
-    public string? Description { get; }
-    public string Timezone { get; }
+    public string Name { get; private set; }
+    public string? Description { get; private set; }
+    public string Timezone { get; private set; }
     public SiteStatus Status { get; private set; }
     public long Version { get; private set; }
 
@@ -57,6 +57,20 @@ public sealed class Site
 
     public bool IsActive => Status == SiteStatus.Active;
 
+    public bool TryUpdate(string name, string? description, string timezone)
+    {
+        var normalizedName = RequireText(name, 200);
+        var normalizedTimezone = RequireText(timezone, 100);
+        var normalizedDescription = description?.Trim();
+        if (Name == normalizedName && Description == normalizedDescription && Timezone == normalizedTimezone)
+            return false;
+        Name = normalizedName;
+        Description = normalizedDescription;
+        Timezone = normalizedTimezone;
+        Version++;
+        return true;
+    }
+
     public static string NormalizeCode(string value) => RequireText(value, 50).ToUpperInvariant();
     public static string RequireText(string value, int maxLength)
     {
@@ -80,8 +94,8 @@ public sealed class Area
     public AreaId Id { get; }
     public SiteId SiteId { get; }
     public string Code { get; }
-    public string Name { get; }
-    public string? Description { get; }
+    public string Name { get; private set; }
+    public string? Description { get; private set; }
     public AreaStatus Status { get; private set; }
     public long Version { get; private set; }
 
@@ -124,6 +138,17 @@ public sealed class Area
     }
 
     public bool IsActive => Status == AreaStatus.Active;
+
+    public bool TryUpdate(string name, string? description)
+    {
+        var normalizedName = Site.RequireText(name, 200);
+        var normalizedDescription = description?.Trim();
+        if (Name == normalizedName && Description == normalizedDescription) return false;
+        Name = normalizedName;
+        Description = normalizedDescription;
+        Version++;
+        return true;
+    }
 }
 
 public readonly record struct AssetId(Guid Value)
@@ -140,8 +165,8 @@ public sealed class Asset
     public SiteId SiteId { get; }
     public AreaId AreaId { get; }
     public string Code { get; }
-    public string Name { get; }
-    public string? Description { get; }
+    public string Name { get; private set; }
+    public string? Description { get; private set; }
     public AssetStatus Status { get; private set; }
     public long Version { get; private set; }
 
@@ -196,6 +221,17 @@ public sealed class Asset
 
     public bool IsActive => Status == AssetStatus.Active;
     public bool IsDecommissioned => Status == AssetStatus.Decommissioned;
+
+    public bool TryUpdate(string name, string? description)
+    {
+        var normalizedName = Site.RequireText(name, 200);
+        var normalizedDescription = description?.Trim();
+        if (Name == normalizedName && Description == normalizedDescription) return false;
+        Name = normalizedName;
+        Description = normalizedDescription;
+        Version++;
+        return true;
+    }
 }
 
 public readonly record struct PointId(Guid Value)
@@ -213,12 +249,12 @@ public sealed class MeasurementPoint
     public AreaId AreaId { get; }
     public AssetId AssetId { get; }
     public string Code { get; }
-    public string? Description { get; }
-    public string MetricId { get; }
-    public string UnitId { get; }
-    public string DataOwnerUserId { get; }
-    public int ExpectedIntervalSeconds { get; }
-    public int NoDataAfterSeconds { get; }
+    public string? Description { get; private set; }
+    public string MetricId { get; private set; }
+    public string UnitId { get; private set; }
+    public string DataOwnerUserId { get; private set; }
+    public int ExpectedIntervalSeconds { get; private set; }
+    public int NoDataAfterSeconds { get; private set; }
     public PointStatus Status { get; private set; }
     public long Version { get; private set; }
 
@@ -283,6 +319,28 @@ public sealed class MeasurementPoint
 
     public bool IsActive => Status == PointStatus.Active;
     public bool IsDecommissioned => Status == PointStatus.Decommissioned;
+
+    public bool TryUpdateConfiguration(string? description, string metricId, string unitId, string dataOwnerUserId,
+        int expectedIntervalSeconds, int noDataAfterSeconds)
+    {
+        var normalizedMetric = Site.RequireText(metricId, 200);
+        var normalizedUnit = Site.RequireText(unitId, 200);
+        var normalizedOwner = Site.RequireText(dataOwnerUserId, 200);
+        if (expectedIntervalSeconds <= 0 || noDataAfterSeconds <= expectedIntervalSeconds)
+            throw new ArgumentOutOfRangeException(nameof(expectedIntervalSeconds));
+        var normalizedDescription = description?.Trim();
+        if (Description == normalizedDescription && MetricId == normalizedMetric && UnitId == normalizedUnit &&
+            DataOwnerUserId == normalizedOwner && ExpectedIntervalSeconds == expectedIntervalSeconds &&
+            NoDataAfterSeconds == noDataAfterSeconds) return false;
+        Description = normalizedDescription;
+        MetricId = normalizedMetric;
+        UnitId = normalizedUnit;
+        DataOwnerUserId = normalizedOwner;
+        ExpectedIntervalSeconds = expectedIntervalSeconds;
+        NoDataAfterSeconds = noDataAfterSeconds;
+        Version++;
+        return true;
+    }
 }
 
 public sealed record PointLifecycleEntry(

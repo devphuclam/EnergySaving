@@ -33,16 +33,21 @@ public sealed record OrganizationCommandContext(
     string? CausationId);
 
 public sealed record CreateSiteCommand(string Code, string Name, string? Description, string Timezone, string RequestedByUserId);
-public sealed record UpdateSiteStatusCommand(SiteId SiteId, string Action, string RequestedByUserId);
+public sealed record UpdateSiteCommand(SiteId SiteId, string Name, string? Description, string Timezone, long ExpectedVersion, string RequestedByUserId);
+public sealed record UpdateSiteStatusCommand(SiteId SiteId, string Action, long ExpectedVersion, string RequestedByUserId);
 public sealed record CreateAreaCommand(SiteId SiteId, string Code, string Name, string? Description, string RequestedByUserId);
-public sealed record UpdateAreaStatusCommand(AreaId AreaId, string Action, string RequestedByUserId);
+public sealed record UpdateAreaCommand(AreaId AreaId, string Name, string? Description, long ExpectedVersion, string RequestedByUserId);
+public sealed record UpdateAreaStatusCommand(AreaId AreaId, string Action, long ExpectedVersion, string RequestedByUserId);
 public sealed record CreateAssetCommand(SiteId SiteId, AreaId AreaId, string Code, string Name, string? Description, string RequestedByUserId);
-public sealed record UpdateAssetStatusCommand(AssetId AssetId, string Action, string RequestedByUserId);
-public sealed record DecommissionAssetCommand(AssetId AssetId, string RequestedByUserId);
+public sealed record UpdateAssetCommand(AssetId AssetId, string Name, string? Description, long ExpectedVersion, string RequestedByUserId);
+public sealed record UpdateAssetStatusCommand(AssetId AssetId, string Action, long ExpectedVersion, string RequestedByUserId);
+public sealed record DecommissionAssetCommand(AssetId AssetId, long ExpectedVersion, string RequestedByUserId);
 public sealed record CreatePointCommand(SiteId SiteId, AreaId AreaId, AssetId AssetId, string Code, string? Description,
     string MetricId, string UnitId, string DataOwnerUserId, int ExpectedIntervalSeconds, int NoDataAfterSeconds, string RequestedByUserId);
-public sealed record UpdatePointStatusCommand(PointId PointId, string Action, string RequestedByUserId);
-public sealed record DecommissionPointCommand(PointId PointId, string RequestedByUserId);
+public sealed record UpdatePointConfigurationCommand(PointId PointId, string? Description, string MetricId, string UnitId,
+    string DataOwnerUserId, int ExpectedIntervalSeconds, int NoDataAfterSeconds, long ExpectedVersion, string RequestedByUserId);
+public sealed record UpdatePointStatusCommand(PointId PointId, string Action, long ExpectedVersion, string RequestedByUserId);
+public sealed record DecommissionPointCommand(PointId PointId, long ExpectedVersion, string RequestedByUserId);
 
 public interface IOrganizationAuthorization
 {
@@ -99,11 +104,11 @@ public sealed class OrganizationCommandHandler
     public bool HasEvents => _events.Count > 0;
 
     public OrganizationCommandHandler(IOrganizationCommandRepository repo, IOrganizationAuthorization auth,
-        IRunningSimulatorQuery? simQuery = null)
+        IRunningSimulatorQuery simQuery)
     {
         _repo = repo;
         _auth = auth;
-        _simQuery = simQuery ?? new NullRunningSimulatorQuery();
+        _simQuery = simQuery ?? throw new ArgumentNullException(nameof(simQuery));
     }
 
     public async Task<Result> HandleAsync(CreateSiteCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
@@ -124,7 +129,7 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("SiteStatusChanged.v1", "Site", site.Id.ToString(), site.Version, ctx,
                 "Created", "Site created", EmptySnap(),
-                MakeSnap(("code", site.Code), ("name", site.Name), ("timezone", site.Timezone), ("status", site.Status.ToString())), site.Id.ToString());
+                SiteSnapshot(site), site.Id.ToString());
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -139,6 +144,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var site = await _repo.GetSiteAsync(cmd.SiteId, ct);
         if (site is null) return Result.Failure("NotFound", "Site not found.");
+        if (cmd.ExpectedVersion != site.Version) return VersionConflict();
         var before = site.Status.ToString();
         var changed = cmd.Action.ToLowerInvariant() switch
         {
@@ -160,10 +166,33 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("SiteStatusChanged.v1", "Site", site.Id.ToString(), site.Version, ctx,
                 cmd.Action + "d", "Site status changed",
-                MakeSnap(("status", before)), MakeSnap(("status", site.Status.ToString())), site.Id.ToString());
+                SiteSnapshot(site, before), SiteSnapshot(site), site.Id.ToString());
             return Result.Success();
         }
-        catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
+    }
+
+    public async Task<Result> HandleAsync(UpdateSiteCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
+    {
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.RootSite, cmd.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
+        var site = await _repo.GetSiteAsync(cmd.SiteId, ct);
+        if (site is null) return Result.Failure("NotFound", "Site not found.");
+        if (cmd.ExpectedVersion != site.Version) return VersionConflict();
+        Site before = Clone(site);
+        try
+        {
+            var changed = site.TryUpdate(cmd.Name, cmd.Description, cmd.Timezone);
+            if (!changed) return Result.Success();
+            await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
+            await _repo.UpdateSiteAsync(site, ct);
+            await tx.CommitAsync(ct);
+            AddEvent("SiteStatusChanged.v1", "Site", site.Id.ToString(), site.Version, ctx,
+                "Updated", "Site configuration updated", SiteSnapshot(before), SiteSnapshot(site), site.Id.ToString());
+            return Result.Success();
+        }
+        catch (ArgumentException ex) { return Result.Failure("Validation", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateAreaCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
@@ -172,6 +201,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var site = await _repo.GetSiteAsync(cmd.SiteId, ct);
         if (site is null) return Result.Failure("NotFound", "Parent Site not found.");
+        if (site.Status == SiteStatus.Inactive) return Result.Failure("PARENT_NOT_CONFIGURABLE", "Area cannot be created under an Inactive Site.");
         var normalized = Domain.Site.NormalizeCode(cmd.Code);
         if (await _repo.FindAreaByCodeAsync(cmd.SiteId, normalized, ct) is not null)
             return Result.Failure("Conflict", "Area code already exists in this Site.");
@@ -183,7 +213,7 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("AreaStatusChanged.v1", "Area", area.Id.ToString(), area.Version, ctx,
                 "Created", "Area created", EmptySnap(),
-                MakeSnap(("siteId", cmd.SiteId.ToString()), ("code", area.Code), ("name", area.Name), ("status", area.Status.ToString())), cmd.SiteId.ToString());
+                AreaSnapshot(area), area.SiteId.ToString(), area.Id.ToString());
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -198,6 +228,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Area not found.");
+        if (cmd.ExpectedVersion != area.Version) return VersionConflict();
         // Area activation requires Active Site
         if (cmd.Action.Equals("activate", StringComparison.OrdinalIgnoreCase) && area.Status == AreaStatus.Draft)
         {
@@ -221,12 +252,34 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("AreaStatusChanged.v1", "Area", area.Id.ToString(), area.Version, ctx,
                 cmd.Action + "d", "Area status changed",
-                MakeSnap(("siteId", area.SiteId.ToString()), ("code", area.Code), ("name", area.Name), ("status", before)),
-                MakeSnap(("siteId", area.SiteId.ToString()), ("code", area.Code), ("name", area.Name), ("status", area.Status.ToString())),
-                area.SiteId.ToString());
+                AreaSnapshot(area, before), AreaSnapshot(area), area.SiteId.ToString(), area.Id.ToString());
             return Result.Success();
         }
-        catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
+    }
+
+    public async Task<Result> HandleAsync(UpdateAreaCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
+    {
+        var scope = await _repo.GetAreaScopeAsync(cmd.AreaId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Area not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
+        var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
+        if (area is null) return Result.Failure("NotFound", "Area not found.");
+        if (cmd.ExpectedVersion != area.Version) return VersionConflict();
+        var before = Clone(area);
+        try
+        {
+            if (!area.TryUpdate(cmd.Name, cmd.Description)) return Result.Success();
+            await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
+            await _repo.UpdateAreaAsync(area, ct);
+            await tx.CommitAsync(ct);
+            AddEvent("AreaStatusChanged.v1", "Area", area.Id.ToString(), area.Version, ctx,
+                "Updated", "Area configuration updated", AreaSnapshot(before), AreaSnapshot(area), area.SiteId.ToString(), area.Id.ToString());
+            return Result.Success();
+        }
+        catch (ArgumentException ex) { return Result.Failure("Validation", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateAssetCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
@@ -237,6 +290,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Parent Area not found.");
+        if (area.Status == AreaStatus.Inactive) return Result.Failure("PARENT_NOT_CONFIGURABLE", "Asset cannot be created under an Inactive Area.");
         if (cmd.SiteId != area.SiteId)
             return Result.Failure("NotFound", "Parent hierarchy does not match the requested scope.");
         var normalized = Domain.Site.NormalizeCode(cmd.Code);
@@ -250,7 +304,7 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("AssetStatusChanged.v1", "Asset", asset.Id.ToString(), asset.Version, ctx,
                 "Created", "Asset created", EmptySnap(),
-                MakeSnap(("siteId", cmd.SiteId.ToString()), ("areaId", cmd.AreaId.ToString()), ("code", asset.Code), ("name", asset.Name), ("status", asset.Status.ToString())), cmd.SiteId.ToString());
+                AssetSnapshot(asset), asset.SiteId.ToString(), asset.AreaId.ToString());
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -265,6 +319,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
+        if (cmd.ExpectedVersion != asset.Version) return VersionConflict();
         if (cmd.Action.Equals("activate", StringComparison.OrdinalIgnoreCase) && asset.Status == AssetStatus.Draft)
         {
             var parentArea = await _repo.GetAreaAsync(asset.AreaId, ct);
@@ -287,12 +342,34 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("AssetStatusChanged.v1", "Asset", asset.Id.ToString(), asset.Version, ctx,
                 cmd.Action + "d", "Asset status changed",
-                MakeSnap(("siteId", asset.SiteId.ToString()), ("areaId", asset.AreaId.ToString()), ("code", asset.Code), ("name", asset.Name), ("status", before)),
-                MakeSnap(("siteId", asset.SiteId.ToString()), ("areaId", asset.AreaId.ToString()), ("code", asset.Code), ("name", asset.Name), ("status", asset.Status.ToString())),
-                asset.SiteId.ToString());
+                AssetSnapshot(asset, before), AssetSnapshot(asset), asset.SiteId.ToString(), asset.AreaId.ToString());
             return Result.Success();
         }
-        catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
+    }
+
+    public async Task<Result> HandleAsync(UpdateAssetCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
+    {
+        var scope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Asset not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
+        var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
+        if (asset is null) return Result.Failure("NotFound", "Asset not found.");
+        if (cmd.ExpectedVersion != asset.Version) return VersionConflict();
+        var before = Clone(asset);
+        try
+        {
+            if (!asset.TryUpdate(cmd.Name, cmd.Description)) return Result.Success();
+            await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
+            await _repo.UpdateAssetAsync(asset, ct);
+            await tx.CommitAsync(ct);
+            AddEvent("AssetStatusChanged.v1", "Asset", asset.Id.ToString(), asset.Version, ctx,
+                "Updated", "Asset configuration updated", AssetSnapshot(before), AssetSnapshot(asset), asset.SiteId.ToString(), asset.AreaId.ToString());
+            return Result.Success();
+        }
+        catch (ArgumentException ex) { return Result.Failure("Validation", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(DecommissionAssetCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
@@ -303,6 +380,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
+        if (cmd.ExpectedVersion != asset.Version) return VersionConflict();
         var children = await _repo.GetPointsForAssetAsync(cmd.AssetId, ct);
         var decision = DecommissionPolicy.EvaluateAsset(asset, children);
         if (!decision.IsAllowed)
@@ -318,12 +396,10 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("AssetStatusChanged.v1", "Asset", asset.Id.ToString(), asset.Version, ctx,
                 "Decommissioned", "Asset decommissioned",
-                MakeSnap(("siteId", asset.SiteId.ToString()), ("areaId", asset.AreaId.ToString()), ("code", asset.Code), ("name", asset.Name), ("status", before)),
-                MakeSnap(("siteId", asset.SiteId.ToString()), ("areaId", asset.AreaId.ToString()), ("code", asset.Code), ("name", asset.Name), ("status", asset.Status.ToString())),
-                asset.SiteId.ToString());
+                AssetSnapshot(asset, before), AssetSnapshot(asset), asset.SiteId.ToString(), asset.AreaId.ToString());
             return Result.Success();
         }
-        catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreatePointCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
@@ -336,6 +412,8 @@ public sealed class OrganizationCommandHandler
         if (asset is null) return Result.Failure("NotFound", "Parent Asset not found.");
         var area = await _repo.GetAreaAsync(asset.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Parent Area not found.");
+        if (asset.Status is AssetStatus.Inactive or AssetStatus.Decommissioned)
+            return Result.Failure("PARENT_NOT_CONFIGURABLE", "Point cannot be created under this Asset status.");
         if (cmd.SiteId != asset.SiteId || cmd.AreaId != asset.AreaId || area.SiteId != asset.SiteId)
             return Result.Failure("NotFound", "Parent hierarchy does not match the requested scope.");
         var normalized = Domain.Site.NormalizeCode(cmd.Code);
@@ -351,10 +429,7 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("PointConfigurationChanged.v1", "Point", point.Id.ToString(), point.Version, ctx,
                 "Created", "Point created", EmptySnap(),
-                MakeSnap(("siteId", cmd.SiteId.ToString()), ("areaId", cmd.AreaId.ToString()), ("assetId", cmd.AssetId.ToString()),
-                    ("code", point.Code), ("metricId", cmd.MetricId), ("unitId", cmd.UnitId),
-                    ("dataOwnerUserId", cmd.DataOwnerUserId), ("expectedIntervalSeconds", cmd.ExpectedIntervalSeconds),
-                    ("noDataAfterSeconds", cmd.NoDataAfterSeconds), ("status", point.Status.ToString())), cmd.SiteId.ToString());
+                PointSnapshot(point), point.SiteId.ToString(), point.AreaId.ToString());
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -369,6 +444,7 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
+        if (cmd.ExpectedVersion != point.Version) return VersionConflict();
         if (!cmd.Action.Equals("inactivate", StringComparison.OrdinalIgnoreCase))
             return Result.Failure("PHASE5_REQUIRED", "Point activation/reactivation belongs to the Phase 5 orchestration.");
         var beforeStatus = point.Status;
@@ -386,14 +462,10 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("PointStatusChanged.v1", "Point", point.Id.ToString(), point.Version, ctx,
                 cmd.Action + "d", "Point status changed",
-                MakeSnap(("siteId", point.SiteId.ToString()), ("areaId", point.AreaId.ToString()), ("assetId", point.AssetId.ToString()),
-                    ("code", point.Code), ("status", before)),
-                MakeSnap(("siteId", point.SiteId.ToString()), ("areaId", point.AreaId.ToString()), ("assetId", point.AssetId.ToString()),
-                    ("code", point.Code), ("status", point.Status.ToString())),
-                point.SiteId.ToString());
+                PointSnapshot(point, before), PointSnapshot(point), point.SiteId.ToString(), point.AreaId.ToString());
             return Result.Success();
         }
-        catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(DecommissionPointCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
@@ -404,7 +476,16 @@ public sealed class OrganizationCommandHandler
         if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
-        var hasRunning = await _simQuery.HasRunningSimulatorAsync(point.Id.ToString(), ct);
+        if (cmd.ExpectedVersion != point.Version) return VersionConflict();
+        bool hasRunning;
+        try
+        {
+            hasRunning = await _simQuery.HasRunningSimulatorAsync(point.Id.ToString(), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Result.Failure("DEPENDENCY_UNAVAILABLE", "Running Simulator state could not be determined.");
+        }
         var decision = DecommissionPolicy.EvaluatePoint(point, hasRunning);
         if (!decision.IsAllowed)
             return Result.Failure(decision.Code, decision.Code == "RUNNING_SIMULATOR"
@@ -424,14 +505,35 @@ public sealed class OrganizationCommandHandler
             await tx.CommitAsync(ct);
             AddEvent("PointStatusChanged.v1", "Point", point.Id.ToString(), point.Version, ctx,
                 "Decommissioned", "Point decommissioned",
-                MakeSnap(("siteId", point.SiteId.ToString()), ("areaId", point.AreaId.ToString()), ("assetId", point.AssetId.ToString()),
-                    ("code", point.Code), ("status", before)),
-                MakeSnap(("siteId", point.SiteId.ToString()), ("areaId", point.AreaId.ToString()), ("assetId", point.AssetId.ToString()),
-                    ("code", point.Code), ("status", point.Status.ToString())),
-                point.SiteId.ToString());
+                PointSnapshot(point, before), PointSnapshot(point), point.SiteId.ToString(), point.AreaId.ToString());
             return Result.Success();
         }
-        catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
+    }
+
+    public async Task<Result> HandleAsync(UpdatePointConfigurationCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
+    {
+        var scope = await _repo.GetPointScopeAsync(cmd.PointId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Point not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
+        var point = await _repo.GetPointAsync(cmd.PointId, ct);
+        if (point is null) return Result.Failure("NotFound", "Point not found.");
+        if (cmd.ExpectedVersion != point.Version) return VersionConflict();
+        var before = Clone(point);
+        try
+        {
+            if (!point.TryUpdateConfiguration(cmd.Description, cmd.MetricId, cmd.UnitId, cmd.DataOwnerUserId,
+                    cmd.ExpectedIntervalSeconds, cmd.NoDataAfterSeconds)) return Result.Success();
+            await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
+            await _repo.UpdatePointAsync(point, ct);
+            await tx.CommitAsync(ct);
+            AddEvent("PointConfigurationChanged.v1", "Point", point.Id.ToString(), point.Version, ctx,
+                "Updated", "Point configuration updated", PointSnapshot(before), PointSnapshot(point), point.SiteId.ToString(), point.AreaId.ToString());
+            return Result.Success();
+        }
+        catch (ArgumentException ex) { return Result.Failure("Validation", ex.Message); }
+        catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
     private async Task<Result?> Authorize(string userId, OrganizationResource resource, string? siteId, CancellationToken ct)
@@ -456,6 +558,34 @@ public sealed class OrganizationCommandHandler
     private static IReadOnlyDictionary<string, object?> EmptySnap() =>
         new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
 
+    private static Result VersionConflict() => Result.Failure("VERSION_CONFLICT", "ExpectedVersion does not match the current aggregate version.");
+
+    private static Site Clone(Site value) => new(value.Id, value.Code, value.Name, value.Description, value.Timezone, value.Status, value.Version);
+    private static Area Clone(Area value) => new(value.Id, value.SiteId, value.Code, value.Name, value.Description, value.Status, value.Version);
+    private static Asset Clone(Asset value) => new(value.Id, value.SiteId, value.AreaId, value.Code, value.Name, value.Description, value.Status, value.Version);
+    private static MeasurementPoint Clone(MeasurementPoint value) => new(value.Id, value.SiteId, value.AreaId, value.AssetId,
+        value.Code, value.Description, value.MetricId, value.UnitId, value.DataOwnerUserId,
+        value.ExpectedIntervalSeconds, value.NoDataAfterSeconds, value.Status, value.Version);
+
+    private static IReadOnlyDictionary<string, object?> SiteSnapshot(Site site, string? status = null) =>
+        MakeSnap(("code", site.Code), ("name", site.Name), ("description", site.Description),
+            ("timezone", site.Timezone), ("status", status ?? site.Status.ToString()));
+
+    private static IReadOnlyDictionary<string, object?> AreaSnapshot(Area area, string? status = null) =>
+        MakeSnap(("siteId", area.SiteId.ToString()), ("areaId", area.Id.ToString()), ("code", area.Code),
+            ("name", area.Name), ("description", area.Description), ("status", status ?? area.Status.ToString()));
+
+    private static IReadOnlyDictionary<string, object?> AssetSnapshot(Asset asset, string? status = null) =>
+        MakeSnap(("siteId", asset.SiteId.ToString()), ("areaId", asset.AreaId.ToString()), ("code", asset.Code),
+            ("name", asset.Name), ("description", asset.Description), ("status", status ?? asset.Status.ToString()));
+
+    private static IReadOnlyDictionary<string, object?> PointSnapshot(MeasurementPoint point, string? status = null) =>
+        MakeSnap(("siteId", point.SiteId.ToString()), ("areaId", point.AreaId.ToString()), ("assetId", point.AssetId.ToString()),
+            ("code", point.Code), ("description", point.Description), ("metricId", point.MetricId),
+            ("unitId", point.UnitId), ("dataOwnerUserId", point.DataOwnerUserId),
+            ("expectedIntervalSeconds", point.ExpectedIntervalSeconds), ("noDataAfterSeconds", point.NoDataAfterSeconds),
+            ("status", status ?? point.Status.ToString()));
+
     private static IReadOnlyDictionary<string, object?> MakeSnap(params (string Key, object? Value)[] values)
     {
         var map = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -479,8 +609,4 @@ public sealed class OrganizationCommandHandler
         }
     }
 
-    private sealed class NullRunningSimulatorQuery : IRunningSimulatorQuery
-    {
-        public Task<bool> HasRunningSimulatorAsync(string pointId, CancellationToken ct = default) => Task.FromResult(false);
-    }
 }

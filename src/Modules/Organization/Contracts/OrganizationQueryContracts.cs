@@ -58,6 +58,8 @@ public sealed record OrganizationQueryScope(
     public static OrganizationQueryScope Global() => new(true, Array.Empty<Guid>(), Array.Empty<Guid>());
 }
 
+public sealed record AreaAncestrySnapshot(Guid AreaId, Guid SiteId);
+
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 
 public interface IOrganizationQueryRepository
@@ -78,6 +80,7 @@ public interface IOrganizationQueryRepository
 
     Task<bool> SiteExistsAsync(Guid id, CancellationToken ct = default);
     Task<long> GetSiteVersionAsync(Guid id, CancellationToken ct = default);
+    Task<AreaAncestrySnapshot?> GetAreaAncestryAsync(Guid areaId, CancellationToken ct = default);
 }
 
 public sealed record OrganizationCallerSnapshot(

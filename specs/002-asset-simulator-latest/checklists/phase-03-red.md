@@ -1,38 +1,48 @@
-# Phase 3 RED evidence (post-hoc reproduced)
+# Phase 3 RED evidence (post-hoc business reproduction)
 
-This is the required post-hoc RED reproduction for T061. It was run against the
-accepted Phase 2 checkpoint before applying any Phase 3 production implementation.
+This evidence was reproduced after the implementation attempt, against the
+accepted Phase 2 parent baseline. The temporary worktree contains only
+corrected business-behavior tests and a test-only compile shim; no Phase 3
+production fix was applied there.
 
 | Field | Evidence |
 |---|---|
-| Baseline SHA | `fd2cf0d858fc8fce0041e1343b64d966d33d5d46` |
-| Temporary native worktree | `C:\Users\TD-999\AppData\Local\Temp\iump-phase3-red-cadeaa6` |
-| Date/time | `2026-07-27 11:47:04 +07:00` |
-| Corrected test-only files | `tests/Unit/Phase3RedEvidenceTests.cs`, `tests/Unit/Program.cs` (temporary worktree only) |
-| Production changes | None in the temporary worktree |
+| Parent baseline SHA | `fd2cf0d858fc8fce0041e1343b64d966d33d5d46` |
+| Temporary native worktree | `C:\Users\TD-999\AppData\Local\Temp\iump-phase3-business-red-final` |
+| Captured at | `2026-07-27 12:40:06 +07:00` |
+| Test-only files | `tests/Unit/Phase3BusinessRedEvidenceTests.cs`, `tests/Unit/Program.cs` |
+| Production files changed in RED worktree | **None** |
+| Test-only compile shim | `Phase2OrganizationBehavior` in `Phase3BusinessRedEvidenceTests.cs` |
 | Restore/download | Not used (`--no-restore`) |
-| Database/Docker | No database connection, migration, PostgreSQL command, or Docker use |
-| Secret handling | No secret was printed, copied, or serialized |
+| Database/migration/Docker | Not used; no PostgreSQL command and no migration execution |
+| Secret handling | No secret was printed, copied, serialized, or recorded |
+| Cleanup | Temporary worktree removed after evidence capture |
 
-## Exact commands and exit codes
+## Exact commands and exits
 
 ```powershell
 dotnet build .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore -c Debug
-# exit 0
+# exit 0; Build succeeded; 0 Warning(s), 0 Error(s)
+
 dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build -c Debug
 # exit 1
 ```
 
-Build output was `Build succeeded. 0 Warning(s) 0 Error(s)`. The focused run failed
-as required with these corrected RED assertions:
+## Failed business assertions
 
-```text
-T066 RED: DecommissionPolicy.cs is absent at the Phase 2 baseline.
-T067 RED: Organization command handler is absent at the Phase 2 baseline.
-T068 RED: Organization query service is absent at the Phase 2 baseline.
-T056-T060 RED: corrected Phase 3 Organization test surface is absent.
-```
+The focused run failed on actual behavior assertions, not file/type presence:
 
-The temporary worktree was removed after capture. This evidence is post-hoc and is
-not represented as a chronological claim that RED was captured before the earlier
-implementation attempt.
+1. T056: Inactive parent child creation was not rejected with `PARENT_NOT_CONFIGURABLE`.
+2. T056: Decommissioned parent child creation was not rejected with `PARENT_NOT_CONFIGURABLE`.
+3. T056: stale `ExpectedVersion` did not return `VERSION_CONFLICT` without mutation.
+4. T057: a running Simulator dependency did not block Point decommission.
+5. T058: the complete five-family Organization event contract was not emitted.
+6. T058: Asset event ancestry/owner keys did not preserve trusted `AreaId` and exact keys.
+7. T059: Area-scoped Site visibility failed beyond the first 200 Areas.
+8. T060: repeated IAM fixture application was not idempotent.
+
+The worktree status at capture was exactly one modified existing test entry
+point and one new test-only evidence file. It contained no source, migration,
+database, container, package, or credential change. This is explicitly labeled
+**Post-hoc reproduced Phase 3 business RED evidence** and is not a chronological
+claim that RED was captured before the earlier implementation attempt.

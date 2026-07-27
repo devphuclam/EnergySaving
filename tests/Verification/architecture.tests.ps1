@@ -152,6 +152,33 @@ if ($isCanonicalModuleRoot) {
     if ($pointStatusBlock -match '"activate"\s*=>|"reactivate"\s*=>') {
         throw 'Normal Point activate/reactivate command paths must remain deferred to Phase 5.'
     }
+
+    if ($hierarchySource -match 'NullRunningSimulatorQuery|IRunningSimulatorQuery\?\s+simQuery|IRunningSimulatorQuery\s+simQuery\s*=|new\s+NullRunningSimulatorQuery') {
+        throw 'OrganizationCommandHandler must require an explicit running-Simulator dependency; fail-open defaults are forbidden.'
+    }
+    foreach ($commandName in @('UpdateSiteCommand','UpdateSiteStatusCommand','UpdateAreaCommand','UpdateAreaStatusCommand',
+            'UpdateAssetCommand','UpdateAssetStatusCommand','DecommissionAssetCommand','UpdatePointConfigurationCommand',
+            'UpdatePointStatusCommand','DecommissionPointCommand')) {
+        $commandMatch = [regex]::Match($hierarchySource, "(?ms)^public sealed record $commandName\(.*?\);")
+        if (-not $commandMatch.Success -or $commandMatch.Value -notmatch '\bExpectedVersion\b') {
+            throw "$commandName must carry ExpectedVersion for optimistic concurrency."
+        }
+    }
+    foreach ($eventType in @('SiteStatusChanged.v1','AreaStatusChanged.v1','AssetStatusChanged.v1','PointConfigurationChanged.v1','PointStatusChanged.v1')) {
+        if ($hierarchySource -notmatch [regex]::Escape($eventType)) {
+            throw "Missing Organization event family: $eventType"
+        }
+    }
+    if ($hierarchySource -notmatch 'PARENT_NOT_CONFIGURABLE' -or $hierarchySource -notmatch 'AreaStatus\.Inactive' -or
+        $hierarchySource -notmatch 'AssetStatus\.Inactive\s+or\s+AssetStatus\.Decommissioned') {
+        throw 'Child creation must reject non-configurable parent statuses.'
+    }
+
+    $hierarchyQueries = Join-Path $ModuleRoot 'Organization\Application\HierarchyQueries.cs'
+    $querySource = Get-Content -LiteralPath $hierarchyQueries -Raw
+    if ($querySource -match 'ScopeFilter\(1\s*,\s*200\)' -or $querySource -notmatch 'GetAreaAncestryAsync') {
+        throw 'Area-scoped Site visibility must use trusted ancestry and must not rely on a first-200 Area page.'
+    }
 }
 
 Write-Output 'PASS: architecture boundary contract'

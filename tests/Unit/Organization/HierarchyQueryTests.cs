@@ -48,6 +48,27 @@ public static class HierarchyQueryTests
         if (areaScoped.TotalCount != 1 || areaScoped.Items[0].PointCount != 1)
             failures.Add("Area scope must include descendants and child Point summaries.");
 
+        // A site-scoped detail lookup must use trusted ancestry, not a capped
+        // first page of Areas. Put the authorized Area beyond the old 200-row
+        // limit and verify that the parent Site is still visible.
+        AreaId lateAreaId = default;
+        for (var index = 0; index < 205; index++)
+        {
+            var lateArea = new Area(AreaId.New(), siteA.Id, $"LATE-{index:000}", "Late Area", null, AreaStatus.Active, 1);
+            commands.AddAreaAsync(lateArea).GetAwaiter().GetResult();
+            if (index == 204) lateAreaId = lateArea.Id;
+        }
+        var lateAreaCaller = new OrganizationCallerSnapshot("late-area", "Late Area Engineer", true,
+            new[] { "Engineer" }, Array.Empty<string>(), new[] { lateAreaId.ToString() });
+        var lateAreaService = new OrganizationQueryService(queries, new CallerProvider(
+            new Dictionary<string, OrganizationCallerSnapshot>(callers)
+            {
+                [lateAreaCaller.UserId] = lateAreaCaller
+            }));
+        var siteFromLateArea = lateAreaService.GetSiteAsync("late-area", siteA.Id.Value).GetAwaiter().GetResult();
+        if (siteFromLateArea is null)
+            failures.Add("Area-scoped Site visibility must resolve trusted ancestry beyond 200 Areas.");
+
         var outOfScope = service.GetAreaAsync("site-b", a2.Id.Value).GetAwaiter().GetResult();
         if (outOfScope is not null)
             failures.Add("Out-of-scope detail must be indistinguishable from NotFound.");

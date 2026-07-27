@@ -1,5 +1,6 @@
 using IUMP.Modules.Organization.Contracts;
 using IUMP.Modules.Organization.Domain;
+using IUMP.Modules.Organization.Application;
 using IUMP.Tests.Integration.Organization;
 
 namespace IUMP.Tests.Unit.Fakes;
@@ -361,6 +362,12 @@ public sealed class FakeOrganizationQueryRepository : IOrganizationQueryReposito
     public async Task<long> GetSiteVersionAsync(Guid id, CancellationToken ct = default) =>
         (await _commands.GetSiteAsync(new SiteId(id), ct))?.Version ?? 0;
 
+    public async Task<AreaAncestrySnapshot?> GetAreaAncestryAsync(Guid areaId, CancellationToken ct = default)
+    {
+        var area = await _commands.GetAreaAsync(new AreaId(areaId), ct);
+        return area is null ? null : new AreaAncestrySnapshot(area.Id.Value, area.SiteId.Value);
+    }
+
     private static PointSnapshot Snapshot(MeasurementPoint point) =>
         new(point.Id.Value, point.SiteId.Value, point.AreaId.Value, point.AssetId.Value, point.Code, point.Description,
             point.MetricId, point.UnitId, point.DataOwnerUserId, point.ExpectedIntervalSeconds,
@@ -405,14 +412,28 @@ public sealed class FakeOrganizationRepositoryTestProvider : IOrganizationReposi
     private readonly FakeOrganizationCommandRepository _commands = new();
     private readonly FakeOrganizationQueryRepository _queries;
     private readonly Dictionary<string, bool> _runningSimulators = new(StringComparer.Ordinal);
+    private readonly IRunningSimulatorQuery _runningQuery;
 
-    public FakeOrganizationRepositoryTestProvider() => _queries = new FakeOrganizationQueryRepository(_commands);
+    public FakeOrganizationRepositoryTestProvider()
+    {
+        _queries = new FakeOrganizationQueryRepository(_commands);
+        _runningQuery = new FakeRunningSimulatorQuery(_runningSimulators);
+    }
     public IOrganizationCommandRepository CommandRepository => _commands;
     public IOrganizationQueryRepository QueryRepository => _queries;
+    public IRunningSimulatorQuery RunningSimulatorQuery => _runningQuery;
 
     public void ConfigureRunningSimulator(string pointId, bool isRunning) => _runningSimulators[pointId] = isRunning;
     public bool IsRunningSimulator(string pointId) => _runningSimulators.TryGetValue(pointId, out var running) && running;
     public void Reset() => _runningSimulators.Clear();
+}
+
+internal sealed class FakeRunningSimulatorQuery : IRunningSimulatorQuery
+{
+    private readonly IReadOnlyDictionary<string, bool> _states;
+    public FakeRunningSimulatorQuery(IReadOnlyDictionary<string, bool> states) => _states = states;
+    public Task<bool> HasRunningSimulatorAsync(string pointId, CancellationToken ct = default) =>
+        Task.FromResult(_states.TryGetValue(pointId, out var running) && running);
 }
 
 public sealed class FakeOrganizationRepositoryTestProviderFactory : IOrganizationRepositoryTestProviderFactory
