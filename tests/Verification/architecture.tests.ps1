@@ -235,4 +235,104 @@ if ($isCanonicalModuleRoot) {
     }
 }
 
+# T091 Phase 4 corrective convergence invariant checks
+if ($isCanonicalModuleRoot) {
+    # 1. DeterministicSeed must be ulong (not string/object)
+    $acqContractPath = Join-Path $ModuleRoot 'Acquisition\Contracts\ConfigurationPersistenceContracts.cs'
+    $acqContract = Get-Content -LiteralPath $acqContractPath -Raw
+    if ($acqContract -notmatch 'ulong\s+DeterministicSeed') {
+        throw 'T091-01: DeterministicSeed must be ulong, not string/object.'
+    }
+
+    # 2. Migration 0005 seed must be numeric(20,0) not text
+    $mig5 = Join-Path $repoRoot 'database\migrations\0005_acquisition_configuration.sql'
+    $mig5Sql = Get-Content -LiteralPath $mig5 -Raw
+    if ($mig5Sql -notmatch 'deterministic_seed\s+numeric\(20') {
+        throw 'T091-02: Migration 0005 seed must use numeric(20,0) not a text type.'
+    }
+
+    # 3. Source scope must be multi-Site (CatalogSourceMappedScopeSnapshot with SiteId)
+    $eligPath = Join-Path $ModuleRoot 'Catalog\Contracts\CatalogEligibilityContracts.cs'
+    $eligContent = Get-Content -LiteralPath $eligPath -Raw
+    if ($eligContent -notmatch 'CatalogSourceMappedScopeSnapshot' -or $eligContent -notmatch 'string\s+SiteId') {
+        throw 'T091-03: Source scope must use multi-Site CatalogSourceMappedScopeSnapshot.'
+    }
+    if ($eligContent -notmatch 'MappedScopes' -or $eligContent -notmatch 'CatalogSourceScopeSnapshot') {
+        throw 'T091-03: CatalogSourceScopeSnapshot must carry MappedScopes collection.'
+    }
+
+    # 4. CatalogSourceScopeQueryAdapter must exist
+    $scopeAdapter = Join-Path $ModuleRoot 'Catalog\Application\CatalogSourceScopeQueryAdapter.cs'
+    if (-not (Test-Path -LiteralPath $scopeAdapter)) {
+        throw 'T091-04: CatalogSourceScopeQueryAdapter must exist in Catalog.Application.'
+    }
+
+    # 5. Adapter must not use empty SiteId fallback for missing readiness.
+    #    AreaId may be null (nullable metadata); SiteId is authoritative.
+    $adapterSource = Get-Content -LiteralPath $scopeAdapter -Raw
+    if ($adapterSource -match 'readiness\?\.SiteId\s*\?\?\s*string\.Empty') {
+        throw 'T091-05: Adapter must not fall back to empty SiteId for missing readiness.'
+    }
+    if ($adapterSource -notmatch 'readiness\.AreaId\s*\?\?\s*string\.Empty') {
+        throw 'T091-05: Adapter must handle nullable AreaId with empty fallback.'
+    }
+
+    # 6. ReadinessVersionTuple must exist
+    if ($eligContent -notmatch 'ReadinessVersionTuple') {
+        throw 'T091-06: ReadinessVersionTuple record must exist for per-object version tracking.'
+    }
+
+    # 7. Mapping tests must use real OrganizationPointReadinessAdapter not FakePointReadinessQuery
+    $mappingTests = Join-Path $repoRoot 'tests\Unit\Catalog\MappingReadinessTests.cs'
+    $mappingTestSource = Get-Content -LiteralPath $mappingTests -Raw
+    if ($mappingTestSource -notmatch 'OrganizationPointReadinessAdapter') {
+        throw 'T091-07: MappingReadinessTests must use OrganizationPointReadinessAdapter not FakePointReadinessQuery.'
+    }
+
+    # 8. Migration 0006 must use DO block not ADD CONSTRAINT IF NOT EXISTS
+    $mig6 = Join-Path $repoRoot 'database\migrations\0006_catalog_source_mapping.sql'
+    $mig6Sql = Get-Content -LiteralPath $mig6 -Raw
+    if ($mig6Sql -notmatch 'DO\s*\$\$') {
+        throw 'T091-08: Migration 0006 must use DO block for idempotent constraint creation.'
+    }
+
+    # 9. EXCLUDE constraint must be executable, not comment-only
+    if ($mig6Sql -notmatch 'EXCLUDE\s+USING\s+gist') {
+        throw 'T091-09: Migration 0006 must have executable EXCLUDE USING gist constraint.'
+    }
+    if ($mig6Sql -match '^\s*--.*EXCLUDE') {
+        throw 'T091-09: EXCLUDE constraint must not be comment-only.'
+    }
+
+    # 10. T088 must increment _testCount at method level, not inside Assert helper
+    $t088Path = Join-Path $repoRoot 'tests\Integration\Acquisition\ConfigurationRepositoryTests.cs'
+    $t088Source = Get-Content -LiteralPath $t088Path -Raw
+    $testCountInAssert = [regex]::Matches($t088Source, '_testCount\+\+').Count
+    $assertionCountInAssert = [regex]::Matches($t088Source, '_assertionCount\+\+').Count
+    if ($testCountInAssert -ne 19) {
+        throw "T091-10: T088 must have exactly 19 _testCount increments (one per scenario method); found $testCountInAssert."
+    }
+    # _assertionCount should be inside Assert method body only
+    $assertMethod = [regex]::Match($t088Source, '(?s)private\s+void\s+Assert\(bool condition.*?\)\s*\{.*?\}')
+    if ($assertMethod.Success -and $assertMethod.Value -notmatch '_assertionCount\+\+') {
+        throw 'T091-10: Assert helper must increment _assertionCount.'
+    }
+
+    # 11. No Phase 5 files must exist in the working tree
+    $phase5Indicators = @(
+        'TelemetryIngestion',
+        'Worker\b',
+        'Api\b',
+        'SimulatorRun',
+        'PointActivation'
+    )
+    $allSourceFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.cs' |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules)[\\/]' }
+    foreach ($indicator in $phase5Indicators) {
+        if ($allSourceFiles | Where-Object { $_.Name -match $indicator -and $_.FullName -notmatch 'Contracts' }) {
+            throw "T091-11: Phase 5 file detected matching indicator: $indicator"
+        }
+    }
+}
+
 Write-Output 'PASS: architecture boundary contract'

@@ -64,29 +64,50 @@ public static class MappingReadinessTests
         var repo = new FakeCatalogCommandRepository();
         var source = new DataSource(DataSourceId.New(), "READINESS-SOURCE", "Readiness", SourceType.Simulator, SourceStatus.Draft, 1);
         await repo.AddDataSourceAsync(source);
-        var readiness = new FakePointReadinessQuery()
-            .Configure("draft-point", new PointReadinessSnapshot("draft-point", "trusted-site", "trusted-area", true, true, false, 4, new ReadinessVersionTuple(4, 3, 2, 1)))
-            .Configure("active-point", new PointReadinessSnapshot("active-point", "trusted-site", "trusted-area", true, true, true, 10, new ReadinessVersionTuple(10, 3, 2, 1)));
-        var auth = new CatalogRoleScopeAuthorization(new CallerProvider());
-        var handler = new CatalogCommandHandler(repo, auth, readiness);
-        var created = await handler.HandleAsync(new CreateMappingCommand(source.Id, "draft-point", DateTime.UtcNow, "engineer", "forged-site"));
+
+        var siteId = Guid.NewGuid();
+        var areaId = Guid.NewGuid();
+        var assetId = Guid.NewGuid();
+        var draftPointId = Guid.NewGuid();
+        var activePointId = Guid.NewGuid();
+        var invalidPointId = Guid.NewGuid();
+
+        var auth = new CatalogRoleScopeAuthorization(new CallerProvider(siteId));
+
+        // Draft point: set readiness, create mapping, then activate
+        var draftReadiness = new ReadinessQueryDouble();
+        draftReadiness.Set((siteId, areaId, assetId, draftPointId),
+            SiteStatus.Active, AreaStatus.Active, AssetStatus.Active, PointStatus.Draft, 60, 300);
+        var draftAdapter = new OrganizationPointReadinessAdapter(draftReadiness);
+        var draftHandler = new CatalogCommandHandler(repo, auth, draftAdapter);
+
+        var created = await draftHandler.HandleAsync(new CreateMappingCommand(source.Id, draftPointId.ToString("D"), DateTime.UtcNow, "engineer", "forged-site"));
         Assert(created.IsSuccess, failures, "Mapping creation may target a configuration-ready Draft Point.");
-        var mapping = (await repo.GetMappingsForPointAsync("draft-point")).Single();
-        var activated = await handler.HandleAsync(new UpdateMappingStatusCommand(mapping.Id, "activate", "engineer", "forged-site"));
+        var mapping = (await repo.GetMappingsForPointAsync(draftPointId.ToString("D"))).Single();
+        var activated = await draftHandler.HandleAsync(new UpdateMappingStatusCommand(mapping.Id, "activate", "engineer", "forged-site"));
         var saved = await repo.GetMappingAsync(mapping.Id);
-        Assert(activated.IsSuccess && saved?.Status == MappingStatus.Active && !SnapshotReadiness(readiness, "draft-point").IsProducingReady, failures, "Draft mapping activation preserves producingReady=false.");
+        Assert(activated.IsSuccess && saved?.Status == MappingStatus.Active, failures, "Draft mapping activation succeeds.");
+        Assert(!draftAdapter.GetPointReadinessAsync(draftPointId.ToString("D")).GetAwaiter().GetResult()!.IsProducingReady, failures, "Draft mapping activation preserves producingReady=false.");
 
-        var activeMapping = await handler.HandleAsync(new CreateMappingCommand(source.Id, "active-point", DateTime.UtcNow, "engineer", "forged-site"));
+        // Active point: set readiness, create mapping, then activate
+        var activeReadiness = new ReadinessQueryDouble();
+        activeReadiness.Set((siteId, areaId, assetId, activePointId),
+            SiteStatus.Active, AreaStatus.Active, AssetStatus.Active, PointStatus.Active, 60, 300);
+        var activeAdapter = new OrganizationPointReadinessAdapter(activeReadiness);
+        var activeHandler = new CatalogCommandHandler(repo, auth, activeAdapter);
+
+        var activeMapping = await activeHandler.HandleAsync(new CreateMappingCommand(source.Id, activePointId.ToString("D"), DateTime.UtcNow, "engineer", "forged-site"));
         Assert(activeMapping.IsSuccess, failures, "Create mapping for active point succeeds.");
-        var activeId = (await repo.GetMappingsForPointAsync("active-point")).Last();
-        var activeActivated = await handler.HandleAsync(new UpdateMappingStatusCommand(activeId.Id, "activate", "engineer", "forged-site"));
+        var activeList = await repo.GetMappingsForPointAsync(activePointId.ToString("D"));
+        var activeId = activeList.Last();
+        var activeActivated = await activeHandler.HandleAsync(new UpdateMappingStatusCommand(activeId.Id, "activate", "engineer", "forged-site"));
         var activeSaved = await repo.GetMappingAsync(activeId.Id);
-        Assert(activeActivated.IsSuccess && activeSaved?.Status == MappingStatus.Active && SnapshotReadiness(readiness, "active-point").IsProducingReady, failures, "Active hierarchy produces producingReady=true.");
+        Assert(activeActivated.IsSuccess && activeSaved?.Status == MappingStatus.Active, failures, "Active hierarchy point activation succeeds.");
+        Assert(activeAdapter.GetPointReadinessAsync(activePointId.ToString("D")).GetAwaiter().GetResult()!.IsProducingReady, failures, "Active hierarchy produces producingReady=true.");
 
-        var invalidReady = new FakePointReadinessQuery()
-            .Configure("invalid-point", new PointReadinessSnapshot("invalid-point", "trusted-site", "trusted-area", false, false, false, 0));
-        var invalidHandler = new CatalogCommandHandler(repo, auth, invalidReady);
-        var invalidMapping = await invalidHandler.HandleAsync(new CreateMappingCommand(source.Id, "invalid-point", DateTime.UtcNow, "engineer", "forged-site"));
+        // Invalid point: no readiness set → handler should reject
+        var invalidHandler = new CatalogCommandHandler(repo, auth, new OrganizationPointReadinessAdapter(new ReadinessQueryDouble()));
+        var invalidMapping = await invalidHandler.HandleAsync(new CreateMappingCommand(source.Id, invalidPointId.ToString("D"), DateTime.UtcNow, "engineer", "forged-site"));
         Assert(!invalidMapping.IsSuccess, failures, "Create for non-existent/not-ready point is rejected.");
 
         Assert((await repo.GetMappingAsync(activeId.Id))?.Status == MappingStatus.Active, failures, "Catalog performs no Organization write after activation.");
@@ -107,9 +128,6 @@ public static class MappingReadinessTests
         Assert(custom.ProviderVersion == 20, failures, "Backward-compatible ProviderVersion still returns Max().");
     }
 
-    private static PointReadinessSnapshot SnapshotReadiness(FakePointReadinessQuery query, string pointId) =>
-        query.GetPointReadinessAsync(pointId).GetAwaiter().GetResult()!;
-
     private static void Assert(bool condition, List<string> failures, string message)
     {
         if (!condition) failures.Add($"T080: {message}");
@@ -117,8 +135,10 @@ public static class MappingReadinessTests
 
     private sealed class CallerProvider : ICatalogCallerSnapshotProvider
     {
+        private readonly Guid _siteId;
+        public CallerProvider(Guid siteId) => _siteId = siteId;
         public Task<CatalogCallerSnapshot?> ResolveAsync(string userId, CancellationToken ct = default) =>
-            Task.FromResult<CatalogCallerSnapshot?>(new CatalogCallerSnapshot("engineer", "engineer", true, new[] { "Engineer" }, new[] { "trusted-site" }, Array.Empty<string>()));
+            Task.FromResult<CatalogCallerSnapshot?>(new CatalogCallerSnapshot("engineer", "engineer", true, new[] { "Engineer" }, new[] { _siteId.ToString("D") }, Array.Empty<string>()));
     }
 
     private sealed class ReadinessQueryDouble : IOrganizationQueryRepository

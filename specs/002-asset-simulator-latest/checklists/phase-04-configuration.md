@@ -38,9 +38,10 @@ No prohibited file was changed.
 ## 4. RED commands/exits/failures
 
 See `phase-04-red.md`. RED is post-hoc reproduced from the pre-correction
-baseline documenting 12 business assertion failures across seed type, multi-site
-scope, version tuple, migration constraint, event metadata, and test
-organisation.
+baseline documenting 18 business assertion failures across seed type, multi-site
+scope, version tuple, migration constraint, event metadata, test
+organisation, adapter absence, fail-open behavior, and missing Manager/Viewer
+denial tests.
 
 ## 5. GREEN commands/exits/counts
 
@@ -48,13 +49,13 @@ organisation.
 dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore -c Debug: exit 0, 0 warnings, 0 errors
 dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-build -c Debug: exit 0
 T071: tests=19; assertions=39; failures=0
-T088: scenarios=11; assertions=12; failures=0
+T088: scenarios=19; assertions=19; failures=0
 PASS: all tests
 
 dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore -c Release: exit 0, 0 warnings, 0 errors
 dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-build -c Release: exit 0
 T071: tests=19; assertions=39; failures=0
-T088: scenarios=11; assertions=12; failures=0
+T088: scenarios=19; assertions=19; failures=0
 PASS: all tests
 ```
 
@@ -65,21 +66,22 @@ PASS: all tests
   `deterministicSeedHex` (lowercase 16-hex).
 - Migration 0005: `numeric(20,0)` with `CHECK (deterministic_seed >= 0 AND
   deterministic_seed <= 18446744073709551615 AND scale(deterministic_seed) = 0)`.
-- Tests: 0, 42, `UInt64.MaxValue` accepted; historical immutable.
+- Tests: 0, 42, 123456789, `UInt64.MaxValue` accepted; historical immutable.
 
-## 7. Source scope adapter result (CORR-B/C)
+## 7. Source scope adapter result (CORR-B/C/J)
 
 - `CatalogSourceScopeQueryAdapter` implements `ICatalogSourceScopeQuery` using
   `ICatalogCommandRepository` (source + mappings) and `ICatalogPointReadinessQuery`
   (readiness version tuple).
 - Returns `CatalogSourceScopeSnapshot` with `IReadOnlyList<CatalogSourceMappedScopeSnapshot>`.
+- Fail-closed: unresolved or missing Point readiness returns `null` (no empty
+  fallback SiteId/AreaId, no event for invalidated scope).
 - Authorization: Administrator global for existing Simulator Source; Engineer
   requires ALL distinct mapped Site scopes; no Mapping = Administrator only;
   missing/decommissioned/non-Simulator Source = FORBIDDEN; Operator/Manager/
   Viewer = FORBIDDEN; inactive/missing caller = FORBIDDEN; out-of-scope = NOT_FOUND.
 - Tests prove one-Site scoped Engineer succeeds, multi-Site with all scopes
-  succeeds, multi-Site missing one scope denied, no Mapping Engineer denied and
-  Administrator allowed.
+  succeeds, Manager denied, Viewer denied, Administrator with no-enumeration.
 
 ## 8. Readiness version tuple result (CORR-D)
 
@@ -89,10 +91,10 @@ PASS: all tests
 - Tests prove changing only Site/Area/Asset/Point Version changes the
   readiness snapshot even when another object has a larger Version.
 
-## 9. Mapping integration (CORR-G)
+## 9. Mapping integration (CORR-K)
 
 - `CatalogCommandHandler` → `OrganizationPointReadinessAdapter` → public
-  `IOrganizationQueryRepository` test double.
+  `IOrganizationQueryRepository` test double (not `FakePointReadinessQuery`).
 - Draft Point Mapping activation succeeds with `producingReady=false`.
 - Active hierarchy Mapping produces `producingReady=true`.
 - Invalid hierarchy prevents activation.
@@ -100,10 +102,13 @@ PASS: all tests
 
 ## 10. Event metadata result (CORR-G)
 
-- Create/edit events assert exact `CorrelationId`, `CausationId`, `AggregateType`,
-  `AggregateVersion`, `ActorUsername`, `SiteIds` (multi-site collection), UTC
-  timestamp, safe allowlist keys with `deterministicSeed`/`deterministicSeedHex`.
+- Create/edit events assert exact `EventType`, `SchemaVersion`, `Producer`,
+  `AggregateType`, `AggregateId`, `AggregateVersion`, `ActorId`, `ActorUsername`,
+  `Action`, `Summary`, `OccurredAtUtc`, `CorrelationId`, `CausationId`, `SiteIds`
+  (multi-site collection), safe allowlist keys with `deterministicSeed`/
+  `deterministicSeedHex`, and empty `Before` dictionary for create.
 - Rejected/stale/no-op commands emit no event.
+- Manager and Viewer denial tests emit no events and return `FORBIDDEN`.
 
 ## 11. Migration 0005 static result
 
@@ -112,31 +117,37 @@ PASS: all tests
   same-schema FK, append-only trigger.
 - Not executed.
 
-## 12. Migration 0006 static result
+## 12. Migration 0006 static result (CORR-E)
 
-- Executable `EXCLUDE USING gist` constraint for active-period overlap.
+- Executable `DO $$ ... ALTER TABLE ... ADD CONSTRAINT ex_source_point_mapping_active_period
+  EXCLUDE USING gist (point_id WITH =, tstzrange(effective_from, effective_to, '[)') WITH &&)
+  WHERE (status = 'Active')` — idempotent DO block.
 - No `CREATE EXTENSION`; predicate is Active only; range is `[)`.
 - No Organization FK; required Source/Point/time/status indexes exist.
+- No `ADD CONSTRAINT IF NOT EXISTS` (unsupported PostgreSQL syntax).
 - `btree_gist` provisioning recorded as external company/DB-capability
   dependency of migration execution (carried in T090 evidence).
 - Not executed.
 
-## 13. T088 contract runner result
+## 13. T088 contract runner result (CORR-H)
 
 - Provider-neutral `ConfigurationRepositoryContractRunner`:
-  scenarios=11, assertions=12, failures=0.
+  scenarios=19, assertions=19, failures=0.
 - Separated test count (per method) from assertion count (per assertion).
-- Scenarios: create/lookup, append/order, stale version, duplicate source,
-  new-head rollback, deep rollback, constraint validation, seed values (0,
-  UInt64.MaxValue), actor username snapshot, exact correlation/causation.
+- 19 scenarios: create/lookup head by source, create/lookup head by config,
+  first version lookups, append/order, historical immutable, stale version,
+  duplicate source, new-head rollback, deep rollback, interval positive,
+  constant bounds, normal bounds, NaN minimum, Infinity maximum, seed 0,
+  seed MaxValue, seed mid-value, actor username, correlation/causation.
 - No fake casts, concrete fake references, Skip/TODO, credentials or fallback
   connection strings.
 
-## 14. Architecture result
+## 14. Architecture result (CORR-I)
 
-- `tests/Verification/architecture.tests.ps1` passes with new
-  `CatalogSourceScopeQueryAdapter` check (no Organization/Cross-module
-  reference). Fast harness passes.
+- `tests/Verification/architecture.tests.ps1` passes with 11 new T091
+  invariant checks (ulong seed, numeric(20,0) migration, multi-site scope,
+  adapter existence, no empty-fallback, ReadinessVersionTuple, real adapter
+  in tests, DO block, executable EXCLUDE, 19 test count, no Phase 5 files).
 - Approved public-contract references: Acquisition → Catalog, Catalog → Organization.
 - No cross-schema FK in 0005/0006.
 - No PostgreSQL adapter, no Phase 5/6 behavior, no API/Worker composition root
@@ -147,20 +158,20 @@ PASS: all tests
 | Task | Result |
 |---|---|
 | T078 | PASS — immutable configuration with `ulong` seed |
-| T079 | PASS — exact event metadata, multi-site auth, inactive/missing denials |
+| T079 | PASS — exact event metadata, multi-site auth, Manager/Viewer denial, real adapter chain |
 | T080 | PASS — readiness version tuple, real adapter integration, Draft→Active transition |
 | T081 | PASS — reproduced RED evidence documented |
-| T082 | PASS — `ulong` seed contract, multi-site scope contract, |
+| T082 | PASS — `ulong` seed contract, multi-site scope contract |
 | T083 | PASS — fake with `ulong` seed |
 | T084 | PASS — `ulong` seed validation, multi-site auth, exact event envelope |
 | T085 | PASS — version tuple readiness adapter |
 | T086 | PASS — `numeric(20,0)` seed migration |
-| T087 | PASS — executable EXCLUDE constraint, no `CREATE EXTENSION`, half-open `[)` |
-| T088 | PASS — 11 scenarios, 12 assertions, no test/assertion conflation |
+| T087 | PASS — executable EXCLUDE constraint in DO block, no `CREATE EXTENSION`, half-open `[)` |
+| T088 | PASS — 19 scenarios, 19 assertions, no test/assertion conflation |
 | T089 | BLOCKED_BY_PACKAGE_POLICY |
 | T090 | BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE |
-| T091 | PASS — architecture check covers `CatalogSourceScopeQueryAdapter` |
-| T092 | PASS — 10 Standards + 9 Specification + 9 Corrective findings; zero Critical/High |
+| T091 | PASS — architecture check covers 11 Phase 4 invariants |
+| T092 | PASS — 10 Standards + 9 Specification + 11 Corrective findings; zero Critical/High |
 | T093 | PASS — this checkpoint |
 
 ## 16. Counts
@@ -212,7 +223,7 @@ endpoints, or Phase 5 files in this invocation.
 ## Final verification evidence
 
 - Fresh Debug and Release build/run: PASS (0 warnings/errors; T071 19/39;
-  T088 11/12; 0 failures).
+  T088 19/19; 0 failures).
 - Architecture (`tests/Verification/architecture.tests.ps1`) and
   `git diff --check`: PASS (CRLF warnings cosmetic).
 - SQL static checks for 0005/0006, changed-file scope review, `.env`
@@ -220,3 +231,4 @@ endpoints, or Phase 5 files in this invocation.
   printed.
 - Full harness not re-executed (no package/database change from prior evidence).
 - `CatalogSourceScopeQueryAdapter` exists as new file in working tree.
+- T091 architecture checks: all 11 Phase 4 invariants pass.

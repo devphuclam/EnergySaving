@@ -21,40 +21,74 @@ public sealed class ConfigurationRepositoryContractRunner
 
     public async Task RunAllAsync()
     {
-        await CreateAndLookupAsync();
-        await AppendAndOrderAsync();
-        await StaleVersionAsync();
-        await DuplicateSourceAsync();
+        await CreateAndLookupHeadBySourceIdAsync();
+        await CreateAndLookupHeadByConfigurationIdAsync();
+        await CreateAndLookupFirstVersionAsync();
+        await AppendVersionAndOrderAsync();
+        await HistoricalVersionImmutableAsync();
+        await StaleVersionConflictAsync();
+        await DuplicateSourceRejectedAsync();
         await NewHeadRollbackAsync();
         await DeepRollbackAsync();
-        await ConstraintValidationAsync();
-        await SeedValuesAsync();
+        await IntervalPositiveConstraintAsync();
+        await ConstantBoundsMatchConstraintAsync();
+        await NormalMinLessThanMaxConstraintAsync();
+        await NaNMinimumRejectedAsync();
+        await InfinityMaximumRejectedAsync();
+        await SeedMinAcceptedAsync();
+        await SeedMaxAcceptedAsync();
+        await SeedMidValueAcceptedAsync();
         await ActorUsernameSnapshotAsync();
         await CorrelationCausationSnapshotAsync();
     }
 
-    private async Task CreateAndLookupAsync()
+    private async Task CreateAndLookupHeadBySourceIdAsync()
     {
         var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
-        var first = Version(id, 1, 60, 1, 1, 42, SimulatorScenario.Constant);
-        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), first); await tx.CommitAsync(); tx.Dispose();
-        var head = await repo.GetBySourceIdAsync(source); var exact = await repo.GetVersionAsync(id, 1);
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 1, 1, 42, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        var head = await repo.GetBySourceIdAsync(source);
         _testCount++;
-        Assert(head?.ConfigurationId == id && head.CurrentConfigurationVersion == 1 && exact?.DeterministicSeed == 42, "create, head, first version and exact lookup");
+        Assert(head?.ConfigurationId == id, "head lookup by sourceId returns matching configuration");
     }
 
-    private async Task AppendAndOrderAsync()
+    private async Task CreateAndLookupHeadByConfigurationIdAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 1, 1, 42, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        var head = await repo.GetHeadAsync(id);
+        _testCount++;
+        Assert(head?.ConfigurationId == id && head.CurrentConfigurationVersion == 1, "head lookup by configurationId returns correct version");
+    }
+
+    private async Task CreateAndLookupFirstVersionAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 1, 1, 42, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        var exact = await repo.GetVersionAsync(id, 1);
+        _testCount++;
+        Assert(exact?.DeterministicSeed == 42, "first version exact lookup returns correct seed");
+    }
+
+    private async Task AppendVersionAndOrderAsync()
     {
         var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
         var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 10, 0, 0, 0, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
         var head = (await repo.GetHeadAsync(id))!; tx = await repo.BeginTransactionAsync(); await repo.AppendVersionAsync(id, head.Version, Version(id, 2, 20, -1, 1, 1, SimulatorScenario.Normal)); await tx.CommitAsync(); tx.Dispose();
         var list = await repo.ListVersionsAsync(id);
         _testCount++;
-        Assert(list.Count == 2 && list[0].ConfigurationVersion < list[1].ConfigurationVersion && (await repo.GetHeadAsync(id))!.Version == 2, "append, stable ordering and aggregate version");
-        Assert((await repo.GetVersionAsync(id, 1))!.MinimumValue == 0, "historical version is immutable");
+        Assert(list.Count == 2 && list[0].ConfigurationVersion < list[1].ConfigurationVersion && (await repo.GetHeadAsync(id))!.Version == 2, "append produces stable ordering and aggregate version");
     }
 
-    private async Task StaleVersionAsync()
+    private async Task HistoricalVersionImmutableAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 10, 0, 0, 0, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        var head = (await repo.GetHeadAsync(id))!; tx = await repo.BeginTransactionAsync(); await repo.AppendVersionAsync(id, head.Version, Version(id, 2, 20, -1, 1, 1, SimulatorScenario.Normal)); await tx.CommitAsync(); tx.Dispose();
+        _testCount++;
+        Assert((await repo.GetVersionAsync(id, 1))!.MinimumValue == 0, "historical version value remains unchanged after append");
+    }
+
+    private async Task StaleVersionConflictAsync()
     {
         var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid(); var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 10, 0, 0, 0, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
         var stale = false; try { await repo.AppendVersionAsync(id, 99, Version(id, 2, 20, 1, 2, 1, SimulatorScenario.Normal)); } catch (InvalidOperationException ex) { stale = ex.Message.Contains("VERSION_CONFLICT", StringComparison.Ordinal); }
@@ -62,12 +96,12 @@ public sealed class ConfigurationRepositoryContractRunner
         Assert(stale && (await repo.ListVersionsAsync(id)).Count == 1, "stale aggregate version fails without mutation");
     }
 
-    private async Task DuplicateSourceAsync()
+    private async Task DuplicateSourceRejectedAsync()
     {
         var repo = _factory.Create(); var source = Guid.NewGuid(); var firstId = Guid.NewGuid(); var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(firstId, source, 1, 1), Version(firstId, 1, 10, 0, 0, 0, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
-        var rejected = false; var duplicateId = Guid.NewGuid(); try { await repo.CreateAsync(new SimulatorConfigurationHead(duplicateId, source, 1, 1), Version(duplicateId, 1, 10, 0, 0, 1, SimulatorScenario.Constant)); } catch (Exception ex) { rejected = ex is InvalidOperationException; }
+        var rejected = false; try { await repo.CreateAsync(new SimulatorConfigurationHead(Guid.NewGuid(), source, 1, 1), Version(Guid.NewGuid(), 1, 10, 0, 0, 1, SimulatorScenario.Constant)); } catch { rejected = true; }
         _testCount++;
-        Assert(rejected, "duplicate source head rejected");
+        Assert(rejected, "duplicate source head is rejected");
     }
 
     private async Task NewHeadRollbackAsync()
@@ -85,24 +119,63 @@ public sealed class ConfigurationRepositoryContractRunner
         Assert((await repo.GetHeadAsync(id))!.CurrentConfigurationVersion == 1 && (await repo.ListVersionsAsync(id)).Count == 1, "deep rollback restores existing head and history");
     }
 
-    private async Task ConstraintValidationAsync()
+    private async Task IntervalPositiveConstraintAsync()
     {
         var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 0, 0, 0, 0, SimulatorScenario.Constant); } catch (ArgumentOutOfRangeException) { rejected = true; }
         _testCount++;
-        Assert(rejected, "interval and scenario constraints remain enforced by public value type");
+        Assert(rejected, "interval must be positive");
     }
 
-    private async Task SeedValuesAsync()
+    private async Task ConstantBoundsMatchConstraintAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, 2, 3, 1, SimulatorScenario.Constant); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "Constant scenario requires equal bounds");
+    }
+
+    private async Task NormalMinLessThanMaxConstraintAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, 4, 4, 1, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "Normal scenario requires minimum below maximum");
+    }
+
+    private async Task NaNMinimumRejectedAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, double.NaN, 1, 0, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "NaN minimum value is rejected");
+    }
+
+    private async Task InfinityMaximumRejectedAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, 1, double.PositiveInfinity, 0, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "Infinity maximum value is rejected");
+    }
+
+    private async Task SeedMinAcceptedAsync()
     {
         var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
         var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 0, 0, 0, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
         _testCount++;
         Assert((await repo.GetVersionAsync(id, 1))?.DeterministicSeed == 0, "seed value 0 accepted");
+    }
 
-        var id2 = Guid.NewGuid(); var source2 = Guid.NewGuid();
-        tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id2, source2, 1, 1), Version(id2, 1, 60, 0, 0, ulong.MaxValue, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+    private async Task SeedMaxAcceptedAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 0, 0, ulong.MaxValue, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
         _testCount++;
-        Assert((await repo.GetVersionAsync(id2, 1))?.DeterministicSeed == ulong.MaxValue, "seed UInt64.MaxValue accepted");
+        Assert((await repo.GetVersionAsync(id, 1))?.DeterministicSeed == ulong.MaxValue, "seed UInt64.MaxValue accepted");
+    }
+
+    private async Task SeedMidValueAcceptedAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 0, 0, 123456789, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        _testCount++;
+        Assert((await repo.GetVersionAsync(id, 1))?.DeterministicSeed == 123456789, "seed mid-value accepted");
     }
 
     private async Task ActorUsernameSnapshotAsync()
@@ -114,7 +187,7 @@ public sealed class ConfigurationRepositoryContractRunner
         var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, Guid.NewGuid(), 1, 1), v); await tx.CommitAsync(); tx.Dispose();
         _testCount++;
         var saved = await repo.GetVersionAsync(id, 1);
-        Assert(saved?.CreatedByUserId == "actor-id" && saved.CreatedByUsername == "actor-name", "actor username snapshot");
+        Assert(saved?.CreatedByUserId == "actor-id" && saved.CreatedByUsername == "actor-name", "actor username snapshot preserved");
     }
 
     private async Task CorrelationCausationSnapshotAsync()

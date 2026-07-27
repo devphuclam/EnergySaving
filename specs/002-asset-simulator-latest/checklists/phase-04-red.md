@@ -47,34 +47,49 @@ executed against the pre-corrected codebase. After corrective convergence
     separate `FakePointReadinessQuery` with no adapter integration.
 12. migration 0006 lacks executable overlap protection — the EXCLUDE
     constraint was comment-only.
+13. `CatalogSourceScopeQueryAdapter` absent — pre-correction had no Catalog
+    application implementation of `ICatalogSourceScopeQuery`.
+14. migration 0006 used `ADD CONSTRAINT IF NOT EXISTS` — unsupported
+    PostgreSQL syntax.
+15. T088 counted assertions as tests — no `_testCount` / `_assertionCount`
+    separation; NaN/Infinity/bound scenarios missing.
+16. `CatalogSourceScopeQueryAdapter` returned empty SiteId/AreaId on
+    unresolved readiness — fail-open instead of fail-closed.
+17. No Manager/Viewer denial tests — only Engineer and Operator were tested.
+18. Event metadata assertions incomplete — missing `ActorId`, `Summary`,
+    `Action`, empty `Before` dictionary.
 
 ## Build result
 
 The pre-correction build succeeds because no contract surface is changed.
 
 ```
-dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore -c Debug
+dotnet build tests\Unit\IUMP.Tests.Unit.csproj --no-restore -c Debug
 exit 0; 0 Warning(s) 0 Error(s)
 ```
 
 ## Focused execution result (conceptual RED)
 
 ```
-dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-build -c Debug
+dotnet run --project tests\Unit\IUMP.Tests.Unit.csproj --no-build -c Debug
 exit 1 (expected on behavioral assertions)
 ```
 
 ## Exact failed assertions
 
-The corrected test suite asserts approximately 40+ behavioral conditions
+The corrected test suite asserts approximately 60+ behavioral conditions
 across T078–T080 and T088. Pre-correction failures include:
 
 - T078: seed as `string` accepted, `IsNullOrWhiteSpace` rejects valid 0
-- T079: missing exact correlation/causation, single SiteId, no multi-site auth
+- T079: missing exact correlation/causation, single SiteId, no multi-site auth,
+  no Manager/Viewer denial, missing ActorId/Summary/Before assertions
 - T080: `ProviderVersion` with `Max()` hides low-version changes;
   `FakePointReadinessQuery` is independent from real adapter
 - T087: migration 0006 has only a commented EXCLUDE constraint
-- T088: tests=assertions (no distinction); missing seed/actor/correlation scenarios
+- T088: tests=assertions (no distinction); missing seed/actor/correlation
+  scenarios; missing NaN/Infinity/bound validation
+- T091: missing `CatalogSourceScopeQueryAdapter` existence check, DO block
+  check, empty-fallback check, phase-5-file check
 
 ## Label
 

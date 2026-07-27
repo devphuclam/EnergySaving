@@ -26,11 +26,16 @@ public sealed class CatalogSourceScopeQueryAdapter : ICatalogSourceScopeQuery
         foreach (var mapping in nonSuperseded)
         {
             var readiness = await _readiness.GetPointReadinessAsync(mapping.PointId, ct);
+            if (readiness is null || !readiness.Exists)
+            {
+                // Fail-closed: unresolved or inconsistent Point readiness
+                // denies configuration access. No empty fallback SiteId/AreaId.
+                return null;
+            }
+            // SiteId is non-nullable in readiness; AreaId is nullable metadata.
             mappedScopes.Add(new CatalogSourceMappedScopeSnapshot(
                 mapping.Id, mapping.Version, mapping.PointId,
-                readiness?.SiteId ?? string.Empty,
-                readiness?.AreaId ?? string.Empty,
-                readiness?.ReadinessVersions ?? ReadinessVersionTuple.Empty));
+                readiness.SiteId, readiness.AreaId ?? string.Empty, readiness.ReadinessVersions));
         }
 
         return new CatalogSourceScopeSnapshot(
