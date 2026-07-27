@@ -445,8 +445,10 @@ public sealed class OrganizationCommandHandler
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
         if (cmd.ExpectedVersion != point.Version) return VersionConflict();
+
         if (!cmd.Action.Equals("inactivate", StringComparison.OrdinalIgnoreCase))
             return Result.Failure("PHASE5_REQUIRED", "Point activation/reactivation belongs to the Phase 5 orchestration.");
+
         var beforeStatus = point.Status;
         var before = beforeStatus.ToString();
         var changed = cmd.Action.ToLowerInvariant() switch

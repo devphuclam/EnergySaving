@@ -9,6 +9,7 @@ using IUMP.Tests.Integration.Organization;
 using IUMP.Tests.Unit.Fakes;
 using IUMP.Tests.Unit.Acquisition;
 using IUMP.Tests.Unit.Catalog;
+using IUMP.Tests.Unit.Integration;
 using IUMP.Tests.Integration.Acquisition;
 
 var failures = new List<string>();
@@ -38,6 +39,11 @@ failures.AddRange(PostSiteFixtureTests.Run());
 failures.AddRange(ConfigurationTests.Run());
 failures.AddRange(ConfigurationCommandTests.Run());
 failures.AddRange(MappingReadinessTests.Run());
+
+// Phase 5 — Point activation and shared transaction
+failures.AddRange(PointActivationTests.Run());
+failures.AddRange(IUMP.Tests.Integration.Organization.PointActivationTransactionTests.Run());
+failures.AddRange(OwnerEventEnvelopeTests.Run());
 
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();

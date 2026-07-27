@@ -34,7 +34,8 @@ Get-ChildItem -LiteralPath $ModuleRoot -Recurse -Filter '*.csproj' | ForEach-Obj
             $isIamToOrg = $_.FullName -match '[\\/]Modules\\IAM[\\/]' -and $reference.Include -match '[\\/]Organization[\\/]'
             $isCatalogToOrg = $_.FullName -match '[\\/]Modules\\Catalog[\\/]' -and $reference.Include -match '[\\/]Organization[\\/]'
             $isAcquisitionToCatalog = $_.FullName -match '[\\/]Modules\\Acquisition[\\/]' -and $reference.Include -match '[\\/]Catalog[\\/]'
-            if (-not ($isIamToOrg -or $isCatalogToOrg -or $isAcquisitionToCatalog)) {
+            $isOrganizationToIntegration = $_.FullName -match '[\\/]Modules\\Organization[\\/]' -and $reference.Include -match '[\\/]Integration[\\/]'
+            if (-not ($isIamToOrg -or $isCatalogToOrg -or $isAcquisitionToCatalog -or $isOrganizationToIntegration)) {
                 throw "Module-to-module project reference is forbidden: $($_.FullName) -> $($reference.Include)"
             }
         }
@@ -341,8 +342,8 @@ if ($isCanonicalModuleRoot) {
         'TelemetryIngestion',
         'Worker\b',
         'Api\b',
-        'SimulatorRun',
-        'PointActivation'
+        'SimulatorRun'
+        # Point activation is the in-scope Phase 5 implementation; later-phase indicators remain forbidden here.
     )
     $allSourceFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.cs' |
         Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules)[\\/]' }
@@ -403,6 +404,39 @@ if ($isCanonicalModuleRoot) {
     if ($catalogCommandsSource -notmatch '"producingReady"') {
         $issues += 'T091-15 FAIL: CatalogCommandHandler events must contain producingReady field.'
     }
+
+    # --- Phase 5 transaction/activation boundary checks (T105) ---
+    $orgProjectPath = Join-Path $ModuleRoot 'Organization\IUMP.Modules.Organization.csproj'
+    $orgProject = Get-Content -LiteralPath $orgProjectPath -Raw
+    if ($orgProject -match 'Modules\\(IAM|Catalog)') {
+        $issues += 'T105 FAIL: Organization must not reference IAM or Catalog internals/projects.'
+    }
+    if ($orgProject -notmatch 'BuildingBlocks\\IUMP.BuildingBlocks.csproj' -or $orgProject -notmatch 'Integration\\IUMP.Modules.Integration.csproj') {
+        $issues += 'T105 FAIL: Organization must reference only the provider-neutral BuildingBlocks and Integration seams for Phase 5.'
+    }
+
+    $hostTxPath = Join-Path $repoRoot 'src\BuildingBlocks\Persistence\HostTransactionCoordinator.cs'
+    $hostTx = Get-Content -LiteralPath $hostTxPath -Raw
+    $expectedLocks = 'IamUser\s*,\s*OrganizationSite\s*,\s*OrganizationArea\s*,\s*OrganizationAsset\s*,\s*OrganizationPoint\s*,\s*CatalogMetric\s*,\s*CatalogUnit\s*,\s*CatalogMapping\s*,\s*IntegrationOutbox'
+    if ($hostTx -notmatch $expectedLocks) { $issues += 'T105 FAIL: canonical lock order must end with IntegrationOutbox.' }
+    if ($hostTx -match 'DbContext|Npgsql|IQueryable|Microsoft\.EntityFrameworkCore') { $issues += 'T105 FAIL: host transaction coordinator must remain provider-neutral.' }
+    if ($hostTx -notmatch 'FromSeconds\(2\)' -or $hostTx -notmatch '50,\s*150,\s*450' -or $hostTx -notmatch 'TRANSIENT_DATABASE_CONFLICT') { $issues += 'T105 FAIL: P-016 timeout/retry/exhaustion semantics are missing.' }
+
+    $activationPath = Join-Path $ModuleRoot 'Organization\Application\ActivateMeasurementPoint.cs'
+    $activation = Get-Content -LiteralPath $activationPath -Raw
+    if ($activation -match '\.Max\s*\(') { $issues += 'T105 FAIL: activation must compare exact provider versions, not Max/sum compression.' }
+    if ($activation -match 'Audit|password|secret') { $issues += 'T105 FAIL: activation path must not persist Audit or secret fields.' }
+    if ($activation -notmatch 'OUTBOX_PARTICIPANT_REQUIRED' -or $activation -notmatch 'OutboxTransactionParticipantAdapter') { $issues += 'T105 FAIL: activation must require/bridge an outbox host-transaction participant.' }
+    $outboxPath = Join-Path $ModuleRoot 'Integration\Contracts\OutboxContracts.cs'
+    $outbox = Get-Content -LiteralPath $outboxPath -Raw
+    $writerContract = [regex]::Match($outbox, '(?s)interface\s+ITransactionalOutboxWriter.*?\}')
+    if ($writerContract.Success -and $writerContract.Value -match 'Audit|PublishAsync|CommitAsync\s*\(') { $issues += 'T105 FAIL: Integration outbox writer contract must be enqueue-only; host commit owns atomicity.' }
+    $eventPath = Join-Path $ModuleRoot 'Organization\Application\OrganizationEvents.cs'
+    $eventSource = Get-Content -LiteralPath $eventPath -Raw
+    if ($eventSource -notmatch 'PointStatusChanged\.v1' -or $eventSource -notmatch 'MeasurementPoint' -or $eventSource -match 'password|secret|token|Audit') { $issues += 'T105 FAIL: owner event envelope is not the safe PointStatusChanged.v1 contract.' }
+    $integrationSource = Join-Path $repoRoot 'tests\Integration\Organization\PointActivationTransactionTests.cs'
+    $integration = Get-Content -LiteralPath $integrationSource -Raw
+    if ($integration -match 'Npgsql|DbContext|SELECT\s|INSERT\s|UPDATE\s|FakeOrganization') { $issues += 'T105 FAIL: Phase 5 integration source must remain provider-neutral and fake-free.' }
 }
 
 if ($issues.Count -gt 0) {

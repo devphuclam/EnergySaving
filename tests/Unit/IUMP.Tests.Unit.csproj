@@ -9,11 +9,13 @@
     <ProjectReference Include="..\..\src\Modules\Catalog\IUMP.Modules.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Modules\Organization\IUMP.Modules.Organization.csproj" />
     <ProjectReference Include="..\..\src\Modules\Acquisition\IUMP.Modules.Acquisition.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Integration\IUMP.Modules.Integration.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Integration\IAM\IamRepositoryTests.cs" Link="IAM\IamRepositoryTests.cs" />
     <Compile Include="..\Integration\Catalog\CatalogRepositoryTests.cs" Link="Catalog\CatalogRepositoryTests.cs" />
     <Compile Include="..\Integration\Organization\OrganizationRepositoryTests.cs" Link="Organization\OrganizationRepositoryTests.cs" />
     <Compile Include="..\Integration\Acquisition\ConfigurationRepositoryTests.cs" Link="Acquisition\ConfigurationRepositoryTests.cs" />
+    <Compile Include="..\Integration\Organization\PointActivationTransactionTests.cs" Link="Organization\PointActivationTransactionTests.cs" />
   </ItemGroup>
 </Project>

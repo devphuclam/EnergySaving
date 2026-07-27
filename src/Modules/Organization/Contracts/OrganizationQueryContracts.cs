@@ -108,3 +108,45 @@ public interface IOrganizationCallerSnapshotProvider
 {
     Task<OrganizationCallerSnapshot?> ResolveAsync(string userId, CancellationToken ct = default);
 }
+
+// Provider-neutral activation facts. Organization owns the activation seam;
+// IAM and Catalog adapters implement these contracts in a host composition root.
+public sealed record ActivationDataOwnerSnapshot(
+    string DataOwnerUserId,
+    bool Exists,
+    bool IsActive,
+    bool HasTrustedSiteScope,
+    bool HasTrustedAreaScope,
+    bool HasForbiddenCapability,
+    long UserVersion,
+    long ScopeVersion);
+
+public interface IActivationIdentityQuery
+{
+    Task<ActivationDataOwnerSnapshot> GetDataOwnerAsync(string dataOwnerUserId, string siteId, string areaId, CancellationToken ct = default);
+}
+
+public sealed record ActivationCatalogSnapshot(
+    string MetricId,
+    long MetricVersion,
+    string MetricStatus,
+    string UnitId,
+    long UnitVersion,
+    string UnitStatus,
+    bool IsCompatible,
+    long CompatibilityVersion,
+    string MappingId,
+    long MappingVersion,
+    string MappingStatus,
+    string SourceId,
+    long SourceVersion,
+    string SourceStatus,
+    string SourceType,
+    DateTime EffectiveFromUtc,
+    DateTime? EffectiveToUtc,
+    int ActiveMappingCount);
+
+public interface IActivationCatalogQuery
+{
+    Task<ActivationCatalogSnapshot?> GetActivationSnapshotAsync(string pointId, string metricId, string unitId, DateTime atUtc, CancellationToken ct = default);
+}
