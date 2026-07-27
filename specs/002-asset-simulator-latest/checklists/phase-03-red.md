@@ -46,3 +46,31 @@ point and one new test-only evidence file. It contained no source, migration,
 database, container, package, or credential change. This is explicitly labeled
 **Post-hoc reproduced Phase 3 business RED evidence** and is not a chronological
 claim that RED was captured before the earlier implementation attempt.
+
+# Final chronological micro-RED
+
+**Captured at**: `2026-07-27` against baseline `8f6ee4dd9471d6d3ed8eb9836b6e0a5644a0a058`
+
+## Commands
+
+```powershell
+dotnet build .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore -c Debug
+# exit 0; Build succeeded; 0 Warning(s), 0 Error(s)
+
+dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build -c Debug
+# exit 1
+```
+
+## Failed assertions
+
+1. Active Point configuration update must return PHASE5_REQUIRED with no event.
+2. Active Point configuration update must not mutate state.
+3. Decommissioned Point configuration update must return INVALID_STATE with no event.
+4. Decommissioned Point configuration update must not mutate state.
+5. Accepted inactivation must append exactly one lifecycle history entry.
+6. Rejected inactivation must not append additional history.
+7. Stale version inactivation must not append history.
+
+All seven failures are caused by absent Organization behavior (point config
+state guards and inactivation lifecycle history). T071 contract runner passes
+with 19 tests, 39 assertions, 0 failures.

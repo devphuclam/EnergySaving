@@ -459,6 +459,10 @@ public sealed class OrganizationCommandHandler
         {
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.UpdatePointAsync(point, ct);
+            var history = new PointLifecycleEntry(Guid.NewGuid().ToString(), point.Id.ToString(), point.Version,
+                beforeStatus, point.Status, ctx.ActorUserId, _currentCaller?.Username ?? ctx.ActorUserId,
+                "Inactivated by command", DateTime.UtcNow, ctx.CorrelationId, ctx.CausationId);
+            await _repo.AddLifecycleEntryAsync(history, ct);
             await tx.CommitAsync(ct);
             AddEvent("PointStatusChanged.v1", "Point", point.Id.ToString(), point.Version, ctx,
                 cmd.Action + "d", "Point status changed",
@@ -520,6 +524,8 @@ public sealed class OrganizationCommandHandler
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
         if (cmd.ExpectedVersion != point.Version) return VersionConflict();
+        if (point.Status == PointStatus.Active) return Result.Failure("PHASE5_REQUIRED", "Active Point configuration changes require Phase 5 orchestration.");
+        if (point.Status == PointStatus.Decommissioned) return Result.Failure("INVALID_STATE", "Decommissioned Point configuration cannot be changed.");
         var before = Clone(point);
         try
         {

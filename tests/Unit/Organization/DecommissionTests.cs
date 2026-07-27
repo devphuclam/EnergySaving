@@ -58,6 +58,10 @@ public static class DecommissionTests
         if (noop.IsSuccess || repo.GetLifecycleForPointAsync(activePoint.Id.ToString()).GetAwaiter().GetResult().Count != 1 || noopHandler.HasEvents)
             failures.Add("Rejected terminal Point decommission must not append history or emit an event.");
 
+        // Point code remains reserved after decommission
+        var decomReserved = repo.IsPointCodeReservedAsync(site.Id, "ACTIVE-PT").GetAwaiter().GetResult();
+        if (!decomReserved) failures.Add("Point code must remain reserved after decommission.");
+
         var unavailablePoint = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "UNAVAILABLE-PT", null,
             "M", "U", "owner", 60, 300, PointStatus.Active, 1);
         repo.AddPointAsync(unavailablePoint).GetAwaiter().GetResult();

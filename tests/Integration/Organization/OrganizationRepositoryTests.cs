@@ -41,13 +41,17 @@ public sealed class OrganizationRepositoryContractRunner
         await AreaCodesMayRepeatAcrossSites();
         await AssetAndPointAncestry();
         await AssetCodeUniquenessAndScope();
+        await AssetCodeDuplicateInSameAreaRejected();
+        await AssetLifecycleTransitionPersistence();
         await PointCodeReservation();
+        await PointCodeReservedAfterDecommission();
         await SiteLifecycleTransition();
         await AreaLifecycleTransition();
         await PointDecommissionAndHistory();
         await RunningSimulatorDependency();
         await PointActivationIsPhaseFiveOnly();
         await OptimisticVersionBehavior();
+        await StaleApplicationCommandVersion();
         await TransactionCommitAndRollback();
         await DeepRollbackExistingAggregate();
         await QueryScopePagingAndStableOrder();
@@ -160,6 +164,70 @@ public sealed class OrganizationRepositoryContractRunner
         await repo.AddAssetAsync(new Asset(AssetId.New(), site.Id, area2.Id, "COMMON-ASSET", "Two", null, AssetStatus.Draft, 1));
         Assert((await repo.GetAssetsForAreaAsync(area1.Id)).Count == 1 && (await repo.GetAssetsForAreaAsync(area2.Id)).Count == 1,
             "Same Asset code is allowed in another Area but not duplicated within one Area.");
+        Pass();
+    }
+
+    private async Task AssetCodeDuplicateInSameAreaRejected()
+    {
+        var repo = NewProvider().CommandRepository;
+        var site = new Site(SiteId.New(), "DUP-ASSET-SITE", "Test", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "DUP-ASSET-AREA", "Test", null, AreaStatus.Active, 1);
+        await repo.AddSiteAsync(site); await repo.AddAreaAsync(area);
+        await repo.AddAssetAsync(new Asset(AssetId.New(), site.Id, area.Id, "DUP-ASSET", "One", null, AssetStatus.Draft, 1));
+        try
+        {
+            await repo.AddAssetAsync(new Asset(AssetId.New(), site.Id, area.Id, "dup-asset", "Duplicate", null, AssetStatus.Draft, 1));
+            Assert(false, "Duplicate Asset code in same Area must be rejected.");
+        }
+        catch (InvalidOperationException) { Assert(true, "Duplicate Asset in same Area rejected."); }
+        Assert((await repo.GetAssetsForAreaAsync(area.Id)).Count == 1, "Rejected Asset must not mutate state.");
+        Pass();
+    }
+
+    private async Task AssetLifecycleTransitionPersistence()
+    {
+        var repo = NewProvider().CommandRepository;
+        var site = new Site(SiteId.New(), "ASSET-LIFE-SITE", "Test", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "ASSET-LIFE-AREA", "Test", null, AreaStatus.Active, 1);
+        await repo.AddSiteAsync(site); await repo.AddAreaAsync(area);
+        var asset = new Asset(AssetId.New(), site.Id, area.Id, "ASSET-LIFE", "Test", null, AssetStatus.Draft, 1);
+        await repo.AddAssetAsync(asset);
+        Assert(asset.TryActivate(), "Draft Asset activates.");
+        await repo.UpdateAssetAsync(asset);
+        var saved = await repo.GetAssetAsync(asset.Id);
+        Assert(saved?.Status == AssetStatus.Active && saved.Version == 2, "Asset lifecycle transition persists status and version.");
+        Pass();
+    }
+
+    private async Task PointCodeReservedAfterDecommission()
+    {
+        var repo = NewProvider().CommandRepository;
+        var (site, area, asset) = await AddHierarchy(repo, "DECOM-RESERVE");
+        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "DECOM-RESERVE-PT", null,
+            "M", "U", "owner", 60, 300, PointStatus.Active, 1);
+        await repo.AddPointAsync(point);
+        Assert(await repo.IsPointCodeReservedAsync(site.Id, "DECOM-RESERVE-PT"), "Point code is reserved before decommission.");
+        Assert(point.TryDecommission(), "Active Point decommission succeeds.");
+        await repo.UpdatePointAsync(point);
+        Assert(await repo.IsPointCodeReservedAsync(site.Id, "DECOM-RESERVE-PT"), "Point code remains reserved after decommission.");
+        Pass();
+    }
+
+    private async Task StaleApplicationCommandVersion()
+    {
+        var provider = NewProvider();
+        var repo = provider.CommandRepository;
+        var (site, area, asset) = await AddHierarchy(repo, "STALE-VER");
+        var handler = new OrganizationCommandHandler(repo, new ContractAdminAuthorization(), provider.RunningSimulatorQuery);
+        var ctx = new OrganizationCommandContext("contract-admin", "stale-corr", "stale-caus");
+        var staleResult = await handler.HandleAsync(new UpdateSiteCommand(site.Id, "Stale", null, "UTC", 42, "contract-admin"), ctx);
+        Assert(staleResult.Code == "VERSION_CONFLICT" && (await repo.GetSiteAsync(site.Id))!.Name == "Test" &&
+               (await repo.GetSiteAsync(site.Id))!.Version == 1,
+            "Stale ExpectedVersion must fail with VERSION_CONFLICT and no mutation.");
+        Assert(!handler.HasEvents, "Stale ExpectedVersion failure must not emit an event.");
+        var currentResult = await handler.HandleAsync(new UpdateSiteCommand(site.Id, "Updated", null, "UTC", 1, "contract-admin"), ctx);
+        Assert(currentResult.IsSuccess && (await repo.GetSiteAsync(site.Id))!.Name == "Updated" && (await repo.GetSiteAsync(site.Id))!.Version == 2,
+            "Current ExpectedVersion must succeed and increment version.");
         Pass();
     }
 

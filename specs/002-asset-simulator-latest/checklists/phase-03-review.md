@@ -47,6 +47,15 @@ blocker.
 | Medium | 0 |
 | Low | 0 |
 
-T076 status: **PASS**. All corrective findings are closed, and the three
+## Micro-closure findings
+
+| ID | Severity | Evidence | Resolution | State |
+|---|---|---|---|---|
+| CORR-L / active config | High | Active Point config update did not return PHASE5_REQUIRED; Decommissioned did not return INVALID_STATE. | Added status guard in `UpdatePointConfigurationCommand`: Active→PHASE5_REQUIRED, Decommissioned→INVALID_STATE; Draft/Inactive succeed. | Closed |
+| CORR-M / inactivation history | High | Active→Inactive status transition did not append lifecycle history. | Added `PointLifecycleEntry` in `UpdatePointStatusCommand` for `inactivate` action; stale/no-op inactivation adds no history. | Closed |
+| CORR-N / T071 gaps | Medium | Contract-runner did not cover Asset code uniqueness in same Area, Asset lifecycle, Point code reservation after decommission, or stale ExpectedVersion. | Added `AssetCodeDuplicateInSameAreaRejected`, `AssetLifecycleTransitionPersistence`, `PointCodeReservedAfterDecommission`, `StaleApplicationCommandVersion`; 19 tests, 39 assertions, 0 failures. | Closed |
+| CORR-O / event aggregate metadata | Medium | Five-family event assertions did not verify AggregateType, AggregateId, AggregateVersion, or trusted AreaId per family. | Added exact AggregateType/Id/Version/AreaId assertions for each of the five event families in `CompleteEventContractCoverage`. | Closed |
+
+T076 status: **PASS**. All corrective findings (A-O) are closed, and the three
 package-policy classifications are carried forward without being relabeled as
 database-access failures.

@@ -86,6 +86,8 @@ public static class HierarchyCommandTests
         failures.AddRange(UpdateCommandsAndExpectedVersions());
         failures.AddRange(InvalidParentStatusCreates());
         failures.AddRange(CompleteEventContractCoverage());
+        failures.AddRange(PointConfigurationStateChecks());
+        failures.AddRange(ActiveInactivationAppendsLifecycleHistory());
 
         return failures;
     }
@@ -387,7 +389,7 @@ public static class HierarchyCommandTests
         var site = new Site(SiteId.New(), "UPDATE-SITE", "Old", "old", "UTC", SiteStatus.Active, 1);
         var area = new Area(AreaId.New(), site.Id, "UPDATE-AREA", "Old Area", "old", AreaStatus.Active, 1);
         var asset = new Asset(AssetId.New(), site.Id, area.Id, "UPDATE-ASSET", "Old Asset", "old", AssetStatus.Active, 1);
-        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "UPDATE-POINT", "old", "M", "U", "owner", 60, 300, PointStatus.Active, 1);
+        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "UPDATE-POINT", "old", "M", "U", "owner", 60, 300, PointStatus.Draft, 1);
         repo.AddSiteAsync(site).GetAwaiter().GetResult(); repo.AddAreaAsync(area).GetAwaiter().GetResult();
         repo.AddAssetAsync(asset).GetAwaiter().GetResult(); repo.AddPointAsync(point).GetAwaiter().GetResult();
         var auth = new FakeOrganizationAuthorization(AdminCaller());
@@ -499,14 +501,189 @@ public static class HierarchyCommandTests
         var assetEvent = handler.Events.Last(e => e.EventType == "AssetStatusChanged.v1");
         var pointConfigurationEvent = handler.Events.Last(e => e.EventType == "PointConfigurationChanged.v1");
         var pointEvent = handler.Events.Last(e => e.EventType == "PointStatusChanged.v1");
-        if (siteEvent.AreaId is not null || areaEvent.AreaId != area.Id.ToString() || assetEvent.AreaId != area.Id.ToString() ||
-            pointConfigurationEvent.AreaId != area.Id.ToString() || pointEvent.AreaId != area.Id.ToString())
-            f.Add("Events must preserve trusted AreaId scope (Site null, Area/Asset/Point target ancestry).");
+
+        // Aggregate metadata per Section 8
+        if (siteEvent.AggregateType != "Site") f.Add("SiteStatusChanged.v1 must have AggregateType = Site.");
+        if (areaEvent.AggregateType != "Area") f.Add("AreaStatusChanged.v1 must have AggregateType = Area.");
+        if (assetEvent.AggregateType != "Asset") f.Add("AssetStatusChanged.v1 must have AggregateType = Asset.");
+        if (pointConfigurationEvent.AggregateType != "Point") f.Add("PointConfigurationChanged.v1 must have AggregateType = Point.");
+        if (pointEvent.AggregateType != "Point") f.Add("PointStatusChanged.v1 must have AggregateType = Point.");
+
+        if (siteEvent.AggregateId != site.Id.ToString()) f.Add("SiteStatusChanged.v1 AggregateId must match Site ID.");
+        if (areaEvent.AggregateId != area.Id.ToString()) f.Add("AreaStatusChanged.v1 AggregateId must match Area ID.");
+        if (assetEvent.AggregateId != asset.Id.ToString()) f.Add("AssetStatusChanged.v1 AggregateId must match Asset ID.");
+        if (pointConfigurationEvent.AggregateId != point.Id.ToString()) f.Add("PointConfigurationChanged.v1 AggregateId must match Point ID.");
+        if (pointEvent.AggregateId != activePoint.Id.ToString()) f.Add("PointStatusChanged.v1 AggregateId must match Point ID.");
+
+        if (siteEvent.AggregateVersion != 2) f.Add("SiteStatusChanged.v1 AggregateVersion must be 2.");
+        if (areaEvent.AggregateVersion != 2) f.Add("AreaStatusChanged.v1 AggregateVersion must be 2.");
+        if (assetEvent.AggregateVersion != 2) f.Add("AssetStatusChanged.v1 AggregateVersion must be 2.");
+        if (pointConfigurationEvent.AggregateVersion != 1) f.Add("PointConfigurationChanged.v1 AggregateVersion must be 1.");
+        if (pointEvent.AggregateVersion != 2) f.Add("PointStatusChanged.v1 AggregateVersion must be 2.");
+
+        if (siteEvent.AreaId is not null) f.Add("SiteStatusChanged.v1 AreaId must be null.");
+        if (areaEvent.AreaId != area.Id.ToString()) f.Add("AreaStatusChanged.v1 AreaId must be trusted Area ID.");
+        if (assetEvent.AreaId != area.Id.ToString()) f.Add("AssetStatusChanged.v1 AreaId must be trusted parent Area ID.");
+        if (pointConfigurationEvent.AreaId != area.Id.ToString()) f.Add("PointConfigurationChanged.v1 AreaId must be trusted parent Area ID.");
+        if (pointEvent.AreaId != area.Id.ToString()) f.Add("PointStatusChanged.v1 AreaId must be trusted parent Area ID.");
+
         if (!new[] { "code", "name", "description", "timezone", "status" }.All(siteEvent.After.ContainsKey) ||
             !new[] { "siteId", "areaId", "code", "name", "description", "status" }.All(areaEvent.After.ContainsKey) ||
             !new[] { "siteId", "areaId", "code", "name", "description", "status" }.All(assetEvent.After.ContainsKey) ||
             !new[] { "siteId", "areaId", "assetId", "code", "description", "status" }.All(pointEvent.After.ContainsKey))
             f.Add("Event before/after snapshots must use exact owner keys.");
+        return f;
+    }
+
+    private static List<string> PointConfigurationStateChecks()
+    {
+        var f = new List<string>();
+        var repo = new FakeOrganizationCommandRepository();
+        var site = new Site(SiteId.New(), "CFG-STATE", "Cfg", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "CFG-AREA", "Area", null, AreaStatus.Active, 1);
+        var asset = new Asset(AssetId.New(), site.Id, area.Id, "CFG-ASSET", "Asset", null, AssetStatus.Active, 1);
+        repo.AddSiteAsync(site).GetAwaiter().GetResult();
+        repo.AddAreaAsync(area).GetAwaiter().GetResult();
+        repo.AddAssetAsync(asset).GetAwaiter().GetResult();
+
+        var draftPt = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "CFG-DRAFT", null,
+            "M", "U", "owner", 60, 300, PointStatus.Draft, 1);
+        var activePt = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "CFG-ACTIVE", null,
+            "M", "U", "owner", 60, 300, PointStatus.Active, 1);
+        var inactivePt = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "CFG-INACTIVE", null,
+            "M", "U", "owner", 60, 300, PointStatus.Inactive, 1);
+        var decomPt = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "CFG-DECOM", null,
+            "M", "U", "owner", 60, 300, PointStatus.Decommissioned, 1);
+        repo.AddPointAsync(draftPt).GetAwaiter().GetResult();
+        repo.AddPointAsync(activePt).GetAwaiter().GetResult();
+        repo.AddPointAsync(inactivePt).GetAwaiter().GetResult();
+        repo.AddPointAsync(decomPt).GetAwaiter().GetResult();
+
+        var auth = new FakeOrganizationAuthorization(AdminCaller());
+        var ctx = new OrganizationCommandContext("admin-user", "cfg-corr", "cfg-caus");
+
+        // Active Point returns PHASE5_REQUIRED
+        var activeHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var activeResult = activeHandler.HandleAsync(
+            new UpdatePointConfigurationCommand(activePt.Id, "new", "M2", "U2", "owner2", 120, 600, 1, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (activeResult.Code != "PHASE5_REQUIRED" || activeHandler.HasEvents)
+            f.Add("Active Point configuration update must return PHASE5_REQUIRED with no event.");
+        var persistedActive = repo.GetPointAsync(activePt.Id).GetAwaiter().GetResult();
+        if (persistedActive!.Version != 1 || persistedActive.MetricId != "M")
+            f.Add("Active Point configuration update must not mutate state.");
+
+        // Decommissioned Point returns INVALID_STATE
+        var decomHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var decomResult = decomHandler.HandleAsync(
+            new UpdatePointConfigurationCommand(decomPt.Id, "new", "M2", "U2", "owner2", 120, 600, 1, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (decomResult.Code != "INVALID_STATE" || decomHandler.HasEvents)
+            f.Add("Decommissioned Point configuration update must return INVALID_STATE with no event.");
+        var persistedDecom = repo.GetPointAsync(decomPt.Id).GetAwaiter().GetResult();
+        if (persistedDecom!.Version != 1)
+            f.Add("Decommissioned Point configuration update must not mutate state.");
+
+        // Draft Point update succeeds
+        var draftHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var draftResult = draftHandler.HandleAsync(
+            new UpdatePointConfigurationCommand(draftPt.Id, "new-draft", "M2", "U2", "owner2", 120, 600, 1, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (draftResult.IsFailure) f.Add("Draft Point configuration update must succeed.");
+        var persistedDraft = repo.GetPointAsync(draftPt.Id).GetAwaiter().GetResult();
+        if (persistedDraft!.Version != 2 || persistedDraft.MetricId != "M2")
+            f.Add("Draft Point configuration update must increment version exactly once.");
+        var draftEvents = draftHandler.Events.Where(e => e.EventType == "PointConfigurationChanged.v1").ToList();
+        if (draftEvents.Count != 1) f.Add("Draft Point config update must emit exactly one PointConfigurationChanged.v1.");
+
+        // Inactive Point update succeeds
+        var inactiveHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var inactiveResult = inactiveHandler.HandleAsync(
+            new UpdatePointConfigurationCommand(inactivePt.Id, "new-inactive", "M3", "U3", "owner3", 180, 900, 1, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (inactiveResult.IsFailure) f.Add("Inactive Point configuration update must succeed.");
+        var persistedInactive = repo.GetPointAsync(inactivePt.Id).GetAwaiter().GetResult();
+        if (persistedInactive!.Version != 2 || persistedInactive.MetricId != "M3")
+            f.Add("Inactive Point configuration update must increment version exactly once.");
+        var inactiveEvents = inactiveHandler.Events.Where(e => e.EventType == "PointConfigurationChanged.v1").ToList();
+        if (inactiveEvents.Count != 1) f.Add("Inactive Point config update must emit exactly one PointConfigurationChanged.v1.");
+
+        // Stale ExpectedVersion on Active Point returns VERSION_CONFLICT, not PHASE5_REQUIRED
+        var staleHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var staleResult = staleHandler.HandleAsync(
+            new UpdatePointConfigurationCommand(activePt.Id, "new", "M2", "U2", "owner2", 120, 600, 0, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (staleResult.Code != "VERSION_CONFLICT")
+            f.Add("Stale ExpectedVersion on Active Point must return VERSION_CONFLICT.");
+
+        return f;
+    }
+
+    private static List<string> ActiveInactivationAppendsLifecycleHistory()
+    {
+        var f = new List<string>();
+        var repo = new FakeOrganizationCommandRepository();
+        var site = new Site(SiteId.New(), "LIFE-SITE", "Life", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "LIFE-AREA", "Area", null, AreaStatus.Active, 1);
+        var asset = new Asset(AssetId.New(), site.Id, area.Id, "LIFE-ASSET", "Asset", null, AssetStatus.Active, 1);
+        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "LIFE-POINT", null,
+            "M", "U", "owner", 60, 300, PointStatus.Active, 1);
+        repo.AddSiteAsync(site).GetAwaiter().GetResult();
+        repo.AddAreaAsync(area).GetAwaiter().GetResult();
+        repo.AddAssetAsync(asset).GetAwaiter().GetResult();
+        repo.AddPointAsync(point).GetAwaiter().GetResult();
+
+        var caller = new OrganizationCallerSnapshot("admin-user", "admin@life", true,
+            new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>());
+        var auth = new FakeOrganizationAuthorization(caller);
+        var ctx = new OrganizationCommandContext("admin-user", "life-corr", "life-caus");
+
+        // Accepted Active -> Inactive
+        var handler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var result = handler.HandleAsync(new UpdatePointStatusCommand(point.Id, "inactivate", 1, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (result.IsFailure) { f.Add("Active -> Inactive transition should succeed."); return f; }
+
+        var history = repo.GetLifecycleForPointAsync(point.Id.ToString()).GetAwaiter().GetResult();
+        if (history.Count != 1) f.Add("Accepted inactivation must append exactly one lifecycle history entry.");
+
+        if (history.Count > 0)
+        {
+            var entry = history[0];
+            if (string.IsNullOrWhiteSpace(entry.HistoryId)) f.Add("Lifecycle entry must have a non-empty HistoryId.");
+            if (entry.PointId != point.Id.ToString()) f.Add("Lifecycle entry PointId must match.");
+            if (entry.OldStatus != PointStatus.Active) f.Add("Lifecycle entry OldStatus must be Active.");
+            if (entry.NewStatus != PointStatus.Inactive) f.Add("Lifecycle entry NewStatus must be Inactive.");
+            if (entry.ActorId != "admin-user") f.Add("Lifecycle entry ActorId must come from trusted command context.");
+            if (entry.ActorUsername != "admin@life") f.Add("Lifecycle entry ActorUsername must come from resolved caller snapshot.");
+            if (string.IsNullOrWhiteSpace(entry.Reason)) f.Add("Lifecycle entry should have a safe reason.");
+            if (entry.OccurredAt.Kind != DateTimeKind.Utc) f.Add("Lifecycle entry OccurredAt must be UTC.");
+            if (entry.CorrelationId != "life-corr") f.Add("Lifecycle entry CorrelationId must match command context.");
+            if (entry.CausationId != "life-caus") f.Add("Lifecycle entry CausationId must match command context.");
+        }
+
+        var persisted = repo.GetPointAsync(point.Id).GetAwaiter().GetResult();
+        if (persisted!.Status != PointStatus.Inactive) f.Add("Point status must be Inactive after transition.");
+        if (persisted.Version != 2) f.Add("Point version must increment after transition.");
+
+        // No-op: already Inactive
+        var noopHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var noopResult = noopHandler.HandleAsync(new UpdatePointStatusCommand(point.Id, "inactivate", 2, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (noopResult.IsSuccess) f.Add("Inactivating an already-Inactive Point must be rejected.");
+        var historyAfterNoop = repo.GetLifecycleForPointAsync(point.Id.ToString()).GetAwaiter().GetResult();
+        if (historyAfterNoop.Count != 1) f.Add("Rejected inactivation must not append additional history.");
+        if (noopHandler.HasEvents) f.Add("Rejected inactivation must not emit an event.");
+
+        // Stale ExpectedVersion returns VERSION_CONFLICT with no history/event
+        var staleHandler = new OrganizationCommandHandler(repo, auth, new TestRunningSimulatorQuery());
+        var staleResult = staleHandler.HandleAsync(new UpdatePointStatusCommand(point.Id, "inactivate", 1, "admin-user"), ctx)
+            .GetAwaiter().GetResult();
+        if (staleResult.Code != "VERSION_CONFLICT") f.Add("Stale ExpectedVersion on inactivation must return VERSION_CONFLICT.");
+        var historyAfterStale = repo.GetLifecycleForPointAsync(point.Id.ToString()).GetAwaiter().GetResult();
+        if (historyAfterStale.Count != 1) f.Add("Stale version inactivation must not append history.");
+        if (staleHandler.HasEvents) f.Add("Stale version inactivation must not emit an event.");
+
         return f;
     }
 }
