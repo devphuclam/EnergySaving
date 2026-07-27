@@ -1,33 +1,39 @@
 using IUMP.Modules.Organization.Contracts;
-using IUMP.Modules.Organization.Domain;
 
 namespace IUMP.Modules.IAM.Application;
 
+public sealed record PostSiteFixtureResult(bool IsSuccess, string Code, string? Error)
+{
+    public bool IsFailure => !IsSuccess;
+    public static PostSiteFixtureResult Success() => new(true, string.Empty, null);
+    public static PostSiteFixtureResult Failure(string code, string error) => new(false, code, error);
+}
+
 public sealed class PostSiteFixtureOrganizationAdapter
 {
-    private readonly IOrganizationCommandRepository _orgRepo;
+    private readonly IOrganizationQueryRepository _organizationQueries;
+    private readonly IPocIdentityFixture _fixture;
 
-    public PostSiteFixtureOrganizationAdapter(IOrganizationCommandRepository orgRepo)
+    public PostSiteFixtureOrganizationAdapter(IOrganizationQueryRepository organizationQueries,
+        IPocIdentityFixture fixture)
     {
-        _orgRepo = orgRepo;
+        _organizationQueries = organizationQueries;
+        _fixture = fixture;
     }
 
-    public async Task<Result> ExecuteAsync(string siteIdStr, CancellationToken ct = default)
+    public async Task<PostSiteFixtureResult> ExecuteAsync(string siteIdString, CancellationToken ct = default)
     {
-        if (!Guid.TryParse(siteIdStr, out var guid))
-            return Result.Failure("NotFound", "Invalid Site ID.");
-        var siteId = new SiteId(guid);
-        var site = await _orgRepo.GetSiteAsync(siteId, ct);
-        if (site is null)
-            return Result.Failure("NotFound", "Site not found.");
+        if (!Guid.TryParse(siteIdString, out var siteId) || siteId == Guid.Empty)
+            return PostSiteFixtureResult.Failure("NotFound", "Site not found.");
 
-        // Verify Site identity/version
+        var site = await _organizationQueries.GetSiteSnapshotAsync(siteId, ct);
+        if (site is null || site.Id != siteId)
+            return PostSiteFixtureResult.Failure("NotFound", "Site not found.");
         if (site.Version <= 0)
-            return Result.Failure("Validation", "Site version is invalid.");
+            return PostSiteFixtureResult.Failure("Validation", "Site version is invalid.");
 
-        // In a real implementation, this would invoke IAM's post-Site fixture
-        // to assign Engineer/Operator/Manager/Viewer scopes idempotently.
-        // Phase 3 implements only the Organization public-contract surface.
-        return Result.Success();
+        return await _fixture.ApplyPostSiteFixtureAsync(siteId, ct)
+            ? PostSiteFixtureResult.Success()
+            : PostSiteFixtureResult.Failure("FixtureUnavailable", "Post-Site fixture could not be applied.");
     }
 }

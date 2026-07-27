@@ -1,3 +1,5 @@
+using IUMP.Modules.Organization.Application;
+using IUMP.Modules.Organization.Contracts;
 using IUMP.Modules.Organization.Domain;
 using IUMP.Tests.Unit.Fakes;
 
@@ -9,79 +11,71 @@ public static class DecommissionTests
     {
         var failures = new List<string>();
         var repo = new FakeOrganizationCommandRepository();
-        var (siteId, areaId, assetId, pointIds) = Setup(repo);
+        var (site, area, asset) = Setup(repo);
+        var caller = new OrganizationCallerSnapshot("admin", "admin@example", true,
+            new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>());
+        var auth = new FakeOrganizationAuthorization(caller);
 
-        // Asset decommission with no Active Point succeeds
-        var assetNoActive = new Asset(AssetId.New(), siteId, areaId, "ASSET-NO-ACTIVE", "No Active Child", null, AssetStatus.Active, 1);
-        repo.AddAssetAsync(assetNoActive).GetAwaiter().GetResult();
-        var np = new MeasurementPoint(PointId.New(), siteId, areaId, assetNoActive.Id, "NP-01", null,
-            "M", "U", "u", 60, 300, PointStatus.Inactive, 1);
-        repo.AddPointAsync(np).GetAwaiter().GetResult();
-        var decommissioned = assetNoActive.TryDecommission();
-        if (!decommissioned) failures.Add("Asset decommission with no Active Point should succeed");
-        repo.UpdateAssetAsync(assetNoActive).GetAwaiter().GetResult();
+        var quietAsset = new Asset(AssetId.New(), site.Id, area.Id, "ASSET-QUIET", "Quiet", null, AssetStatus.Active, 1);
+        repo.AddAssetAsync(quietAsset).GetAwaiter().GetResult();
+        repo.AddPointAsync(new MeasurementPoint(PointId.New(), site.Id, area.Id, quietAsset.Id, "QUIET-PT", null,
+            "M", "U", "owner", 60, 300, PointStatus.Inactive, 1)).GetAwaiter().GetResult();
+        var quietResult = new OrganizationCommandHandler(repo, auth)
+            .HandleAsync(new DecommissionAssetCommand(quietAsset.Id, "admin"), new OrganizationCommandContext("admin", "c1", "x1"))
+            .GetAwaiter().GetResult();
+        if (quietResult.IsFailure || repo.GetAssetAsync(quietAsset.Id).GetAwaiter().GetResult()?.Status != AssetStatus.Decommissioned)
+            failures.Add("Asset decommission with no Active child Point should succeed.");
 
-        // Asset decommission with Active Point fails atomically
-        assetId = AssetId.New();
-        var assetWithActive = new Asset(assetId, siteId, areaId, "ASSET-ACTIVE", "Active Child", null, AssetStatus.Active, 1);
-        repo.AddAssetAsync(assetWithActive).GetAwaiter().GetResult();
-        var activePt = new MeasurementPoint(PointId.New(), siteId, areaId, assetWithActive.Id, "AP-01", null,
-            "M", "U", "u", 60, 300, PointStatus.Active, 1);
-        repo.AddPointAsync(activePt).GetAwaiter().GetResult();
-        var children = repo.GetPointsForAssetAsync(assetWithActive.Id).GetAwaiter().GetResult();
-        var canDecom = DecommissionPolicy.CanDecommissionAsset(assetWithActive, children);
-        if (canDecom) failures.Add("Asset with Active child must fail decommission policy check");
+        var activeAsset = new Asset(AssetId.New(), site.Id, area.Id, "ASSET-ACTIVE", "Active Child", null, AssetStatus.Active, 1);
+        repo.AddAssetAsync(activeAsset).GetAwaiter().GetResult();
+        var activePoint = new MeasurementPoint(PointId.New(), site.Id, area.Id, activeAsset.Id, "ACTIVE-PT", null,
+            "M", "U", "owner", 60, 300, PointStatus.Active, 1);
+        repo.AddPointAsync(activePoint).GetAwaiter().GetResult();
+        var rejectedAsset = new OrganizationCommandHandler(repo, auth)
+            .HandleAsync(new DecommissionAssetCommand(activeAsset.Id, "admin"), new OrganizationCommandContext("admin", "c2", "x2"))
+            .GetAwaiter().GetResult();
+        if (rejectedAsset.IsSuccess || repo.GetPointAsync(activePoint.Id).GetAwaiter().GetResult()?.Status != PointStatus.Active)
+            failures.Add("Asset with Active child Point must fail atomically without cascade.");
 
-        // No child cascade
-        var childStillActive = repo.GetPointAsync(activePt.Id).GetAwaiter().GetResult()!;
-        if (childStillActive.IsActive != true)
-            failures.Add("Failed Asset decommission must not cascade to child Point");
+        var running = new SimulatorQuery(true);
+        var runningHandler = new OrganizationCommandHandler(repo, auth, running);
+        var runningResult = runningHandler.HandleAsync(new DecommissionPointCommand(activePoint.Id, "admin"),
+            new OrganizationCommandContext("admin", "c3", "x3")).GetAwaiter().GetResult();
+        if (runningResult.Code != "RUNNING_SIMULATOR" || runningHandler.HasEvents)
+            failures.Add("Running Simulator must block Point decommission without an event.");
 
-        // Point decommission with Running Simulator fails
-        var pointToDecom = repo.GetPointAsync(pointIds[0]).GetAwaiter().GetResult()!;
-        if (DecommissionPolicy.CanDecommissionPoint(pointToDecom, true))
-            failures.Add("Point decommission must fail when simulator is Running");
+        var clearHandler = new OrganizationCommandHandler(repo, auth, new SimulatorQuery(false));
+        var clearResult = clearHandler.HandleAsync(new DecommissionPointCommand(activePoint.Id, "admin"),
+            new OrganizationCommandContext("admin", "c4", "x4")).GetAwaiter().GetResult();
+        var history = repo.GetLifecycleForPointAsync(activePoint.Id.ToString()).GetAwaiter().GetResult();
+        if (clearResult.IsFailure || history.Count != 1 || history[0].OldStatus != PointStatus.Active ||
+            history[0].ActorUsername != "admin@example" || clearHandler.Events.Count != 1)
+            failures.Add("Accepted Point decommission must write one history row with actual old status and actor username.");
 
-        // Successful Point decommission after dependency clears
-        if (!DecommissionPolicy.CanDecommissionPoint(pointToDecom, false))
-            failures.Add("Point decommission must succeed when no Running simulator");
-        var decomResult = pointToDecom.TryDecommission();
-        if (!decomResult) failures.Add("Point decommission should succeed");
-        repo.UpdatePointAsync(pointToDecom).GetAwaiter().GetResult();
-
-        // Decommissioned terminal
-        if (!pointToDecom.IsDecommissioned) failures.Add("Decommissioned Point status must be terminal");
-        if (pointToDecom.TryDecommission()) failures.Add("Already decommissioned Point must not change");
-        if (pointToDecom.TryActivate()) failures.Add("Decommissioned Point must not reactivate");
-
-        // Lifecycle-history append on accepted Point transition
-        var history = repo.GetLifecycleForPointAsync(pointToDecom.Id.ToString()).GetAwaiter().GetResult();
-        var decomEntry = history.FirstOrDefault(e => e.NewStatus == PointStatus.Decommissioned);
-        if (decomEntry is null) failures.Add("Accepted decommission must append lifecycle history");
-
-        // No history/event after rejected decommission
-        if (pointToDecom.TryDecommission()) failures.Add("Already decommissioned Point TryDecommission must return false");
-        var historyAfterNoop = repo.GetLifecycleForPointAsync(pointToDecom.Id.ToString()).GetAwaiter().GetResult();
-        var decomCount = historyAfterNoop.Count(e => e.NewStatus == PointStatus.Decommissioned);
-        if (decomCount != 1) failures.Add("Rejected decommission must not create additional history");
+        var noopHandler = new OrganizationCommandHandler(repo, auth, new SimulatorQuery(false));
+        var noop = noopHandler.HandleAsync(new DecommissionPointCommand(activePoint.Id, "admin"),
+            new OrganizationCommandContext("admin", "c5", "x5")).GetAwaiter().GetResult();
+        if (noop.IsSuccess || repo.GetLifecycleForPointAsync(activePoint.Id.ToString()).GetAwaiter().GetResult().Count != 1 || noopHandler.HasEvents)
+            failures.Add("Rejected terminal Point decommission must not append history or emit an event.");
 
         return failures;
     }
 
-    private static (SiteId, AreaId, AssetId, List<PointId>) Setup(FakeOrganizationCommandRepository repo)
+    private static (Site site, Area area, Asset asset) Setup(FakeOrganizationCommandRepository repo)
     {
-        var siteId = SiteId.New();
-        var site = new Site(siteId, "DECOM-SITE", "Decom Site", null, "UTC", SiteStatus.Active, 1);
+        var site = new Site(SiteId.New(), "DECOM-SITE", "Decom Site", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "DECOM-AREA", "Decom Area", null, AreaStatus.Active, 1);
+        var asset = new Asset(AssetId.New(), site.Id, area.Id, "DECOM-ASSET", "Decom Asset", null, AssetStatus.Active, 1);
         repo.AddSiteAsync(site).GetAwaiter().GetResult();
-        var areaId = AreaId.New();
-        var area = new Area(areaId, siteId, "DECOM-AREA", "Decom Area", null, AreaStatus.Active, 1);
         repo.AddAreaAsync(area).GetAwaiter().GetResult();
-        var assetId = AssetId.New();
-        var asset = new Asset(assetId, siteId, areaId, "DECOM-ASSET", "Decom Asset", null, AssetStatus.Active, 1);
         repo.AddAssetAsync(asset).GetAwaiter().GetResult();
-        var pt1 = new MeasurementPoint(PointId.New(), siteId, areaId, assetId, "DECOM-PT1", null,
-            "M", "U", "u", 60, 300, PointStatus.Active, 1);
-        repo.AddPointAsync(pt1).GetAwaiter().GetResult();
-        return (siteId, areaId, assetId, new List<PointId> { pt1.Id });
+        return (site, area, asset);
+    }
+
+    private sealed class SimulatorQuery : IRunningSimulatorQuery
+    {
+        private readonly bool _running;
+        public SimulatorQuery(bool running) => _running = running;
+        public Task<bool> HasRunningSimulatorAsync(string pointId, CancellationToken ct = default) => Task.FromResult(_running);
     }
 }

@@ -7,84 +7,63 @@ namespace IUMP.Tests.Unit.Organization;
 
 public static class HierarchyQueryTests
 {
-    private static OrganizationCallerSnapshot AdminCaller() => new("admin", "Admin", true,
-        new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>());
-
     public static List<string> Run()
     {
         var failures = new List<string>();
-        var repo = new FakeOrganizationCommandRepository();
+        var commands = new FakeOrganizationCommandRepository();
+        var queries = new FakeOrganizationQueryRepository(commands);
+        var siteA = new Site(SiteId.New(), "SITE-A", "Site A", null, "UTC", SiteStatus.Active, 1);
+        var siteB = new Site(SiteId.New(), "SITE-B", "Site B", null, "UTC", SiteStatus.Active, 1);
+        commands.AddSiteAsync(siteA).GetAwaiter().GetResult();
+        commands.AddSiteAsync(siteB).GetAwaiter().GetResult();
+        var a1 = new Area(AreaId.New(), siteA.Id, "AREA-B", "Area B", null, AreaStatus.Active, 1);
+        var a2 = new Area(AreaId.New(), siteA.Id, "AREA-A", "Area A", null, AreaStatus.Active, 1);
+        var b1 = new Area(AreaId.New(), siteB.Id, "AREA-B1", "Area B1", null, AreaStatus.Active, 1);
+        commands.AddAreaAsync(a1).GetAwaiter().GetResult();
+        commands.AddAreaAsync(a2).GetAwaiter().GetResult();
+        commands.AddAreaAsync(b1).GetAwaiter().GetResult();
+        var asset = new Asset(AssetId.New(), siteA.Id, a2.Id, "ASSET-A", "Asset A", null, AssetStatus.Active, 1);
+        commands.AddAssetAsync(asset).GetAwaiter().GetResult();
+        var point = new MeasurementPoint(PointId.New(), siteA.Id, a2.Id, asset.Id, "POINT-A", null, "M", "U", "owner", 60, 300, PointStatus.Draft, 1);
+        commands.AddPointAsync(point).GetAwaiter().GetResult();
 
-        // Setup sites owned by different site IDs
-        var siteAId = SiteId.New();
-        var siteAStr = siteAId.ToString();
-        var siteBId = SiteId.New();
-        var siteBStr = siteBId.ToString();
-
-        var siteA = new Site(siteAId, "SITE-A", "Site A", null, "UTC", SiteStatus.Active, 1);
-        var siteB = new Site(siteBId, "SITE-B", "Site B", null, "UTC", SiteStatus.Active, 1);
-        repo.AddSiteAsync(siteA).GetAwaiter().GetResult();
-        repo.AddSiteAsync(siteB).GetAwaiter().GetResult();
-
-        // Administrator global query
-        var adminScope = new OrganizationScopeFilterService();
-        var adminSites = adminScope.ResolveSiteScopes("admin", new[] { "Administrator" },
-            Array.Empty<string>(), Array.Empty<string>());
-        if (adminSites.Count != 0) failures.Add("Administrator should have empty (all) site scopes");
-
-        // Site scope
-        var siteAScopes = adminScope.ResolveSiteScopes("eng-a", new[] { "Engineer" },
-            new[] { siteAStr }, Array.Empty<string>());
-        if (siteAScopes.Count != 1 || !siteAScopes.Contains(siteAStr))
-            failures.Add("Site-scoped Engineer must resolve to their single Site");
-
-        // Area scope
-        var areaScope = adminScope.ResolveSiteScopes("eng-a", new[] { "Engineer" },
-            new[] { siteAStr }, new[] { "area-1" });
-        if (areaScope.Count != 1 || !areaScope.Contains(siteAStr))
-            failures.Add("Area-scoped user must still resolve to parent Site");
-
-        // Filtering before paging — integration tests cover this with the runner
-        // No out-of-scope rows
-        var authSiteA = new FakeOrganizationAuthorization(new OrganizationCallerSnapshot("eng-a", "Engineer A", true,
-            new[] { "Engineer" }, new[] { siteAStr }, Array.Empty<string>()));
-        var handlerA = new OrganizationCommandHandler(repo, authSiteA);
-        var ctxA = new OrganizationCommandContext("eng-a", null, null);
-        handlerA.HandleAsync(new CreateAreaCommand(siteAId, "AREA-A1", "Area A1", null, "eng-a"), ctxA).GetAwaiter().GetResult();
-        handlerA.HandleAsync(new CreateAreaCommand(siteAId, "AREA-A2", "Area A2", null, "eng-a"), ctxA).GetAwaiter().GetResult();
-
-        var authSiteB = new FakeOrganizationAuthorization(new OrganizationCallerSnapshot("eng-b", "Engineer B", true,
-            new[] { "Engineer" }, new[] { siteBStr }, Array.Empty<string>()));
-        var handlerB = new OrganizationCommandHandler(repo, authSiteB);
-        var ctxB = new OrganizationCommandContext("eng-b", null, null);
-        handlerB.HandleAsync(new CreateAreaCommand(siteBId, "AREA-B1", "Area B1", null, "eng-b"), ctxB).GetAwaiter().GetResult();
-
-        var areasForA = repo.GetAreasForSiteAsync(siteAId).GetAwaiter().GetResult();
-        if (areasForA.Count != 2) failures.Add("Site A should have 2 Areas");
-        if (areasForA.Any(a => a.Code != "AREA-A1" && a.Code != "AREA-A2"))
-            failures.Add("Site A should only contain its own Areas");
-
-        // No out-of-scope counts
-        var areasForB = repo.GetAreasForSiteAsync(siteBId).GetAwaiter().GetResult();
-        if (areasForB.Count != 1) failures.Add("Site B should have 1 Area");
-        if (areasForB.Any(a => a.Code != "AREA-B1"))
-            failures.Add("Site B should only contain its own Areas");
-
-        // No out-of-scope child summary leakage
-        var allAreas = repo.GetAreasForSiteAsync(siteAId).GetAwaiter().GetResult();
-        if (allAreas.Any(a => a.Code.StartsWith("AREA-B")))
-            failures.Add("Site A query must not leak Site B Areas");
-
-        // Deterministic ordering
-        var areas = repo.GetAreasForSiteAsync(siteAId).GetAwaiter().GetResult();
-        for (int i = 1; i < areas.Count; i++)
+        var callers = new Dictionary<string, OrganizationCallerSnapshot>(StringComparer.Ordinal)
         {
-            if (string.Compare(areas[i - 1].Code, areas[i].Code, StringComparison.Ordinal) > 0)
-            {
-                // This is informational, not necessarily a failure unless strict
-            }
-        }
+            ["admin"] = new("admin", "Administrator", true, new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>()),
+            ["site-a"] = new("site-a", "Site A Engineer", true, new[] { "Engineer" }, new[] { siteA.Id.ToString() }, Array.Empty<string>()),
+            ["area-a"] = new("area-a", "Area A Engineer", true, new[] { "Engineer" }, Array.Empty<string>(), new[] { a2.Id.ToString() }),
+            ["site-b"] = new("site-b", "Site B Engineer", true, new[] { "Engineer" }, new[] { siteB.Id.ToString() }, Array.Empty<string>())
+        };
+        var service = new OrganizationQueryService(queries, new CallerProvider(callers));
+
+        var global = service.GetSitesAsync("admin", new ScopeFilter(1, 10)).GetAwaiter().GetResult();
+        if (global.TotalCount != 2 || global.Items.Any(s => s.AreaCount == 0))
+            failures.Add("Administrator query must see all Sites and child Area summaries.");
+
+        var scoped = service.GetAreasAsync("site-a", siteA.Id.Value, new ScopeFilter(1, 1)).GetAwaiter().GetResult();
+        if (scoped.TotalCount != 2 || scoped.Items.Count != 1 || scoped.Items[0].Code != "AREA-A")
+            failures.Add("Site scope must filter before paging and preserve deterministic code order.");
+
+        var areaScoped = service.GetAssetsAsync("area-a", a2.Id.Value, new ScopeFilter(1, 10)).GetAwaiter().GetResult();
+        if (areaScoped.TotalCount != 1 || areaScoped.Items[0].PointCount != 1)
+            failures.Add("Area scope must include descendants and child Point summaries.");
+
+        var outOfScope = service.GetAreaAsync("site-b", a2.Id.Value).GetAwaiter().GetResult();
+        if (outOfScope is not null)
+            failures.Add("Out-of-scope detail must be indistinguishable from NotFound.");
+
+        var siteBRows = service.GetSitesAsync("site-b", new ScopeFilter(1, 10)).GetAwaiter().GetResult();
+        if (siteBRows.TotalCount != 1 || siteBRows.Items[0].Id != siteB.Id.Value)
+            failures.Add("Scoped query must not leak another Site.");
 
         return failures;
+    }
+
+    private sealed class CallerProvider : IOrganizationCallerSnapshotProvider
+    {
+        private readonly IReadOnlyDictionary<string, OrganizationCallerSnapshot> _callers;
+        public CallerProvider(IReadOnlyDictionary<string, OrganizationCallerSnapshot> callers) => _callers = callers;
+        public Task<OrganizationCallerSnapshot?> ResolveAsync(string userId, CancellationToken ct = default) =>
+            Task.FromResult(_callers.TryGetValue(userId, out var caller) ? caller : null);
     }
 }

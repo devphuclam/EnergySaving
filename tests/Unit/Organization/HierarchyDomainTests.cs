@@ -41,17 +41,13 @@ public static class HierarchyDomainTests
         // Point code uniqueness within Site
         var pointId = PointId.New();
         var point = new MeasurementPoint(pointId, siteId, areaId, assetId, "PT-01", null,
-            "METRIC-1", "UNIT-1", "user-1", 60, 300, PointStatus.Draft, 1);
+            "METRIC-1", "UNIT-1", "user-1", 60, 300, PointStatus.Active, 1);
         repo.AddPointAsync(point).GetAwaiter().GetResult();
         ExpectFail(() => repo.AddPointAsync(new MeasurementPoint(PointId.New(), siteId, areaId, assetId, "pt-01", null,
             "METRIC-1", "UNIT-1", "user-1", 60, 300, PointStatus.Draft, 1)).GetAwaiter().GetResult(),
             failures, "Point duplicate code within Site must be rejected");
 
         // Point code remains reserved after decommission
-        point = repo.GetPointAsync(pointId).GetAwaiter().GetResult()!;
-        // Activate then decommission
-        if (!point.TryActivate()) failures.Add("Point should activate first");
-        repo.UpdatePointAsync(point).GetAwaiter().GetResult();
         point = repo.GetPointAsync(pointId).GetAwaiter().GetResult()!;
         var decommissioned = point.TryDecommission();
         if (!decommissioned)
@@ -118,12 +114,11 @@ public static class HierarchyDomainTests
         if (!assetToActivate.TryActivate()) failures.Add("Draft Asset under Active Area should activate");
         repo.UpdateAssetAsync(assetToActivate).GetAwaiter().GetResult();
 
-        // Point activation at domain level (status transition only)
+        // Point activation is intentionally deferred to the Phase 5 orchestrator.
         var freshPtFromRepo = repo.GetPointAsync(freshPtId).GetAwaiter().GetResult()!;
-        if (!freshPtFromRepo.TryActivate()) failures.Add("Draft Point should activate at domain level");
-        // Domain-level TryActivate succeeds even when parent is inactive
+        if (freshPtFromRepo.Status != PointStatus.Draft) failures.Add("Draft Point must remain Draft before Phase 5 orchestration");
         var ptUnderDraft = repo.GetPointAsync(draftPoint.Id).GetAwaiter().GetResult()!;
-        if (!ptUnderDraft.TryActivate()) failures.Add("Draft Point under Draft parent should activate at domain level");
+        if (ptUnderDraft.Status != PointStatus.Draft) failures.Add("Point under Draft parent must remain Draft before Phase 5");
 
         // Rejected/no-op transitions preserve state/version
         var versionBefore = siteActive.Version;

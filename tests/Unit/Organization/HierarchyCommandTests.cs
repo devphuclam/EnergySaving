@@ -28,6 +28,9 @@ public sealed class FakeOrganizationAuthorization : IOrganizationAuthorization
             ? OrganizationAuthorizationDecision.Allowed()
             : OrganizationAuthorizationDecision.NotFound());
     }
+
+    public Task<OrganizationCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default) =>
+        Task.FromResult(_caller);
 }
 
 public static class HierarchyCommandTests
@@ -69,6 +72,10 @@ public static class HierarchyCommandTests
         failures.AddRange(DistinctCorrelationCausation());
         // No-op/rejected commands emit no event
         failures.AddRange(NoOpEmitsNoEvent());
+        failures.AddRange(AllFiveRolesAreEvaluated());
+        failures.AddRange(CreateCommandsRejectSpoofedAncestry());
+        failures.AddRange(PointActivationDeferredToPhaseFive());
+        failures.AddRange(ActorUsernameIsSnapshotted());
 
         return failures;
     }
@@ -282,6 +289,84 @@ public static class HierarchyCommandTests
         handler.HandleAsync(new UpdateSiteStatusCommand(siteId, "activate", "admin-user"), AdminCtx).GetAwaiter().GetResult();
         if (handler.HasEvents) f.Add("Activating an already-Active Site must produce no event");
 
+        return f;
+    }
+
+    private static List<string> AllFiveRolesAreEvaluated()
+    {
+        var f = new List<string>();
+        var repo = new FakeOrganizationCommandRepository();
+        var siteId = SiteId.New();
+        repo.AddSiteAsync(new Site(siteId, "ROLES-SITE", "Roles", null, "UTC", SiteStatus.Active, 1)).GetAwaiter().GetResult();
+        foreach (var role in new[] { "Operator", "Manager", "Viewer" })
+        {
+            var caller = new OrganizationCallerSnapshot(role.ToLowerInvariant(), role, true,
+                new[] { role }, new[] { siteId.ToString() }, Array.Empty<string>());
+            var result = new OrganizationCommandHandler(repo, new FakeOrganizationAuthorization(caller))
+                .HandleAsync(new CreateAreaCommand(siteId, $"AREA-{role}", role, null, caller.UserId),
+                    new OrganizationCommandContext(caller.UserId, null, null)).GetAwaiter().GetResult();
+            if (result.IsSuccess) f.Add($"{role} must not mutate Organization hierarchy.");
+        }
+        return f;
+    }
+
+    private static List<string> CreateCommandsRejectSpoofedAncestry()
+    {
+        var f = new List<string>();
+        var repo = new FakeOrganizationCommandRepository();
+        var siteA = new Site(SiteId.New(), "SPOOF-A", "A", null, "UTC", SiteStatus.Active, 1);
+        var siteB = new Site(SiteId.New(), "SPOOF-B", "B", null, "UTC", SiteStatus.Active, 1);
+        var areaB = new Area(AreaId.New(), siteB.Id, "SPOOF-AREA", "B", null, AreaStatus.Active, 1);
+        var assetB = new Asset(AssetId.New(), siteB.Id, areaB.Id, "SPOOF-ASSET", "B", null, AssetStatus.Active, 1);
+        repo.AddSiteAsync(siteA).GetAwaiter().GetResult(); repo.AddSiteAsync(siteB).GetAwaiter().GetResult();
+        repo.AddAreaAsync(areaB).GetAwaiter().GetResult(); repo.AddAssetAsync(assetB).GetAwaiter().GetResult();
+        var auth = new FakeOrganizationAuthorization(new OrganizationCallerSnapshot("admin-user", "Admin", true,
+            new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>()));
+        var handler = new OrganizationCommandHandler(repo, auth);
+        var assetResult = handler.HandleAsync(new CreateAssetCommand(siteA.Id, areaB.Id, "SPOOF-NEW", "New", null, "admin-user"), AdminCtx)
+            .GetAwaiter().GetResult();
+        var pointResult = handler.HandleAsync(new CreatePointCommand(siteA.Id, AreaId.New(), assetB.Id, "SPOOF-POINT", null,
+            "M", "U", "owner", 60, 300, "admin-user"), AdminCtx).GetAwaiter().GetResult();
+        if (assetResult.Code != "NotFound" || pointResult.Code != "NotFound")
+            f.Add("CreateAsset/CreatePoint must reject command-supplied ancestry that conflicts with trusted parents.");
+        return f;
+    }
+
+    private static List<string> PointActivationDeferredToPhaseFive()
+    {
+        var f = new List<string>();
+        var repo = new FakeOrganizationCommandRepository();
+        var site = new Site(SiteId.New(), "PHASE5-SITE", "Phase5", null, "UTC", SiteStatus.Active, 1);
+        var area = new Area(AreaId.New(), site.Id, "PHASE5-AREA", "Area", null, AreaStatus.Active, 1);
+        var asset = new Asset(AssetId.New(), site.Id, area.Id, "PHASE5-ASSET", "Asset", null, AssetStatus.Active, 1);
+        var point = new MeasurementPoint(PointId.New(), site.Id, area.Id, asset.Id, "PHASE5-POINT", null,
+            "M", "U", "owner", 60, 300, PointStatus.Draft, 1);
+        repo.AddSiteAsync(site).GetAwaiter().GetResult(); repo.AddAreaAsync(area).GetAwaiter().GetResult();
+        repo.AddAssetAsync(asset).GetAwaiter().GetResult(); repo.AddPointAsync(point).GetAwaiter().GetResult();
+        var auth = new FakeOrganizationAuthorization(AdminCaller());
+        foreach (var action in new[] { "activate", "reactivate" })
+        {
+            var handler = new OrganizationCommandHandler(repo, auth);
+            var result = handler.HandleAsync(new UpdatePointStatusCommand(point.Id, action, "admin-user"), AdminCtx)
+                .GetAwaiter().GetResult();
+            if (result.Code != "PHASE5_REQUIRED" || handler.HasEvents) f.Add($"Point {action} must be deferred to Phase 5 with no event.");
+        }
+        var persisted = repo.GetPointAsync(point.Id).GetAwaiter().GetResult();
+        if (persisted?.Status != PointStatus.Draft) f.Add("Deferred Point activation must not change status.");
+        return f;
+    }
+
+    private static List<string> ActorUsernameIsSnapshotted()
+    {
+        var f = new List<string>();
+        var repo = new FakeOrganizationCommandRepository();
+        var caller = new OrganizationCallerSnapshot("admin-user", "admin@example", true,
+            new[] { "Administrator" }, Array.Empty<string>(), Array.Empty<string>());
+        var handler = new OrganizationCommandHandler(repo, new FakeOrganizationAuthorization(caller));
+        handler.HandleAsync(new CreateSiteCommand("ACTOR-SITE", "Actor", null, "UTC", "admin-user"), AdminCtx)
+            .GetAwaiter().GetResult();
+        if (handler.Events.SingleOrDefault()?.ActorUsername != "admin@example")
+            f.Add("Organization events must snapshot the resolved actor username.");
         return f;
     }
 }

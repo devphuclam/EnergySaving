@@ -3,38 +3,41 @@ using IUMP.Modules.Organization.Domain;
 namespace IUMP.Modules.Organization.Contracts;
 
 public sealed record SiteSnapshot(
-    SiteId Id,
+    Guid Id,
     string Code,
     string Name,
     string? Description,
     string Timezone,
     SiteStatus Status,
-    long Version);
+    long Version,
+    int AreaCount = 0);
 
 public sealed record AreaSnapshot(
-    AreaId Id,
-    SiteId SiteId,
+    Guid Id,
+    Guid SiteId,
     string Code,
     string Name,
     string? Description,
     AreaStatus Status,
-    long Version);
+    long Version,
+    int AssetCount = 0);
 
 public sealed record AssetSnapshot(
-    AssetId Id,
-    SiteId SiteId,
-    AreaId AreaId,
+    Guid Id,
+    Guid SiteId,
+    Guid AreaId,
     string Code,
     string Name,
     string? Description,
     AssetStatus Status,
-    long Version);
+    long Version,
+    int PointCount = 0);
 
 public sealed record PointSnapshot(
-    PointId Id,
-    SiteId SiteId,
-    AreaId AreaId,
-    AssetId AssetId,
+    Guid Id,
+    Guid SiteId,
+    Guid AreaId,
+    Guid AssetId,
     string Code,
     string? Description,
     string MetricId,
@@ -47,26 +50,34 @@ public sealed record PointSnapshot(
 
 public sealed record ScopeFilter(int Page, int PageSize);
 
+public sealed record OrganizationQueryScope(
+    bool IsGlobal,
+    IReadOnlyCollection<Guid> SiteIds,
+    IReadOnlyCollection<Guid> AreaIds)
+{
+    public static OrganizationQueryScope Global() => new(true, Array.Empty<Guid>(), Array.Empty<Guid>());
+}
+
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 
 public interface IOrganizationQueryRepository
 {
-    Task<SiteSnapshot?> GetSiteSnapshotAsync(SiteId id, CancellationToken ct = default);
+    Task<SiteSnapshot?> GetSiteSnapshotAsync(Guid id, CancellationToken ct = default);
     Task<SiteSnapshot?> FindSiteByCodeAsync(string code, CancellationToken ct = default);
-    Task<PagedResult<SiteSnapshot>> GetSitesAsync(IReadOnlyCollection<string> scopeSiteIds, ScopeFilter filter, CancellationToken ct = default);
+    Task<PagedResult<SiteSnapshot>> GetSitesAsync(OrganizationQueryScope scope, ScopeFilter filter, CancellationToken ct = default);
 
-    Task<AreaSnapshot?> GetAreaSnapshotAsync(AreaId id, CancellationToken ct = default);
-    Task<PagedResult<AreaSnapshot>> GetAreasForSiteAsync(SiteId siteId, IReadOnlyCollection<string> scopeSiteIds, ScopeFilter filter, CancellationToken ct = default);
+    Task<AreaSnapshot?> GetAreaSnapshotAsync(Guid id, CancellationToken ct = default);
+    Task<PagedResult<AreaSnapshot>> GetAreasForSiteAsync(Guid siteId, OrganizationQueryScope scope, ScopeFilter filter, CancellationToken ct = default);
 
-    Task<AssetSnapshot?> GetAssetSnapshotAsync(AssetId id, CancellationToken ct = default);
-    Task<PagedResult<AssetSnapshot>> GetAssetsForAreaAsync(AreaId areaId, IReadOnlyCollection<string> scopeSiteIds, ScopeFilter filter, CancellationToken ct = default);
+    Task<AssetSnapshot?> GetAssetSnapshotAsync(Guid id, CancellationToken ct = default);
+    Task<PagedResult<AssetSnapshot>> GetAssetsForAreaAsync(Guid areaId, OrganizationQueryScope scope, ScopeFilter filter, CancellationToken ct = default);
 
-    Task<PointSnapshot?> GetPointSnapshotAsync(PointId id, CancellationToken ct = default);
-    Task<PagedResult<PointSnapshot>> GetPointsForAssetAsync(AssetId assetId, IReadOnlyCollection<string> scopeSiteIds, ScopeFilter filter, CancellationToken ct = default);
-    Task<PagedResult<PointSnapshot>> GetPointsForSiteAsync(SiteId siteId, IReadOnlyCollection<string> scopeSiteIds, ScopeFilter filter, CancellationToken ct = default);
+    Task<PointSnapshot?> GetPointSnapshotAsync(Guid id, CancellationToken ct = default);
+    Task<PagedResult<PointSnapshot>> GetPointsForAssetAsync(Guid assetId, OrganizationQueryScope scope, ScopeFilter filter, CancellationToken ct = default);
+    Task<PagedResult<PointSnapshot>> GetPointsForSiteAsync(Guid siteId, OrganizationQueryScope scope, ScopeFilter filter, CancellationToken ct = default);
 
-    Task<bool> SiteExistsAsync(SiteId id, CancellationToken ct = default);
-    Task<long> GetSiteVersionAsync(SiteId id, CancellationToken ct = default);
+    Task<bool> SiteExistsAsync(Guid id, CancellationToken ct = default);
+    Task<long> GetSiteVersionAsync(Guid id, CancellationToken ct = default);
 }
 
 public sealed record OrganizationCallerSnapshot(

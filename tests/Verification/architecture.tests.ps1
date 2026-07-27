@@ -126,6 +126,32 @@ if ($isCanonicalModuleRoot) {
     # Organization public surface includes Domain types (SiteId, AreaId, etc.)
     # consumed by IAM's PostSiteFixtureOrganizationAdapter. No internal reference
     # is expected from outside Organization.
+
+    $postSiteAdapter = Join-Path $ModuleRoot 'IAM\Application\PostSiteFixtureOrganizationAdapter.cs'
+    if (Test-Path -LiteralPath $postSiteAdapter) {
+        $adapterSource = Get-Content -LiteralPath $postSiteAdapter -Raw
+        if ($adapterSource -match 'IUMP\.Modules\.Organization\.(Domain|Application|Infrastructure)') {
+            throw 'IAM Post-Site adapter may consume only Organization.Contracts.'
+        }
+        if ($adapterSource -match 'IOrganizationCommandRepository') {
+            throw 'IAM Post-Site adapter must not depend on Organization command persistence.'
+        }
+    }
+
+    $t071Runner = Join-Path $repoRoot 'tests\Integration\Organization\OrganizationRepositoryTests.cs'
+    if (Test-Path -LiteralPath $t071Runner) {
+        $runnerSource = Get-Content -LiteralPath $t071Runner -Raw
+        if ($runnerSource -match 'FakeOrganization(CommandRepository|Transaction)|as\s+FakeOrganization') {
+            throw 'T071 contract runner must remain provider-neutral and must not cast to a fake.'
+        }
+    }
+
+    $hierarchyCommands = Join-Path $ModuleRoot 'Organization\Application\HierarchyCommands.cs'
+    $hierarchySource = Get-Content -LiteralPath $hierarchyCommands -Raw
+    $pointStatusBlock = [regex]::Match($hierarchySource, '(?s)HandleAsync\(UpdatePointStatusCommand.*?(?=private async Task|\z)').Value
+    if ($pointStatusBlock -match '"activate"\s*=>|"reactivate"\s*=>') {
+        throw 'Normal Point activate/reactivate command paths must remain deferred to Phase 5.'
+    }
 }
 
 Write-Output 'PASS: architecture boundary contract'

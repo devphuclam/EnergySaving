@@ -306,20 +306,3 @@ public sealed record PointActivationPrerequisites(
     bool IntervalValid,
     bool DataOwnerActive,
     bool HasExactlyOneActiveMapping);
-
-public sealed class DecommissionPolicy
-{
-    public static bool CanDecommissionAsset(Asset asset, IReadOnlyList<MeasurementPoint> childPoints)
-    {
-        if (asset.IsDecommissioned) return false;
-        if (childPoints.Any(p => p.IsActive)) return false;
-        return true;
-    }
-
-    public static bool CanDecommissionPoint(MeasurementPoint point, bool hasRunningSimulator)
-    {
-        if (point.IsDecommissioned) return false;
-        if (hasRunningSimulator) return false;
-        return true;
-    }
-}

@@ -51,6 +51,8 @@ public interface IOrganizationAuthorization
         OrganizationResource resource,
         string? targetSiteId = null,
         CancellationToken ct = default);
+
+    Task<OrganizationCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default);
 }
 
 public sealed class OrganizationRoleScopeAuthorization : IOrganizationAuthorization
@@ -75,6 +77,9 @@ public sealed class OrganizationRoleScopeAuthorization : IOrganizationAuthorizat
             return caller.SiteScopes.Count > 0 ? OrganizationAuthorizationDecision.Allowed() : OrganizationAuthorizationDecision.Forbidden();
         return caller.HasSiteScope(targetSiteId) ? OrganizationAuthorizationDecision.Allowed() : OrganizationAuthorizationDecision.NotFound();
     }
+
+    public Task<OrganizationCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default) =>
+        _provider.ResolveAsync(requestedByUserId, ct);
 }
 
 public interface IRunningSimulatorQuery
@@ -130,10 +135,10 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(UpdateSiteStatusCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.RootSite, cmd.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var site = await _repo.GetSiteAsync(cmd.SiteId, ct);
         if (site is null) return Result.Failure("NotFound", "Site not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.RootSite, site.Id.ToString(), ct);
-        if (denied is not null) return denied;
         var before = site.Status.ToString();
         var changed = cmd.Action.ToLowerInvariant() switch
         {
@@ -163,10 +168,10 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(CreateAreaCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
-        var site = await _repo.GetSiteAsync(cmd.SiteId, ct);
-        if (site is null) return Result.Failure("NotFound", "Parent Site not found.");
         var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, cmd.SiteId.ToString(), ct);
         if (denied is not null) return denied;
+        var site = await _repo.GetSiteAsync(cmd.SiteId, ct);
+        if (site is null) return Result.Failure("NotFound", "Parent Site not found.");
         var normalized = Domain.Site.NormalizeCode(cmd.Code);
         if (await _repo.FindAreaByCodeAsync(cmd.SiteId, normalized, ct) is not null)
             return Result.Failure("Conflict", "Area code already exists in this Site.");
@@ -187,6 +192,10 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(UpdateAreaStatusCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var scope = await _repo.GetAreaScopeAsync(cmd.AreaId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Area not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Area not found.");
         // Area activation requires Active Site
@@ -196,8 +205,6 @@ public sealed class OrganizationCommandHandler
             if (parentSite is null || !parentSite.IsActive)
                 return Result.Failure("PARENT_NOT_ACTIVE", "Cannot activate Area because parent Site is not Active.");
         }
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, area.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
         var before = area.Status.ToString();
         var changed = cmd.Action.ToLowerInvariant() switch
         {
@@ -224,16 +231,20 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(CreateAssetCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var areaScope = await _repo.GetAreaScopeAsync(cmd.AreaId, ct);
+        if (areaScope is null) return Result.Failure("NotFound", "Parent Area not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, areaScope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Parent Area not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, cmd.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
+        if (cmd.SiteId != area.SiteId)
+            return Result.Failure("NotFound", "Parent hierarchy does not match the requested scope.");
         var normalized = Domain.Site.NormalizeCode(cmd.Code);
         if (await _repo.FindAssetByCodeAsync(cmd.AreaId, normalized, ct) is not null)
             return Result.Failure("Conflict", "Asset code already exists in this Area.");
         try
         {
-            var asset = new Domain.Asset(Domain.AssetId.New(), cmd.SiteId, cmd.AreaId, cmd.Code, cmd.Name, cmd.Description, AssetStatus.Draft, 1);
+            var asset = new Domain.Asset(Domain.AssetId.New(), area.SiteId, area.Id, cmd.Code, cmd.Name, cmd.Description, AssetStatus.Draft, 1);
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.AddAssetAsync(asset, ct);
             await tx.CommitAsync(ct);
@@ -248,6 +259,10 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(UpdateAssetStatusCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var scope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Asset not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
         if (cmd.Action.Equals("activate", StringComparison.OrdinalIgnoreCase) && asset.Status == AssetStatus.Draft)
@@ -256,8 +271,6 @@ public sealed class OrganizationCommandHandler
             if (parentArea is null || !parentArea.IsActive)
                 return Result.Failure("PARENT_NOT_ACTIVE", "Cannot activate Asset because parent Area is not Active.");
         }
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, asset.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
         var before = asset.Status.ToString();
         var changed = cmd.Action.ToLowerInvariant() switch
         {
@@ -284,13 +297,18 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(DecommissionAssetCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var scope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Asset not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
         var children = await _repo.GetPointsForAssetAsync(cmd.AssetId, ct);
-        if (!DecommissionPolicy.CanDecommissionAsset(asset, children))
-            return Result.Failure("ACTIVE_CHILD_POINT", "Cannot decommission Asset while child Point is Active.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, asset.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
+        var decision = DecommissionPolicy.EvaluateAsset(asset, children);
+        if (!decision.IsAllowed)
+            return Result.Failure(decision.Code, decision.Code == "ACTIVE_CHILD_POINT"
+                ? "Cannot decommission Asset while child Point is Active."
+                : "Asset cannot be decommissioned in its current state.");
         var before = asset.Status.ToString();
         if (!asset.TryDecommission()) return Result.Failure("InvalidTransition", "Asset cannot be decommissioned in its current state.");
         try
@@ -310,16 +328,22 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(CreatePointCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var assetScope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
+        if (assetScope is null) return Result.Failure("NotFound", "Parent Asset not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, assetScope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Parent Asset not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, cmd.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
+        var area = await _repo.GetAreaAsync(asset.AreaId, ct);
+        if (area is null) return Result.Failure("NotFound", "Parent Area not found.");
+        if (cmd.SiteId != asset.SiteId || cmd.AreaId != asset.AreaId || area.SiteId != asset.SiteId)
+            return Result.Failure("NotFound", "Parent hierarchy does not match the requested scope.");
         var normalized = Domain.Site.NormalizeCode(cmd.Code);
-        if (await _repo.IsPointCodeReservedAsync(cmd.SiteId, normalized, ct))
+        if (await _repo.IsPointCodeReservedAsync(asset.SiteId, normalized, ct))
             return Result.Failure("Conflict", "Point code already exists in this Site.");
         try
         {
-            var point = new MeasurementPoint(Domain.PointId.New(), cmd.SiteId, cmd.AreaId, cmd.AssetId,
+            var point = new MeasurementPoint(Domain.PointId.New(), asset.SiteId, asset.AreaId, asset.Id,
                 cmd.Code, cmd.Description, cmd.MetricId, cmd.UnitId, cmd.DataOwnerUserId,
                 cmd.ExpectedIntervalSeconds, cmd.NoDataAfterSeconds, PointStatus.Draft, 1);
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
@@ -339,16 +363,19 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(UpdatePointStatusCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var scope = await _repo.GetPointScopeAsync(cmd.PointId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Point not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, point.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
-        var before = point.Status.ToString();
+        if (!cmd.Action.Equals("inactivate", StringComparison.OrdinalIgnoreCase))
+            return Result.Failure("PHASE5_REQUIRED", "Point activation/reactivation belongs to the Phase 5 orchestration.");
+        var beforeStatus = point.Status;
+        var before = beforeStatus.ToString();
         var changed = cmd.Action.ToLowerInvariant() switch
         {
-            "activate" => point.TryActivate(),
             "inactivate" => point.TryInactivate(),
-            "reactivate" => point.TryReactivate(),
             _ => false
         };
         if (!changed) return Result.Failure("InvalidTransition", "No state change performed.");
@@ -371,26 +398,27 @@ public sealed class OrganizationCommandHandler
 
     public async Task<Result> HandleAsync(DecommissionPointCommand cmd, OrganizationCommandContext ctx, CancellationToken ct = default)
     {
+        var scope = await _repo.GetPointScopeAsync(cmd.PointId, ct);
+        if (scope is null) return Result.Failure("NotFound", "Point not found.");
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
-        if (!DecommissionPolicy.CanDecommissionPoint(point, false))
-        {
-            var hasRunning = await _simQuery.HasRunningSimulatorAsync(point.Id.ToString(), ct);
-            if (hasRunning)
-                return Result.Failure("RUNNING_SIMULATOR", "Cannot decommission Point while a Simulator Run is Running.");
-            if (point.IsDecommissioned) return Result.Failure("InvalidTransition", "Point is already decommissioned.");
-            return Result.Failure("INVALID_STATE", "Point cannot be decommissioned in its current state.");
-        }
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, point.SiteId.ToString(), ct);
-        if (denied is not null) return denied;
-        var before = point.Status.ToString();
+        var hasRunning = await _simQuery.HasRunningSimulatorAsync(point.Id.ToString(), ct);
+        var decision = DecommissionPolicy.EvaluatePoint(point, hasRunning);
+        if (!decision.IsAllowed)
+            return Result.Failure(decision.Code, decision.Code == "RUNNING_SIMULATOR"
+                ? "Cannot decommission Point while a Simulator Run is Running."
+                : "Point cannot be decommissioned in its current state.");
+        var beforeStatus = point.Status;
+        var before = beforeStatus.ToString();
         if (!point.TryDecommission()) return Result.Failure("InvalidTransition", "Point cannot be decommissioned.");
         try
         {
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.UpdatePointAsync(point, ct);
             var history = new PointLifecycleEntry(Guid.NewGuid().ToString(), point.Id.ToString(), point.Version,
-                PointStatus.Draft, PointStatus.Decommissioned, ctx.ActorUserId, _currentCaller?.Username ?? ctx.ActorUserId,
+                beforeStatus, PointStatus.Decommissioned, ctx.ActorUserId, _currentCaller?.Username ?? ctx.ActorUserId,
                 "Decommissioned by command", DateTime.UtcNow, ctx.CorrelationId, ctx.CausationId);
             await _repo.AddLifecycleEntryAsync(history, ct);
             await tx.CommitAsync(ct);
@@ -409,9 +437,7 @@ public sealed class OrganizationCommandHandler
     private async Task<Result?> Authorize(string userId, OrganizationResource resource, string? siteId, CancellationToken ct)
     {
         var decision = await _auth.AuthorizeAsync(userId, resource, siteId, ct);
-        _currentCaller = decision.IsAllowed
-            ? null
-            : null;
+        _currentCaller = decision.IsAllowed ? await _auth.ResolveCallerAsync(userId, ct) : null;
         return decision.IsAllowed ? null : Result.Failure(decision.Code, decision.Error);
     }
 

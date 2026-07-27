@@ -216,6 +216,8 @@ public sealed class FakeIamCommandRepository : IIamCommandRepository
     {
         return _userCapabilities.ToList();
     }
+
+    public IReadOnlyList<Scope> GetAllScopesForTest() => _scopes.ToList();
 }
 
 public sealed class FakeIamPrincipalSessionRepository : IIamPrincipalSessionRepository
