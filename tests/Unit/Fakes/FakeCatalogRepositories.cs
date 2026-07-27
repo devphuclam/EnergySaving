@@ -223,6 +223,20 @@ public sealed class FakeCatalogCommandRepository : ICatalogCommandRepository
     private static SourcePointMapping Clone(SourcePointMapping value) => new(value.Id, value.DataSourceId, value.PointId, value.Status, value.EffectiveFrom, value.EffectiveTo, value.Version);
 }
 
+public sealed class FakePointReadinessQuery : ICatalogPointReadinessQuery
+{
+    private readonly Dictionary<string, PointReadinessSnapshot> _snapshots = new(StringComparer.Ordinal);
+
+    public FakePointReadinessQuery Configure(string pointId, PointReadinessSnapshot snapshot)
+    {
+        _snapshots[pointId] = snapshot;
+        return this;
+    }
+
+    public Task<PointReadinessSnapshot?> GetPointReadinessAsync(string pointId, CancellationToken ct = default)
+        => Task.FromResult(_snapshots.TryGetValue(pointId, out var s) ? s : null);
+}
+
 public sealed class FakeCatalogEligibilityQueryRepository : ICatalogEligibilityQueryRepository, ISourceMappingSnapshotQuery
 {
     private readonly ICatalogCommandRepository _repo;

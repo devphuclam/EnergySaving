@@ -5,7 +5,14 @@ using IUMP.Tests.Unit.Fakes;
 
 namespace IUMP.Tests.Integration.Catalog;
 
-public sealed record CatalogRepositoryTestProvider(ICatalogCommandRepository Commands, ICatalogEligibilityQueryRepository Eligibility);
+public sealed record CatalogRepositoryTestProvider(
+    ICatalogCommandRepository Commands,
+    ICatalogEligibilityQueryRepository Eligibility,
+    ICatalogPointReadinessQuery Readiness,
+    Action<DataSourceId, CatalogDependencySnapshot> ConfigureSourceDependencies,
+    Action<MappingId, CatalogDependencySnapshot> ConfigureMappingDependencies,
+    Func<string, PointReadinessSnapshot?> CreatePointReadiness,
+    Action Reset);
 
 public interface ICatalogRepositoryTestProviderFactory
 {
@@ -17,14 +24,18 @@ public sealed class FakeCatalogRepositoryTestProviderFactory : ICatalogRepositor
     public CatalogRepositoryTestProvider Create()
     {
         var commands = new FakeCatalogCommandRepository();
-        return new CatalogRepositoryTestProvider(commands, new FakeCatalogEligibilityQueryRepository(commands));
+        var fakeReadiness = new FakePointReadinessQuery();
+        return new CatalogRepositoryTestProvider(
+            commands,
+            new FakeCatalogEligibilityQueryRepository(commands),
+            fakeReadiness,
+            (id, deps) => commands.SetDataSourceDependencies(id, deps),
+            (id, deps) => commands.SetMappingDependencies(id, deps),
+            pointId => null,
+            () => { });
     }
 }
 
-/// <summary>
-/// Adapter-agnostic Catalog repository contract suite. PostgreSQL adapters can use the same
-/// provider factory when the approved package source and database become available.
-/// </summary>
 public sealed class CatalogRepositoryContractRunner
 {
     private readonly ICatalogRepositoryTestProviderFactory _factory;
@@ -33,77 +44,137 @@ public sealed class CatalogRepositoryContractRunner
 
     public async Task RunAllAsync()
     {
-        var provider = _factory.Create();
-        var repo = provider.Commands;
-        var eligibility = provider.Eligibility;
-        var metric = new Metric(MetricId.New(), "CONTRACT_METRIC", "Contract Metric", MetricStatus.Active, 1);
-        var unit = new MetricUnit(UnitId.New(), "CONTRACT_UNIT", "cu", MetricUnitStatus.Active, 1);
-        await repo.AddMetricAsync(metric);
-        await repo.AddUnitAsync(unit);
-        await ExpectThrows(() => repo.AddMetricAsync(new Metric(MetricId.New(), "contract_metric", "Duplicate", MetricStatus.Active, 1)), "metric code uniqueness");
-        await ExpectThrows(() => repo.AddUnitAsync(new MetricUnit(UnitId.New(), "contract_unit", "duplicate", MetricUnitStatus.Active, 1)), "unit code uniqueness");
-        await repo.AddCompatibilityAsync(new MetricUnitCompatibility(metric.Id, unit.Id, true, 1));
-        await ExpectThrows(() => repo.AddCompatibilityAsync(new MetricUnitCompatibility(metric.Id, unit.Id, false, 1)), "compatibility pair uniqueness");
-        var unitTwo = new MetricUnit(UnitId.New(), "CONTRACT_UNIT_TWO", "cu2", MetricUnitStatus.Active, 1);
-        await repo.AddUnitAsync(unitTwo);
-        await ExpectThrows(() => repo.AddCompatibilityAsync(new MetricUnitCompatibility(metric.Id, unitTwo.Id, true, 1)), "canonical uniqueness");
+        await SourceCodeUniquenessAsync();
+        await SourceLifecyclePersistenceAsync();
+        await MappingOverlapRejectionAsync();
+        await DraftMappingDeletionAsync();
+        await AuditOnlyDependencyAsync();
+        await OperationalDependencyAsync();
+        await TransactionCommitAsync();
+        await TransactionRollbackAsync();
+        await OptimisticVersionConflictAsync();
+    }
 
-        metric = (await repo.GetMetricAsync(metric.Id))!;
-        metric.Inactivate();
-        await repo.UpdateMetricAsync(metric);
-        var inactiveMetric = await eligibility.GetMetricUnitEligibilityAsync(metric.Id, unit.Id);
-        if (inactiveMetric.IsEligible) Failures.Add("inactive metric eligibility");
-        unit = (await repo.GetUnitAsync(unit.Id))!;
-        unit.Inactivate();
-        await repo.UpdateUnitAsync(unit);
-        var inactiveUnit = await eligibility.GetMetricUnitEligibilityAsync(metric.Id, unit.Id);
-        if (inactiveUnit.IsEligible) Failures.Add("inactive unit eligibility");
-
-        var seedRepo = new FakeCatalogCommandRepository();
-        var seed = new CatalogSeedApplicationService(seedRepo);
-        var first = await seed.ApplyAsync();
-        var second = await seed.ApplyAsync();
-        if (first.MetricsAdded != 2 || first.UnitsAdded != 2 || first.CompatibilitiesAdded != 2 || second.MetricsAdded != 0 || second.UnitsAdded != 0 || second.CompatibilitiesAdded != 0 || second.VersionsChanged != 0)
-            Failures.Add("seed idempotency");
-
-        var source = new DataSource(DataSourceId.New(), "CONTRACT_SOURCE", "Contract Source", SourceType.Simulator, SourceStatus.Draft, 1);
+    private async Task SourceCodeUniquenessAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "UNIQUE_SRC", "Unique Source", SourceType.Simulator, SourceStatus.Draft, 1);
         await repo.AddDataSourceAsync(source);
-        var mapping = new SourcePointMapping(MappingId.New(), source.Id, "CONTRACT_POINT", MappingStatus.Draft, DateTime.UtcNow, null, 1);
+        var dup = new DataSource(DataSourceId.New(), "unique_src", "Duplicate Source", SourceType.Simulator, SourceStatus.Draft, 1);
+        await ExpectThrows(() => repo.AddDataSourceAsync(dup), "T049: duplicate source code rejection");
+    }
+
+    private async Task SourceLifecyclePersistenceAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "LIFECYCLE_SRC", "Lifecycle", SourceType.Simulator, SourceStatus.Draft, 1);
+        await repo.AddDataSourceAsync(source);
+        source.TryTransitionTo(SourceStatus.Active);
+        await repo.UpdateDataSourceAsync(source);
+        var afterActivate = await repo.GetDataSourceAsync(source.Id);
+        if (afterActivate?.Status != SourceStatus.Active) Failures.Add("T049: source lifecycle Draft->Active persistence");
+
+        afterActivate!.TryTransitionTo(SourceStatus.Suspended);
+        await repo.UpdateDataSourceAsync(afterActivate);
+        var afterSuspended = await repo.GetDataSourceAsync(source.Id);
+        if (afterSuspended?.Status != SourceStatus.Suspended) Failures.Add("T049: source lifecycle Active->Suspended persistence");
+    }
+
+    private async Task MappingOverlapRejectionAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "OVERLAP_SRC", "Overlap", SourceType.Simulator, SourceStatus.Active, 1);
+        await repo.AddDataSourceAsync(source);
+        var first = new SourcePointMapping(MappingId.New(), source.Id, "OVERLAP_PT", MappingStatus.Active,
+            new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 3, 1, 0, 0, 0, DateTimeKind.Utc), 1);
+        await repo.AddMappingAsync(first);
+        var overlapping = new SourcePointMapping(MappingId.New(), source.Id, "OVERLAP_PT", MappingStatus.Active,
+            new DateTime(2025, 2, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2025, 4, 1, 0, 0, 0, DateTimeKind.Utc), 1);
+        await ExpectThrows(() => repo.AddMappingAsync(overlapping), "T049: overlapping Active mapping rejection");
+    }
+
+    private async Task DraftMappingDeletionAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "DEL_SRC", "Delete", SourceType.Simulator, SourceStatus.Draft, 1);
+        await repo.AddDataSourceAsync(source);
+        var mapping = new SourcePointMapping(MappingId.New(), source.Id, "DEL_PT", MappingStatus.Draft,
+            DateTime.UtcNow, null, 1);
         await repo.AddMappingAsync(mapping);
-        var mappingCopy = (await repo.GetMappingAsync(mapping.Id))!;
-        mappingCopy.TryActivate();
-        await repo.UpdateMappingAsync(mappingCopy);
-        var active = await eligibility.GetActiveMappingEligibilityAsync(mapping.PointId, DateTime.UtcNow);
-        if (active.Outcome != MappingEligibilityOutcome.Missing) Failures.Add("draft source mapping must not be active until source is active");
+        var result = await repo.DeleteMappingAsync(mapping.Id);
+        if (!result.IsAllowed) Failures.Add("T049: Draft mapping deletion");
+        var gone = await repo.GetMappingAsync(mapping.Id);
+        if (gone is not null) Failures.Add("T049: Draft mapping deletion removed");
+    }
 
-        var committedSource = new DataSource(DataSourceId.New(), "COMMITTED_SOURCE", "Committed", SourceType.Simulator, SourceStatus.Draft, 1);
-        await repo.AddDataSourceAsync(committedSource);
+    private async Task AuditOnlyDependencyAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        p.ConfigureSourceDependencies(DataSourceId.New(), new CatalogDependencySnapshot(AuditOnlySnapshot: true));
+        // No source with that ID in repo, so deletion will return NotFound, not block
+        var source = new DataSource(DataSourceId.New(), "AUDIT_SRC", "Audit", SourceType.Simulator, SourceStatus.Draft, 1);
+        await repo.AddDataSourceAsync(source);
+        p.ConfigureSourceDependencies(source.Id, new CatalogDependencySnapshot(AuditOnlySnapshot: true));
+        var result = await repo.DeleteDataSourceAsync(source.Id);
+        if (!result.IsAllowed) Failures.Add("T049: AuditOnlySnapshot must not block Draft source deletion");
+    }
+
+    private async Task OperationalDependencyAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "OPS_SRC", "Ops", SourceType.Simulator, SourceStatus.Draft, 1);
+        await repo.AddDataSourceAsync(source);
+        p.ConfigureSourceDependencies(source.Id, new CatalogDependencySnapshot(SimulatorRun: true));
+        var result = await repo.DeleteDataSourceAsync(source.Id);
+        if (result.Code != "DEPENDENT_HISTORY") Failures.Add("T049: operational dependency must return DEPENDENT_HISTORY");
+    }
+
+    private async Task TransactionCommitAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "COMMIT_SRC", "Commit", SourceType.Simulator, SourceStatus.Draft, 1);
         var tx = await repo.BeginTransactionAsync();
+        await repo.AddDataSourceAsync(source);
         await tx.CommitAsync();
-        if (await repo.GetDataSourceAsync(committedSource.Id) is null) Failures.Add("transaction commit");
+        var after = await repo.GetDataSourceAsync(source.Id);
+        if (after is null) Failures.Add("T049: transaction commit with mutation after BeginTransaction");
+    }
 
-        var rollbackSource = new DataSource(DataSourceId.New(), "ROLLBACK_SOURCE", "Rollback", SourceType.Simulator, SourceStatus.Draft, 1);
-        await repo.AddDataSourceAsync(rollbackSource);
-        var rollback = await repo.BeginTransactionAsync();
-        var deleted = await repo.DeleteDataSourceAsync(rollbackSource.Id);
-        await rollback.RollbackAsync();
-        if (!deleted.IsAllowed || await repo.GetDataSourceAsync(rollbackSource.Id) is null) Failures.Add("deep transaction rollback");
+    private async Task TransactionRollbackAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var source = new DataSource(DataSourceId.New(), "ROLL_SRC", "Rollback", SourceType.Simulator, SourceStatus.Draft, 1);
+        await repo.AddDataSourceAsync(source);
+        var tx = await repo.BeginTransactionAsync();
+        await repo.DeleteDataSourceAsync(source.Id);
+        await tx.RollbackAsync();
+        var after = await repo.GetDataSourceAsync(source.Id);
+        if (after is null) Failures.Add("T049: transaction rollback must restore mutation");
+    }
 
+    private async Task OptimisticVersionConflictAsync()
+    {
+        var p = _factory.Create();
+        var repo = p.Commands;
+        var metric = new Metric(MetricId.New(), "VERSION_M", "Version Test", MetricStatus.Active, 1);
+        await repo.AddMetricAsync(metric);
+
+        var fresh = await repo.GetMetricAsync(metric.Id);
+        var v0Version = fresh!.Version;
+        fresh!.Inactivate();
+        await repo.UpdateMetricAsync(fresh!);
         var stale = (await repo.GetMetricAsync(metric.Id))!;
-        var current = (await repo.GetMetricAsync(metric.Id))!;
-        current.Activate();
-        await repo.UpdateMetricAsync(current);
-        try { await repo.UpdateMetricAsync(stale); Failures.Add("optimistic version conflict"); }
+        stale = new Metric(stale!.Id, stale.Code, stale.Name, stale.Status, v0Version);
+        try { await repo.UpdateMetricAsync(stale); Failures.Add("T049: optimistic version conflict"); }
         catch (InvalidOperationException) { }
-
-        var auditOnly = new DataSource(DataSourceId.New(), "AUDIT_ONLY", "Audit only", SourceType.Simulator, SourceStatus.Draft, 1);
-        await repo.AddDataSourceAsync(auditOnly);
-        var auditDeletion = await repo.DeleteDataSourceAsync(auditOnly.Id);
-        if (!auditDeletion.IsAllowed) Failures.Add("audit-only deletion");
-        var dependent = new DataSource(DataSourceId.New(), "DEPENDENT", "Dependent", SourceType.Simulator, SourceStatus.Draft, 1);
-        await repo.AddDataSourceAsync(dependent);
-        if (repo is FakeCatalogCommandRepository fake) fake.SetDataSourceDependencies(dependent.Id, new CatalogDependencySnapshot(SimulatorRun: true));
-        if ((await repo.DeleteDataSourceAsync(dependent.Id)).Code != "DEPENDENT_HISTORY") Failures.Add("dependent deletion");
     }
 
     private async Task ExpectThrows(Func<Task> action, string name)

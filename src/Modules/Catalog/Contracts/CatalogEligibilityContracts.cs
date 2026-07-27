@@ -54,6 +54,20 @@ public interface ISourceMappingSnapshotQuery
     Task<CatalogSourceMappingSnapshot?> GetSourceMappingSnapshotAsync(MappingId mappingId, CancellationToken ct = default);
 }
 
+public sealed record PointReadinessSnapshot(
+    string PointId,
+    string SiteId,
+    string? AreaId,
+    bool Exists,
+    bool IsConfigurationReady,
+    bool IsProducingReady,
+    long ProviderVersion);
+
+public interface ICatalogPointReadinessQuery
+{
+    Task<PointReadinessSnapshot?> GetPointReadinessAsync(string pointId, CancellationToken ct = default);
+}
+
 public interface ICatalogEligibilityQueryRepository
 {
     Task<MetricUnitEligibility> GetMetricUnitEligibilityAsync(MetricId metricId, UnitId unitId, CancellationToken ct = default);

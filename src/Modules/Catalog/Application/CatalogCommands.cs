@@ -41,7 +41,6 @@ public interface ICatalogAuthorization
         string? targetSiteId = null,
         CancellationToken ct = default);
 
-    // Implementations resolve this snapshot from trusted server state; callers cannot supply it.
     Task<CatalogCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default) =>
         Task.FromResult<CatalogCallerSnapshot?>(null);
 }
@@ -94,6 +93,11 @@ public sealed record CatalogEvent(
     public string? Data => JsonSerializer.Serialize(new { before = Before, after = After, action = Action, summary = Summary });
 }
 
+public sealed record CatalogCommandContext(
+    string ActorUserId,
+    string? CorrelationId,
+    string? CausationId);
+
 public sealed record CreateMetricCommand(string Code, string Name, string RequestedByUserId, string? TargetSiteId = null);
 public sealed record UpdateMetricStatusCommand(MetricId MetricId, bool Activate, string RequestedByUserId, string? TargetSiteId = null);
 public sealed record CreateUnitCommand(string Code, string Symbol, string RequestedByUserId, string? TargetSiteId = null);
@@ -108,20 +112,25 @@ public sealed class CatalogCommandHandler
 {
     private readonly ICatalogCommandRepository _repo;
     private readonly ICatalogAuthorization _auth;
+    private readonly ICatalogPointReadinessQuery _readiness;
     private readonly List<CatalogEvent> _events = new();
     private CatalogCallerSnapshot? _currentCaller;
 
     public IReadOnlyList<CatalogEvent> Events => _events.AsReadOnly();
 
-    public CatalogCommandHandler(ICatalogCommandRepository repo, ICatalogAuthorization auth)
+    public CatalogCommandHandler(ICatalogCommandRepository repo, ICatalogAuthorization auth, ICatalogPointReadinessQuery? readiness = null)
     {
         _repo = repo;
         _auth = auth;
+        _readiness = readiness ?? new NullPointReadinessQuery();
     }
 
     public async Task<Result> HandleAsync(CreateMetricCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(CreateMetricCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Metric, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Metric, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         if (string.IsNullOrWhiteSpace(cmd.Code) || cmd.Code.Length > 50 || string.IsNullOrWhiteSpace(cmd.Name) || cmd.Name.Length > 200)
             return Result.Failure("Validation", "Metric code and name are required and bounded.");
@@ -132,8 +141,8 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.AddMetricAsync(metric, ct);
             await tx.CommitAsync(ct);
-            AddEvent("MetricStatusChanged.v1", "Metric", metric.Id.ToString(), metric.Version, cmd.RequestedByUserId,
-                correlationId, "Created", "Metric created", null, new { code = metric.Code, name = metric.Name, status = metric.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("MetricStatusChanged.v1", "Metric", metric.Id.ToString(), metric.Version, ctx,
+                "Created", "Metric created", null, new { code = metric.Code, name = metric.Name, status = metric.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -143,8 +152,11 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(UpdateMetricStatusCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(UpdateMetricStatusCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Metric, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Metric, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         var metric = await _repo.GetMetricAsync(cmd.MetricId, ct);
         if (metric is null) return Result.Failure("NotFound", "Metric not found.");
@@ -156,16 +168,19 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.UpdateMetricAsync(metric, ct);
             await tx.CommitAsync(ct);
-            AddEvent("MetricStatusChanged.v1", "Metric", metric.Id.ToString(), metric.Version, cmd.RequestedByUserId,
-                correlationId, cmd.Activate ? "Activated" : "Inactivated", "Metric status changed", new { status = before }, new { status = metric.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("MetricStatusChanged.v1", "Metric", metric.Id.ToString(), metric.Version, ctx,
+                cmd.Activate ? "Activated" : "Inactivated", "Metric status changed", new { status = before }, new { status = metric.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateUnitCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(CreateUnitCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Unit, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Unit, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         if (string.IsNullOrWhiteSpace(cmd.Code) || string.IsNullOrWhiteSpace(cmd.Symbol)) return Result.Failure("Validation", "Unit code and symbol are required.");
         if (await _repo.FindUnitByCodeAsync(cmd.Code, ct) is not null) return Result.Failure("Conflict", "Unit code already exists.");
@@ -175,8 +190,8 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.AddUnitAsync(unit, ct);
             await tx.CommitAsync(ct);
-            AddEvent("UnitStatusChanged.v1", "Unit", unit.Id.ToString(), unit.Version, cmd.RequestedByUserId,
-                correlationId, "Created", "Unit created", null, new { code = unit.Code, symbol = unit.Symbol, status = unit.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("UnitStatusChanged.v1", "Unit", unit.Id.ToString(), unit.Version, ctx,
+                "Created", "Unit created", null, new { code = unit.Code, symbol = unit.Symbol, status = unit.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -184,8 +199,11 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(UpdateUnitStatusCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(UpdateUnitStatusCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Unit, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Unit, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         var unit = await _repo.GetUnitAsync(cmd.UnitId, ct);
         if (unit is null) return Result.Failure("NotFound", "Unit not found.");
@@ -197,16 +215,19 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.UpdateUnitAsync(unit, ct);
             await tx.CommitAsync(ct);
-            AddEvent("UnitStatusChanged.v1", "Unit", unit.Id.ToString(), unit.Version, cmd.RequestedByUserId,
-                correlationId, cmd.Activate ? "Activated" : "Inactivated", "Unit status changed", new { status = before }, new { status = unit.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("UnitStatusChanged.v1", "Unit", unit.Id.ToString(), unit.Version, ctx,
+                cmd.Activate ? "Activated" : "Inactivated", "Unit status changed", new { status = before }, new { status = unit.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(SetMetricUnitCompatibilityCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(SetMetricUnitCompatibilityCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Compatibility, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Compatibility, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         if (await _repo.GetMetricAsync(cmd.MetricId, ct) is null || await _repo.GetUnitAsync(cmd.UnitId, ct) is null)
             return Result.Failure("NotFound", "Metric or Unit not found.");
@@ -221,7 +242,7 @@ public sealed class CatalogCommandHandler
                 await _repo.UpdateCompatibilityAsync(existing, ct);
                 await tx.CommitAsync(ct);
                 AddEvent("MetricUnitCompatibilityChanged.v1", "MetricUnitCompatibility", $"{cmd.MetricId}:{cmd.UnitId}", existing.Version,
-                    cmd.RequestedByUserId, correlationId, "CanonicalChanged", "Metric/Unit compatibility changed", new { isCanonical = before }, new { isCanonical = existing.IsCanonical }, cmd.TargetSiteId);
+                    ctx, "CanonicalChanged", "Metric/Unit compatibility changed", new { isCanonical = before }, new { isCanonical = existing.IsCanonical }, cmd.TargetSiteId);
                 return Result.Success();
             }
             catch (InvalidOperationException ex) { return Result.Failure(ex.Message.Contains("canonical", StringComparison.OrdinalIgnoreCase) ? "Conflict" : "VersionConflict", ex.Message); }
@@ -233,15 +254,18 @@ public sealed class CatalogCommandHandler
             await _repo.AddCompatibilityAsync(compat, ct);
             await tx.CommitAsync(ct);
             AddEvent("MetricUnitCompatibilityChanged.v1", "MetricUnitCompatibility", $"{cmd.MetricId}:{cmd.UnitId}", compat.Version,
-                cmd.RequestedByUserId, correlationId, "Created", "Metric/Unit compatibility created", null, new { isCanonical = compat.IsCanonical }, cmd.TargetSiteId);
+                ctx, "Created", "Metric/Unit compatibility created", null, new { isCanonical = compat.IsCanonical }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("Conflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateDataSourceCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(CreateDataSourceCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.DataSource, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.DataSource, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         if (await _repo.FindDataSourceByCodeAsync(cmd.Code, ct) is not null) return Result.Failure("Conflict", "Data source code already exists.");
         try
@@ -250,8 +274,8 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.AddDataSourceAsync(source, ct);
             await tx.CommitAsync(ct);
-            AddEvent("DataSourceStatusChanged.v1", "DataSource", source.Id.ToString(), source.Version, cmd.RequestedByUserId,
-                correlationId, "Created", "Data source created", null, new { code = source.Code, status = source.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("DataSourceStatusChanged.v1", "DataSource", source.Id.ToString(), source.Version, ctx,
+                "Created", "Data source created", null, new { code = source.Code, status = source.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -259,8 +283,11 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(TransitionDataSourceCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(TransitionDataSourceCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.DataSource, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.DataSource, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         var source = await _repo.GetDataSourceAsync(cmd.DataSourceId, ct);
         if (source is null) return Result.Failure("NotFound", "Data source not found.");
@@ -271,16 +298,19 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.UpdateDataSourceAsync(source, ct);
             await tx.CommitAsync(ct);
-            AddEvent("DataSourceStatusChanged.v1", "DataSource", source.Id.ToString(), source.Version, cmd.RequestedByUserId,
-                correlationId, cmd.TargetStatus.ToString(), "Data source status changed", new { status = before }, new { status = source.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("DataSourceStatusChanged.v1", "DataSource", source.Id.ToString(), source.Version, ctx,
+                cmd.TargetStatus.ToString(), "Data source status changed", new { status = before }, new { status = source.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateMappingCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(CreateMappingCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Mapping, cmd.TargetSiteId, ct);
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Mapping, cmd.TargetSiteId, ct);
         if (denied is not null) return denied;
         var source = await _repo.GetDataSourceAsync(cmd.DataSourceId, ct);
         if (source is null) return Result.Failure("NotFound", "Data source not found.");
@@ -291,8 +321,8 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.AddMappingAsync(mapping, ct);
             await tx.CommitAsync(ct);
-            AddEvent("SourcePointMappingChanged.v1", "SourcePointMapping", mapping.Id.ToString(), mapping.Version, cmd.RequestedByUserId,
-                correlationId, "Created", "Source-point mapping created", null, new { pointId = mapping.PointId, status = mapping.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("SourcePointMappingChanged.v1", "SourcePointMapping", mapping.Id.ToString(), mapping.Version, ctx,
+                "Created", "Source-point mapping created", null, new { pointId = mapping.PointId, status = mapping.Status.ToString() }, cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -300,13 +330,29 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(UpdateMappingStatusCommand cmd, string? correlationId = null, CancellationToken ct = default)
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+
+    public async Task<Result> HandleAsync(UpdateMappingStatusCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(cmd.RequestedByUserId, CatalogResource.Mapping, cmd.TargetSiteId, ct);
-        if (denied is not null) return denied;
         var mapping = await _repo.GetMappingAsync(cmd.MappingId, ct);
         if (mapping is null) return Result.Failure("NotFound", "Mapping not found.");
-        var before = mapping.Status.ToString();
+
+        var readiness = await _readiness.GetPointReadinessAsync(mapping.PointId, ct);
+        if (readiness is null || !readiness.Exists)
+            return Result.Failure("NotFound", "Point not found in Organization scope.");
+
+        var siteId = readiness.SiteId;
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Mapping, siteId, ct);
+        if (denied is not null) return denied;
+
         var action = cmd.Action.Trim().ToLowerInvariant();
+        if (action == "activate")
+        {
+            if (!readiness.IsConfigurationReady)
+                return Result.Failure("InvalidAction", "Point is not configuration-ready for Mapping activation.");
+        }
+
+        var before = mapping.Status.ToString();
         var changed = action switch
         {
             "activate" => mapping.TryActivate(),
@@ -320,8 +366,8 @@ public sealed class CatalogCommandHandler
             await using var tx = new AsyncTransaction(await _repo.BeginTransactionAsync(ct));
             await _repo.UpdateMappingAsync(mapping, ct);
             await tx.CommitAsync(ct);
-            AddEvent("SourcePointMappingChanged.v1", "SourcePointMapping", mapping.Id.ToString(), mapping.Version, cmd.RequestedByUserId,
-                correlationId, action, "Source-point mapping status changed", new { status = before }, new { status = mapping.Status.ToString() }, cmd.TargetSiteId);
+            AddEvent("SourcePointMappingChanged.v1", "SourcePointMapping", mapping.Id.ToString(), mapping.Version, ctx,
+                action, "Source-point mapping status changed", new { status = before }, new { status = mapping.Status.ToString() }, siteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("Conflict", ex.Message); }
@@ -335,14 +381,14 @@ public sealed class CatalogCommandHandler
         return decision.IsAllowed ? null : Result.Failure(decision.Code, decision.Error);
     }
 
-    private void AddEvent(string eventType, string aggregateType, string aggregateId, long version, string requestedBy,
-        string? correlationId, string action, string summary, object? before, object? after, string? siteId)
+    private void AddEvent(string eventType, string aggregateType, string aggregateId, long version, CatalogCommandContext ctx,
+        string action, string summary, object? before, object? after, string? siteId)
     {
         var beforeMap = ToAllowlistedMap(before);
         var afterMap = ToAllowlistedMap(after);
         _events.Add(new CatalogEvent(Guid.NewGuid(), eventType, "1", "IUMP.Catalog", aggregateType, aggregateId, version,
-            requestedBy, _currentCaller?.Username ?? requestedBy, beforeMap, afterMap, action, summary, DateTime.UtcNow,
-            correlationId, correlationId, siteId, null));
+            ctx.ActorUserId, _currentCaller?.Username ?? ctx.ActorUserId, beforeMap, afterMap, action, summary, DateTime.UtcNow,
+            ctx.CorrelationId, ctx.CausationId, siteId, null));
     }
 
     private static IReadOnlyDictionary<string, object?> ToAllowlistedMap(object? value)
@@ -362,6 +408,12 @@ public sealed class CatalogCommandHandler
         {
             if (!_committed) await _inner.RollbackAsync();
         }
+    }
+
+    private sealed class NullPointReadinessQuery : ICatalogPointReadinessQuery
+    {
+        public Task<PointReadinessSnapshot?> GetPointReadinessAsync(string pointId, CancellationToken ct = default)
+            => Task.FromResult<PointReadinessSnapshot?>(null);
     }
 }
 
