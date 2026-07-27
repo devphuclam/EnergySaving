@@ -6,20 +6,20 @@ executed. Migration `0004` was not executed.
 ## Exact provenance
 
 | Item | Evidence |
-|---|---|
-| Parent baseline | `e829b7e6e264869251d702ae0bb935f027aa6445` |
-| Current HEAD (`git rev-parse HEAD`) | `e829b7e6e264869251d702ae0bb935f027aa6445` |
+|---|---|---|
+| Parent baseline | `8f6ee4dd9471d6d3ed8eb9836b6e0a5644a0a058` |
+| Current HEAD (`git rev-parse HEAD`) | `8f6ee4dd9471d6d3ed8eb9836b6e0a5644a0a058` |
 | Worktree | Intentionally dirty with only the exact files listed below; no unrelated changes observed. |
-| RED parent baseline | `fd2cf0d858fc8fce0041e1343b64d966d33d5d46` in a temporary native worktree |
-| RED build/run | `dotnet build ... --no-restore -c Debug` exit **0**; `dotnet run ... --no-build -c Debug` exit **1** with eight business assertions (see `phase-03-red.md`). |
-| Green Debug | `dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore -c Debug` exit **0**; run exit **0**, 0 warnings/0 errors. |
-| Green Release | Same build/run commands with `-c Release`, both exit **0**, 0 warnings/0 errors. |
-| Focused Organization suites | 5 suites (`HierarchyDomainTests`, `DecommissionTests`, `HierarchyCommandTests`, `HierarchyQueryTests`, `PostSiteFixtureTests`) pass within the unit executable. |
-| T071 provider-neutral runner | **15 tests, 29 assertions, 0 failures**, emitted by the executable. |
+| Chronological RED parent baseline | `8f6ee4dd9471d6d3ed8eb9836b6e0a5644a0a058` (same as current; micro-RED added then GREEN implemented in sequence) |
+| RED build/run | `dotnet build ... --no-restore -c Debug` exit **0**; `dotnet run ... --no-build -c Debug` exit **1** with seven state-guard and lifecycle-history assertions (see updated `phase-03-red.md`). |
+| Green Debug | `dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore -c Debug` exit **0**; run exit **0**, 0 warnings/0 errors, PASS=all tests. |
+| Green Release | Same build/run commands with `-c Release`, both exit **0**, 0 warnings/0 errors, PASS=all tests. |
+| Focused Organization suites | 5 suites pass within the unit executable. |
+| T071 provider-neutral runner | **19 tests, 39 assertions, 0 failures**, emitted by the executable. |
 | Architecture | `tests/Verification/architecture.tests.ps1` exit **0**. |
-| Fast harness | `scripts/harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest` exit **0**, PASS=8. |
-| Fresh Full harness | `scripts/harness.ps1 -Mode Full -Feature 002-asset-simulator-latest` exit **20**: PASS=10; database check BLOCKED_BY_MISSING_TOOL (psql absent); CI and container checks BLOCKED_BY_COMPANY_APPROVAL. These harness blocks are reported as blocked, never passing. |
-| Diff hygiene | `git diff --check` exit **0**. |
+| Fast harness | Not re-executed (unchanged; previous evidence stands). |
+| Full harness | Not re-executed (no package/database change; previous evidence stands). |
+| Diff hygiene | `git diff --check` exit **0** (CRLF warnings are cosmetic autocrlf). |
 
 ## Task ledger and evidence
 
@@ -35,12 +35,12 @@ executed. Migration `0004` was not executed.
 | T068 | PASS | Query service uses IAM scope, filter-before-paging/totals, deterministic order, child summaries, and trusted ancestry beyond 200 Areas. |
 | T069 | PASS | IAM post-Site fixture remains on public Organization query contracts and is idempotent. |
 | T070 | PASS | Migration SQL remains statically reviewed; execution intentionally not run. |
-| T071 | PASS | Provider-neutral runner executes 15 tests/29 assertions without fake casts or adapter-specific dependencies. |
+| T071 | PASS | Provider-neutral runner executes 19 tests/39 assertions without fake casts or adapter-specific dependencies. |
 | T072 | BLOCKED_BY_PACKAGE_POLICY | PostgreSQL adapter package/project surface is not approved; task remains unchecked. |
 | T073 | BLOCKED_BY_PACKAGE_POLICY | Host registration depends on T072; task remains unchecked. |
 | T074 | BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE | Migration execution depends on T072/T073; task remains unchecked and `0004` was not run. |
 | T075 | PASS | Architecture boundary checks pass, including required Simulator dependency, ExpectedVersion command surface, event families, parent guards, and ancestry query. |
-| T076 | PASS | Standards/Specification review enumerates CORR-A-K and has zero unresolved Critical/High findings. |
+| T076 | PASS | Standards/Specification review enumerates CORR-A-O (A-K from earlier handoff, L-O from micro-closure) and has zero unresolved Critical/High findings. |
 | T077 | PASS | This checkpoint records exact provenance, command exits, counts, capabilities, blockers, and stop decision. |
 
 ## Result counts
@@ -76,17 +76,11 @@ access blocker.
 ```text
 specs/002-asset-simulator-latest/checklists/phase-03-red.md
 specs/002-asset-simulator-latest/checklists/phase-03-review.md
+specs/002-asset-simulator-latest/checklists/phase-03-organization.md
 src/Modules/Organization/Application/HierarchyCommands.cs
-src/Modules/Organization/Application/HierarchyQueries.cs
-src/Modules/Organization/Contracts/OrganizationQueryContracts.cs
-src/Modules/Organization/Domain/Hierarchy.cs
 tests/Integration/Organization/OrganizationRepositoryTests.cs
-tests/Unit/Fakes/FakeOrganizationRepositories.cs
 tests/Unit/Organization/DecommissionTests.cs
 tests/Unit/Organization/HierarchyCommandTests.cs
-tests/Unit/Organization/HierarchyQueryTests.cs
-tests/Unit/Program.cs
-tests/Verification/architecture.tests.ps1
 ```
 
 ## Progression and release decision
@@ -100,3 +94,10 @@ exists.
 
 **Explicit stop:** stop after T077. Do not execute T078 or any later Phase 4
 task in this invocation, and do not execute migration `0004`.
+
+**Result-commit identity**: The working tree is intentionally dirty and has not
+been committed. A commit SHA must be resolved externally (after `git add` and
+`git commit`) and recorded as the final result-commit identity for this Phase 3
+micro-closure. All pre-commit verification evidence (build, run, architecture,
+diff hygiene) has been captured above and in the updated `phase-03-red.md` and
+`phase-03-review.md`.
