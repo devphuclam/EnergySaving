@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS ix_source_point_mapping_status ON catalog.source_poin
 -- This constraint is the authoritative invariant; do not weaken it.
 -- PostgreSQL does not support IF NOT EXISTS for ADD CONSTRAINT; use a DO block.
 DO $$BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ex_source_point_mapping_active_period') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ex_source_point_mapping_active_period' AND conrelid = 'catalog.source_point_mapping'::regclass) THEN
         ALTER TABLE catalog.source_point_mapping ADD CONSTRAINT ex_source_point_mapping_active_period
         EXCLUDE USING gist (
             point_id WITH =,

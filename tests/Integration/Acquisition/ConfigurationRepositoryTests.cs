@@ -34,7 +34,12 @@ public sealed class ConfigurationRepositoryContractRunner
         await ConstantBoundsMatchConstraintAsync();
         await NormalMinLessThanMaxConstraintAsync();
         await NaNMinimumRejectedAsync();
+        await NaNMaximumRejectedAsync();
         await InfinityMaximumRejectedAsync();
+        await NegativeInfinityMinimumRejectedAsync();
+        await NegativeInfinityMaximumRejectedAsync();
+        await ConstantEqualAcceptedAsync();
+        await NormalMinLessThanMaxAcceptedAsync();
         await SeedMinAcceptedAsync();
         await SeedMaxAcceptedAsync();
         await SeedMidValueAcceptedAsync();
@@ -147,11 +152,48 @@ public sealed class ConfigurationRepositoryContractRunner
         Assert(rejected, "NaN minimum value is rejected");
     }
 
+    private async Task NaNMaximumRejectedAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, 1, double.NaN, 0, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "NaN maximum value is rejected");
+    }
+
     private async Task InfinityMaximumRejectedAsync()
     {
         var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, 1, double.PositiveInfinity, 0, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
         _testCount++;
         Assert(rejected, "Infinity maximum value is rejected");
+    }
+
+    private async Task NegativeInfinityMinimumRejectedAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, double.NegativeInfinity, 1, 0, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "Negative Infinity minimum value is rejected");
+    }
+
+    private async Task NegativeInfinityMaximumRejectedAsync()
+    {
+        var rejected = false; try { _ = Version(Guid.NewGuid(), 1, 10, 1, double.NegativeInfinity, 0, SimulatorScenario.Normal); } catch (ArgumentException) { rejected = true; }
+        _testCount++;
+        Assert(rejected, "Negative Infinity maximum value is rejected");
+    }
+
+    private async Task ConstantEqualAcceptedAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 5, 5, 42, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        _testCount++;
+        Assert((await repo.GetVersionAsync(id, 1))?.MinimumValue == 5 && (await repo.GetVersionAsync(id, 1))?.MaximumValue == 5, "Constant equal bounds accepted");
+    }
+
+    private async Task NormalMinLessThanMaxAcceptedAsync()
+    {
+        var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 2, 8, 99, SimulatorScenario.Normal)); await tx.CommitAsync(); tx.Dispose();
+        _testCount++;
+        Assert((await repo.GetVersionAsync(id, 1))?.MinimumValue == 2 && (await repo.GetVersionAsync(id, 1))?.MaximumValue == 8, "Normal min < max accepted");
     }
 
     private async Task SeedMinAcceptedAsync()

@@ -28,14 +28,20 @@ public sealed class CatalogSourceScopeQueryAdapter : ICatalogSourceScopeQuery
             var readiness = await _readiness.GetPointReadinessAsync(mapping.PointId, ct);
             if (readiness is null || !readiness.Exists)
             {
-                // Fail-closed: unresolved or inconsistent Point readiness
-                // denies configuration access. No empty fallback SiteId/AreaId.
                 return null;
             }
-            // SiteId is non-nullable in readiness; AreaId is nullable metadata.
+            if (string.IsNullOrWhiteSpace(readiness.SiteId) || string.IsNullOrWhiteSpace(readiness.AreaId))
+            {
+                return null;
+            }
+            var versions = readiness.ReadinessVersions;
+            if (versions.PointVersion <= 0 || versions.AssetVersion <= 0 || versions.AreaVersion <= 0 || versions.SiteVersion <= 0)
+            {
+                return null;
+            }
             mappedScopes.Add(new CatalogSourceMappedScopeSnapshot(
                 mapping.Id, mapping.Version, mapping.PointId,
-                readiness.SiteId, readiness.AreaId ?? string.Empty, readiness.ReadinessVersions));
+                readiness.SiteId, readiness.AreaId, readiness.ReadinessVersions));
         }
 
         return new CatalogSourceScopeSnapshot(

@@ -83,7 +83,7 @@ public sealed class SimulatorConfigurationService
             return (false, "FORBIDDEN", "The target is not visible in the caller scope.", caller, null);
         if (scope.SourceStatus == "Decommissioned" || scope.SourceType != "Simulator")
             return (false, "FORBIDDEN", "The target is not visible in the caller scope.", caller, null);
-        var trustedSiteIds = scope.MappedScopes.Select(m => m.SiteId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var trustedSiteIds = scope.MappedScopes.Select(m => m.SiteId).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
         if (caller.HasRole("Administrator"))
             return (true, "OK", null, caller, trustedSiteIds);
         if (!caller.HasRole("Engineer"))

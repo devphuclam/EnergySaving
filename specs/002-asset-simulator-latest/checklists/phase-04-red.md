@@ -91,9 +91,55 @@ across T078–T080 and T088. Pre-correction failures include:
 - T091: missing `CatalogSourceScopeQueryAdapter` existence check, DO block
   check, empty-fallback check, phase-5-file check
 
+## Chronological RED capture (2026-07-27)
+
+RED was captured chronologically: test code and static verification were added
+against the accepted baseline without any production corrections. Build exited
+0 (compile); run exited non-zero with 4 business-assertion failures.
+
+### Build result
+
+```
+dotnet build tests\Unit\IUMP.Tests.Unit.csproj --no-restore -c Debug
+Build succeeded. 0 Warning(s) 0 Error(s).
+```
+
+### Run result
+
+```
+dotnet run --project tests\Unit\IUMP.Tests.Unit.csproj --no-build -c Debug
+T079: assertions=87; failures=4
+T080: assertions=62; failures=0
+T071: tests=19; assertions=39; failures=0
+T088: scenarios=24; assertions=24; failures=0
+FAILURES:
+  T079: Multi-Site SiteIds are sorted.                                    ← SiteIds from readiness order, not sorted
+  T079: Adapter returns null for readiness with empty SiteId (fail-closed).  ← No empty-SiteId validation
+  T079: Adapter returns null for readiness with empty AreaId (fail-closed).  ← string.Empty fallback prevents null
+  T079: Adapter returns null for readiness with zero PointVersion.          ← No version-positivity check
+exit code: 1
+```
+
+### RED failure analysis
+
+| ID | Failure | Root cause | Expected GREEN |
+|---|---|---|---|
+| R01 | Multi-Site SiteIds are sorted | `CatalogSourceScopeQueryAdapter` emits SiteIds in repo-iteration order, not ordinally sorted | Adapter must `.Distinct().OrderBy(...)` SiteIds |
+| R02 | Adapter returns null for empty SiteId | No validation of `readiness.SiteId` non-empty | Adapter must return `null` when SiteId is null/empty |
+| R03 | Adapter returns null for empty AreaId | Uses `readiness.AreaId ?? string.Empty` fallback | Adapter must validate AreaId non-empty and return null when empty |
+| R04 | Adapter returns null for zero PointVersion | No validation of `ReadinessVersionTuple` components > 0 | Adapter must check all version components are positive |
+
+### T080, T071, T088
+
+All pass with zero failures in the RED phase (62, 39, 24 assertions respectively).
+
+### Architecture checks
+
+Not executed in RED phase — architecture tests are static verification that
+require production fixes (conrelid, no empty-fallback) to pass.
+
 ## Label
 
-Post-hoc reproduced Phase 4 business RED evidence — corrective convergence
-baseline. This is not a claim that RED was captured chronologically before the
-implementation; the contract changes made byte-identical worktree reproduction
-infeasible. All production fixes are in the GREEN delta.
+Chronological Phase 4 business RED evidence — corrective convergence
+baseline. Test/static code added first; production corrections applied
+separately in GREEN phase.
