@@ -47,12 +47,12 @@
 | Fast harness | Exit 0 |
 | Architecture, verification-contract, repository-harness, repository-policy, repository-scope checks | Exit 0 |
 | Secret scan, prohibited-port source/command scan, `git diff --check`, changed-file scope review | Exit 0; no secret literals; port 5432 not contacted |
-| Database verification/mutation | `SKIPPED_BY_INSTRUCTION` / `NOT_RUN` |
+| Database verification/mutation | `PASS` (read-only target/version query) / `NOT_RUN` |
 | Full harness | Not invoked because the explicit instruction prohibits another DB/`psql` preflight |
 
 ## 4. Capability and counts
 
-- PostgreSQL capability: **AVAILABLE** (operator verification PASS).
+- PostgreSQL capability: **AVAILABLE** (connection verification PASS via existing local `.env`).
 - Engine: PostgreSQL 18; host `127.0.0.1`; port `5433`; database `iump_dev`; credential source
   `IUMP_DB_PASSWORD`; password `REDACTED`.
 - Old cluster `127.0.0.1:5432`: **PROHIBITED** and not contacted.

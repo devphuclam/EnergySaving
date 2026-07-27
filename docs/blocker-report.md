@@ -123,12 +123,12 @@ completion.
   company templates, hosts, and security provisioning when supplied; no keys or sensitive approval
   content are recorded here.
 
-## Active Phase 2 capability evidence — operator-provided database verification
+## Active Phase 2 capability evidence — verified local `.env` runtime target
 
 The historical R0/T012 database-unavailable entries above are retained as history and are
-superseded for this Phase 2 invocation by the approved operator evidence in
-`IUMP_Local_Database_Connection_Info.md`. That file is environment evidence only and is not a
-project change.
+superseded by the successful read-only connection verification performed against the approved
+local `.env` target. `IUMP_Local_Database_Connection_Info.md` remains environment evidence only
+and is not a project change.
 
 - **PostgreSQL capability**: `AVAILABLE`.
 - **Engine**: PostgreSQL 18.
@@ -136,10 +136,9 @@ project change.
 - **Port**: `5433`.
 - **Database**: `iump_dev`.
 - **Bootstrap user**: `postgres`.
-- **Credential source**: protected environment variable `IUMP_DB_PASSWORD`.
+- **Credential source**: existing repository-local `.env` loaded into the runtime environment.
 - **Password**: `REDACTED` (never recorded here).
-- **Operator verification**: `PASS`.
-- **Database verification during this invocation**: `SKIPPED_BY_INSTRUCTION`.
+- **Connection verification**: `PASS` (read-only target/version query).
 - **Database mutation/migration execution**: `NOT_RUN`.
 - **Old cluster `127.0.0.1:5432`**: `PROHIBITED`; it was not contacted.
 
