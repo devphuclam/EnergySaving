@@ -3,6 +3,7 @@ using IUMP.Modules.IAM.Domain;
 using IUMP.Tests.Unit.IAM;
 using IUMP.Tests.Unit.Api;
 using IUMP.Tests.Unit.Catalog;
+using IUMP.Tests.Unit.Organization;
 using IUMP.Tests.Integration.IAM;
 using IUMP.Tests.Integration.Catalog;
 using IUMP.Tests.Unit.Fakes;
@@ -22,6 +23,13 @@ failures.AddRange(AuthEndpointTests.Run());
 failures.AddRange(MetricUnitTests.Run());
 failures.AddRange(SourceMappingTests.Run());
 failures.AddRange(CatalogCommandTests.Run());
+
+// Phase 3 — Organization RED tests
+failures.AddRange(HierarchyDomainTests.Run());
+failures.AddRange(DecommissionTests.Run());
+failures.AddRange(HierarchyCommandTests.Run());
+failures.AddRange(HierarchyQueryTests.Run());
+failures.AddRange(PostSiteFixtureTests.Run());
 
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();

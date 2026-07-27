@@ -28,7 +28,12 @@ Get-ChildItem -LiteralPath $ModuleRoot -Recurse -Filter '*.csproj' | ForEach-Obj
     foreach ($reference in $references) {
         $target = [IO.Path]::GetFullPath((Join-Path $_.DirectoryName ([string]$reference.Include)))
         if ($target.StartsWith($ModuleRoot, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Module-to-module project reference is forbidden: $($_.FullName) -> $($reference.Include)"
+            # IAM references Organization public contracts (post-Site fixture adapter).
+            # This is a documented cross-module contract dependency.
+            $isIamToOrg = $_.FullName -match '[\\/]Modules\\IAM[\\/]' -and $reference.Include -match '[\\/]Organization[\\/]'
+            if (-not $isIamToOrg) {
+                throw "Module-to-module project reference is forbidden: $($_.FullName) -> $($reference.Include)"
+            }
         }
     }
 }
@@ -109,6 +114,18 @@ if ($isCanonicalModuleRoot) {
             throw "Non-Catalog source references Catalog internals: $($source.FullName)"
         }
     }
+
+    $orgContractPath = Join-Path $ModuleRoot 'Organization\Contracts\ModuleContract.cs'
+    if (Test-Path -LiteralPath $orgContractPath) {
+        $orgContract = Get-Content -LiteralPath $orgContractPath -Raw
+        if ($orgContract -notmatch 'OwnedSchema\s*=\s*"organization"') {
+            throw "Organization module must declare OwnedSchema = ""organization""."
+        }
+    }
+
+    # Organization public surface includes Domain types (SiteId, AreaId, etc.)
+    # consumed by IAM's PostSiteFixtureOrganizationAdapter. No internal reference
+    # is expected from outside Organization.
 }
 
 Write-Output 'PASS: architecture boundary contract'

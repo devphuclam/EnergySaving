@@ -7,9 +7,11 @@
     <ProjectReference Include="..\..\src\Modules\IAM\IUMP.Modules.IAM.csproj" />
     <ProjectReference Include="..\..\src\Api\IUMP.Api.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\IUMP.Modules.Catalog.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Organization\IUMP.Modules.Organization.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Integration\IAM\IamRepositoryTests.cs" Link="IAM\IamRepositoryTests.cs" />
     <Compile Include="..\Integration\Catalog\CatalogRepositoryTests.cs" Link="Catalog\CatalogRepositoryTests.cs" />
+    <Compile Include="..\Integration\Organization\OrganizationRepositoryTests.cs" Link="Organization\OrganizationRepositoryTests.cs" />
   </ItemGroup>
 </Project>
