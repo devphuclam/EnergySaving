@@ -2,12 +2,14 @@ using IUMP.BuildingBlocks.Correlation;
 using IUMP.Modules.IAM.Domain;
 using IUMP.Tests.Unit.IAM;
 using IUMP.Tests.Unit.Api;
-using IUMP.Tests.Unit.Catalog;
 using IUMP.Tests.Unit.Organization;
 using IUMP.Tests.Integration.IAM;
 using IUMP.Tests.Integration.Catalog;
 using IUMP.Tests.Integration.Organization;
 using IUMP.Tests.Unit.Fakes;
+using IUMP.Tests.Unit.Acquisition;
+using IUMP.Tests.Unit.Catalog;
+using IUMP.Tests.Integration.Acquisition;
 
 var failures = new List<string>();
 
@@ -32,6 +34,11 @@ failures.AddRange(HierarchyCommandTests.Run());
 failures.AddRange(HierarchyQueryTests.Run());
 failures.AddRange(PostSiteFixtureTests.Run());
 
+// Phase 4 — immutable Simulator configuration and Organization readiness
+failures.AddRange(ConfigurationTests.Run());
+failures.AddRange(ConfigurationCommandTests.Run());
+failures.AddRange(MappingReadinessTests.Run());
+
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();
 failures.AddRange(catalogRunner.Failures);
@@ -40,6 +47,11 @@ var organizationRunner = new OrganizationRepositoryContractRunner(new FakeOrgani
 await organizationRunner.RunAllAsync();
 failures.AddRange(organizationRunner.Failures);
 Console.WriteLine($"T071: tests={organizationRunner.TestCount}; assertions={organizationRunner.AssertionCount}; failures={organizationRunner.Failures.Count}");
+
+var acquisitionRunner = new ConfigurationRepositoryContractRunner(new FakeAcquisitionConfigurationRepositoryFactory());
+await acquisitionRunner.RunAllAsync();
+failures.AddRange(acquisitionRunner.Failures);
+Console.WriteLine($"T088: tests={acquisitionRunner.TestCount}; assertions={acquisitionRunner.AssertionCount}; failures={acquisitionRunner.Failures.Count}");
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

@@ -68,6 +68,14 @@ public interface ICatalogPointReadinessQuery
     Task<PointReadinessSnapshot?> GetPointReadinessAsync(string pointId, CancellationToken ct = default);
 }
 
+/// <summary>Consumer-facing source scope fact; it deliberately exposes no Catalog repository.</summary>
+public sealed record CatalogSourceScopeSnapshot(Guid SourceId, string SiteId, string? AreaId, long ProviderVersion);
+
+public interface ICatalogSourceScopeQuery
+{
+    Task<CatalogSourceScopeSnapshot?> GetSourceScopeAsync(Guid sourceId, CancellationToken ct = default);
+}
+
 public interface ICatalogEligibilityQueryRepository
 {
     Task<MetricUnitEligibility> GetMetricUnitEligibilityAsync(MetricId metricId, UnitId unitId, CancellationToken ct = default);

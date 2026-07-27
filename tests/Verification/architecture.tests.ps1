@@ -28,10 +28,13 @@ Get-ChildItem -LiteralPath $ModuleRoot -Recurse -Filter '*.csproj' | ForEach-Obj
     foreach ($reference in $references) {
         $target = [IO.Path]::GetFullPath((Join-Path $_.DirectoryName ([string]$reference.Include)))
         if ($target.StartsWith($ModuleRoot, [StringComparison]::OrdinalIgnoreCase)) {
-            # IAM references Organization public contracts (post-Site fixture adapter).
-            # This is a documented cross-module contract dependency.
+            # Approved public-contract dependencies: IAM -> Organization (post-Site
+            # fixture), Catalog -> Organization (readiness snapshots), and
+            # Acquisition -> Catalog (source-scope fact only).
             $isIamToOrg = $_.FullName -match '[\\/]Modules\\IAM[\\/]' -and $reference.Include -match '[\\/]Organization[\\/]'
-            if (-not $isIamToOrg) {
+            $isCatalogToOrg = $_.FullName -match '[\\/]Modules\\Catalog[\\/]' -and $reference.Include -match '[\\/]Organization[\\/]'
+            $isAcquisitionToCatalog = $_.FullName -match '[\\/]Modules\\Acquisition[\\/]' -and $reference.Include -match '[\\/]Catalog[\\/]'
+            if (-not ($isIamToOrg -or $isCatalogToOrg -or $isAcquisitionToCatalog)) {
                 throw "Module-to-module project reference is forbidden: $($_.FullName) -> $($reference.Include)"
             }
         }
@@ -178,6 +181,49 @@ if ($isCanonicalModuleRoot) {
     $querySource = Get-Content -LiteralPath $hierarchyQueries -Raw
     if ($querySource -match 'ScopeFilter\(1\s*,\s*200\)' -or $querySource -notmatch 'GetAreaAncestryAsync') {
         throw 'Area-scoped Site visibility must use trusted ancestry and must not rely on a first-200 Area page.'
+    }
+
+    $readinessAdapter = Join-Path $ModuleRoot 'Catalog\Application\OrganizationPointReadinessAdapter.cs'
+    if (Test-Path -LiteralPath $readinessAdapter) {
+        $readinessSource = Get-Content -LiteralPath $readinessAdapter -Raw
+        if ($readinessSource -match 'IUMP\.Modules\.Organization\.(Domain|Application|Infrastructure)') {
+            throw 'Catalog readiness adapter may consume only Organization.Contracts snapshots.'
+        }
+        if ($readinessSource -match 'IOrganizationCommandRepository|Add[A-Za-z]+Async|Update[A-Za-z]+Async') {
+            throw 'Catalog readiness adapter must be read-only and must not write Organization.'
+        }
+    }
+
+    $acquisitionContract = Join-Path $ModuleRoot 'Acquisition\Contracts\ConfigurationPersistenceContracts.cs'
+    $acquisitionApp = Join-Path $ModuleRoot 'Acquisition\Application\SimulatorConfiguration.cs'
+    if (Test-Path -LiteralPath $acquisitionContract) {
+        $acqContractSource = Get-Content -LiteralPath $acquisitionContract -Raw
+        if ($acqContractSource -match 'IQueryable|DbContext|Npgsql') {
+            throw 'Acquisition configuration contract must remain provider-neutral and append-only.'
+        }
+        if ($acqContractSource -match '(?m)^\s*(Task|void).*\b(Delete|Update).*Version') {
+            throw 'Immutable configuration versions must not have update/delete ports.'
+        }
+    }
+    if (Test-Path -LiteralPath $acquisitionApp) {
+        $acqAppSource = Get-Content -LiteralPath $acquisitionApp -Raw
+        if ($acqAppSource -match 'Run|Worker|Telemetry|Start|Pause|Resume|Stop') {
+            throw 'Phase 4 Acquisition must not implement Run, Worker or Telemetry behavior.'
+        }
+        if ($acqAppSource -match 'IUMP\.Modules\.Catalog\.(Domain|Application|Infrastructure)') {
+            throw 'Acquisition may consume only Catalog public contracts.'
+        }
+    }
+
+    foreach ($migration in @('0005_acquisition_configuration.sql','0006_catalog_source_mapping.sql')) {
+        $migrationPath = Join-Path $repoRoot "database\migrations\$migration"
+        $sql = Get-Content -LiteralPath $migrationPath -Raw
+        if ($sql -match '(?i)REFERENCES\s+(catalog|organization)\.' -and $migration -eq '0005_acquisition_configuration.sql') {
+            throw '0005 must not contain a cross-schema FK.'
+        }
+        if ($sql -match '(?i)REFERENCES\s+organization\.' -and $migration -eq '0006_catalog_source_mapping.sql') {
+            throw '0006 must not contain a cross-schema FK.'
+        }
     }
 }
 
