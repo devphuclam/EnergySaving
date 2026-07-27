@@ -54,6 +54,15 @@ public interface ISourceMappingSnapshotQuery
     Task<CatalogSourceMappingSnapshot?> GetSourceMappingSnapshotAsync(MappingId mappingId, CancellationToken ct = default);
 }
 
+public sealed record ReadinessVersionTuple(
+    long PointVersion,
+    long AssetVersion,
+    long AreaVersion,
+    long SiteVersion)
+{
+    public static ReadinessVersionTuple Empty => new(0, 0, 0, 0);
+}
+
 public sealed record PointReadinessSnapshot(
     string PointId,
     string SiteId,
@@ -61,15 +70,37 @@ public sealed record PointReadinessSnapshot(
     bool Exists,
     bool IsConfigurationReady,
     bool IsProducingReady,
-    long ProviderVersion);
+    long ProviderVersion,
+    ReadinessVersionTuple ReadinessVersions)
+{
+    public PointReadinessSnapshot(string pointId, string siteId, string? areaId, bool exists,
+        bool isConfigurationReady, bool isProducingReady, long providerVersion)
+        : this(pointId, siteId, areaId, exists, isConfigurationReady, isProducingReady,
+              providerVersion, ReadinessVersionTuple.Empty)
+    {
+    }
+}
 
 public interface ICatalogPointReadinessQuery
 {
     Task<PointReadinessSnapshot?> GetPointReadinessAsync(string pointId, CancellationToken ct = default);
 }
 
-/// <summary>Consumer-facing source scope fact; it deliberately exposes no Catalog repository.</summary>
-public sealed record CatalogSourceScopeSnapshot(Guid SourceId, string SiteId, string? AreaId, long ProviderVersion);
+public sealed record CatalogSourceMappedScopeSnapshot(
+    MappingId MappingId,
+    long MappingVersion,
+    string PointId,
+    string SiteId,
+    string AreaId,
+    ReadinessVersionTuple OrganizationReadinessVersions);
+
+public sealed record CatalogSourceScopeSnapshot(
+    Guid SourceId,
+    bool Exists,
+    string SourceType,
+    string SourceStatus,
+    long SourceVersion,
+    IReadOnlyList<CatalogSourceMappedScopeSnapshot> MappedScopes);
 
 public interface ICatalogSourceScopeQuery
 {

@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_configuration_version (
     interval_seconds integer NOT NULL,
     minimum_value double precision NOT NULL,
     maximum_value double precision NOT NULL,
-    deterministic_seed text NOT NULL,
+    deterministic_seed numeric(20,0) NOT NULL,
     scenario_type text NOT NULL,
     algorithm_id text NOT NULL,
     algorithm_version integer NOT NULL,
@@ -49,7 +49,10 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_configuration_version (
         (scenario_type = 'Constant' AND minimum_value = maximum_value)
         OR (scenario_type = 'Normal' AND minimum_value < maximum_value)
     ),
-    CONSTRAINT ck_simulator_configuration_seed_nonempty CHECK (length(btrim(deterministic_seed)) > 0),
+    CONSTRAINT ck_simulator_configuration_seed_range CHECK (
+        deterministic_seed >= 0 AND deterministic_seed <= 18446744073709551615
+        AND scale(deterministic_seed) = 0
+    ),
     CONSTRAINT ck_simulator_configuration_algorithm CHECK (algorithm_id = 'IUMP-DETERMINISTIC-V1' AND algorithm_version > 0),
     CONSTRAINT ck_simulator_configuration_version_actor_nonempty CHECK (length(btrim(created_by_user_id)) > 0 AND length(btrim(created_by_username)) > 0)
 );

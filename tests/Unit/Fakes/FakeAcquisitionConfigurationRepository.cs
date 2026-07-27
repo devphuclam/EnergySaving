@@ -3,7 +3,6 @@ using IUMP.Tests.Integration.Acquisition;
 
 namespace IUMP.Tests.Unit.Fakes;
 
-/// <summary>Deterministic, provider-neutral fake used by Phase 4 contract tests.</summary>
 public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigurationRepository
 {
     private Dictionary<Guid, SimulatorConfigurationHead> _heads = new();

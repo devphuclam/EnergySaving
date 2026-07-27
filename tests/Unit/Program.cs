@@ -51,7 +51,7 @@ Console.WriteLine($"T071: tests={organizationRunner.TestCount}; assertions={orga
 var acquisitionRunner = new ConfigurationRepositoryContractRunner(new FakeAcquisitionConfigurationRepositoryFactory());
 await acquisitionRunner.RunAllAsync();
 failures.AddRange(acquisitionRunner.Failures);
-Console.WriteLine($"T088: tests={acquisitionRunner.TestCount}; assertions={acquisitionRunner.AssertionCount}; failures={acquisitionRunner.Failures.Count}");
+Console.WriteLine($"T088: scenarios={acquisitionRunner.TestCount}; assertions={acquisitionRunner.AssertionCount}; failures={acquisitionRunner.Failures.Count}");
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

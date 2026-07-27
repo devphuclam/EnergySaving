@@ -1,6 +1,7 @@
+using System.Globalization;
+
 namespace IUMP.Modules.Acquisition.Contracts;
 
-/// <summary>Provider-neutral identity for an Acquisition configuration aggregate.</summary>
 public sealed record SimulatorConfigurationHead
 {
     public Guid ConfigurationId { get; }
@@ -27,7 +28,6 @@ public enum SimulatorScenario
     Normal
 }
 
-/// <summary>Immutable, append-only configuration version.  There is intentionally no update/delete port.</summary>
 public sealed record SimulatorConfigurationVersion
 {
     public Guid ConfigurationId { get; }
@@ -35,7 +35,7 @@ public sealed record SimulatorConfigurationVersion
     public int IntervalSeconds { get; }
     public double MinimumValue { get; }
     public double MaximumValue { get; }
-    public string DeterministicSeed { get; }
+    public ulong DeterministicSeed { get; }
     public SimulatorScenario ScenarioType { get; }
     public string AlgorithmId { get; }
     public int AlgorithmVersion { get; }
@@ -46,7 +46,7 @@ public sealed record SimulatorConfigurationVersion
     public string? CausationId { get; }
 
     public SimulatorConfigurationVersion(Guid configurationId, long configurationVersion, int intervalSeconds,
-        double minimumValue, double maximumValue, string deterministicSeed, SimulatorScenario scenarioType,
+        double minimumValue, double maximumValue, ulong deterministicSeed, SimulatorScenario scenarioType,
         string algorithmId, int algorithmVersion, string createdByUserId, string createdByUsername,
         DateTime createdAtUtc, string? correlationId, string? causationId)
     {
@@ -54,7 +54,6 @@ public sealed record SimulatorConfigurationVersion
         if (configurationVersion <= 0) throw new ArgumentOutOfRangeException(nameof(configurationVersion));
         if (intervalSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(intervalSeconds));
         if (!double.IsFinite(minimumValue) || !double.IsFinite(maximumValue)) throw new ArgumentException("Bounds must be finite.");
-        if (string.IsNullOrWhiteSpace(deterministicSeed)) throw new ArgumentException("A deterministic seed is required.", nameof(deterministicSeed));
         if (scenarioType is not (SimulatorScenario.Constant or SimulatorScenario.Normal)) throw new ArgumentOutOfRangeException(nameof(scenarioType));
         if (scenarioType == SimulatorScenario.Constant && minimumValue != maximumValue) throw new ArgumentException("Constant bounds must match.");
         if (scenarioType == SimulatorScenario.Normal && minimumValue >= maximumValue) throw new ArgumentException("Normal minimum must be less than maximum.");
@@ -82,11 +81,10 @@ public sealed record SimulatorConfigurationVersion
 
 public sealed record SimulatorConfigurationCreateCommand(
     Guid SourceId,
-    string? ClientSiteId,
+    ulong DeterministicSeed,
     int IntervalSeconds,
     double MinimumValue,
     double MaximumValue,
-    string? DeterministicSeed,
     SimulatorScenario ScenarioType,
     string AlgorithmId,
     int AlgorithmVersion,
@@ -97,11 +95,10 @@ public sealed record SimulatorConfigurationCreateCommand(
 public sealed record SimulatorConfigurationEditCommand(
     Guid ConfigurationId,
     long ExpectedVersion,
-    string? ClientSiteId,
+    ulong DeterministicSeed,
     int IntervalSeconds,
     double MinimumValue,
     double MaximumValue,
-    string? DeterministicSeed,
     SimulatorScenario ScenarioType,
     string AlgorithmId,
     int AlgorithmVersion,
@@ -163,7 +160,7 @@ public sealed record SimulatorConfigurationEvent(
     DateTime OccurredAtUtc,
     string? CorrelationId,
     string? CausationId,
-    string SiteId,
+    IReadOnlyList<string> SiteIds,
     IReadOnlyDictionary<string, object?> Before,
     IReadOnlyDictionary<string, object?> After);
 

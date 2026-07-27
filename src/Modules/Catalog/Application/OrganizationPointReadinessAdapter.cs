@@ -3,7 +3,6 @@ using IUMP.Modules.Organization.Contracts;
 
 namespace IUMP.Modules.Catalog.Application;
 
-/// <summary>Read-only Catalog seam over Organization's public hierarchy snapshots.</summary>
 public sealed class OrganizationPointReadinessAdapter : ICatalogPointReadinessQuery
 {
     private readonly IOrganizationQueryRepository _organization;
@@ -25,14 +24,17 @@ public sealed class OrganizationPointReadinessAdapter : ICatalogPointReadinessQu
         var configurationReady = point.ExpectedIntervalSeconds > 0 &&
             point.NoDataAfterSeconds > point.ExpectedIntervalSeconds &&
             !string.IsNullOrWhiteSpace(point.MetricId) && !string.IsNullOrWhiteSpace(point.UnitId) &&
-            !string.IsNullOrWhiteSpace(point.DataOwnerUserId) && !string.Equals(point.Status.ToString(), "Decommissioned", StringComparison.Ordinal);
-        var producingReady = configurationReady && string.Equals(site.Status.ToString(), "Active", StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(point.DataOwnerUserId) &&
+            !string.Equals(point.Status.ToString(), "Decommissioned", StringComparison.Ordinal);
+        var producingReady = configurationReady &&
+            string.Equals(site.Status.ToString(), "Active", StringComparison.Ordinal) &&
             string.Equals(area.Status.ToString(), "Active", StringComparison.Ordinal) &&
             string.Equals(asset.Status.ToString(), "Active", StringComparison.Ordinal) &&
             string.Equals(point.Status.ToString(), "Active", StringComparison.Ordinal);
         var providerVersion = new[] { point.Version, asset.Version, area.Version, site.Version }.Max();
+        var versions = new ReadinessVersionTuple(point.Version, asset.Version, area.Version, site.Version);
         return new PointReadinessSnapshot(point.Id.ToString("D"), site.Id.ToString("D"), area.Id.ToString("D"),
-            true, configurationReady, producingReady, providerVersion);
+            true, configurationReady, producingReady, providerVersion, versions);
     }
 
     private static PointReadinessSnapshot Missing(string pointId) =>

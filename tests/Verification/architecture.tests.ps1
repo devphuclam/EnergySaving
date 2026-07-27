@@ -194,6 +194,14 @@ if ($isCanonicalModuleRoot) {
         }
     }
 
+    $catalogSourceScopeAdapter = Join-Path $ModuleRoot 'Catalog\Application\CatalogSourceScopeQueryAdapter.cs'
+    if (Test-Path -LiteralPath $catalogSourceScopeAdapter) {
+        $sourceScopeSource = Get-Content -LiteralPath $catalogSourceScopeAdapter -Raw
+        if ($sourceScopeSource -match 'IUMP\.Modules\.Organization\.|IUMP\.Modules\.Acquisition\.') {
+            throw 'CatalogSourceScopeQueryAdapter may consume only Catalog contracts and ICatalogPointReadinessQuery.'
+        }
+    }
+
     $acquisitionContract = Join-Path $ModuleRoot 'Acquisition\Contracts\ConfigurationPersistenceContracts.cs'
     $acquisitionApp = Join-Path $ModuleRoot 'Acquisition\Application\SimulatorConfiguration.cs'
     if (Test-Path -LiteralPath $acquisitionContract) {

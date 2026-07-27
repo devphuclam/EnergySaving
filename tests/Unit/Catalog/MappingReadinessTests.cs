@@ -14,6 +14,7 @@ public static class MappingReadinessTests
         var failures = new List<string>();
         AdapterReadiness(failures).GetAwaiter().GetResult();
         DraftMappingActivation(failures).GetAwaiter().GetResult();
+        ReadinessVersionTupleTests(failures).GetAwaiter().GetResult();
         return failures;
     }
 
@@ -29,6 +30,7 @@ public static class MappingReadinessTests
         var draft = (await adapter.GetPointReadinessAsync(ids.Point.ToString("D")))!;
         Assert(draft.Exists && draft.IsConfigurationReady && !draft.IsProducingReady && draft.SiteId == ids.Site.ToString("D") && draft.AreaId == ids.Area.ToString("D"), failures, "Valid Draft Point is configuration-ready, trusted to its ancestors, and non-producing.");
         Assert(draft.ProviderVersion == 4, failures, "Readiness returns the provider snapshot version.");
+        Assert(draft.ReadinessVersions.PointVersion == 4 && draft.ReadinessVersions.AssetVersion == 3 && draft.ReadinessVersions.AreaVersion == 2 && draft.ReadinessVersions.SiteVersion == 1, failures, "Readiness version tuple has exact per-object versions.");
 
         query.Set(ids, SiteStatus.Active, AreaStatus.Active, AssetStatus.Active, PointStatus.Active, 60, 300);
         var active = (await adapter.GetPointReadinessAsync(ids.Point.ToString("D")))!;
@@ -62,7 +64,9 @@ public static class MappingReadinessTests
         var repo = new FakeCatalogCommandRepository();
         var source = new DataSource(DataSourceId.New(), "READINESS-SOURCE", "Readiness", SourceType.Simulator, SourceStatus.Draft, 1);
         await repo.AddDataSourceAsync(source);
-        var readiness = new FakePointReadinessQuery().Configure("draft-point", new PointReadinessSnapshot("draft-point", "trusted-site", "trusted-area", true, true, false, 4));
+        var readiness = new FakePointReadinessQuery()
+            .Configure("draft-point", new PointReadinessSnapshot("draft-point", "trusted-site", "trusted-area", true, true, false, 4, new ReadinessVersionTuple(4, 3, 2, 1)))
+            .Configure("active-point", new PointReadinessSnapshot("active-point", "trusted-site", "trusted-area", true, true, true, 10, new ReadinessVersionTuple(10, 3, 2, 1)));
         var auth = new CatalogRoleScopeAuthorization(new CallerProvider());
         var handler = new CatalogCommandHandler(repo, auth, readiness);
         var created = await handler.HandleAsync(new CreateMappingCommand(source.Id, "draft-point", DateTime.UtcNow, "engineer", "forged-site"));
@@ -70,11 +74,41 @@ public static class MappingReadinessTests
         var mapping = (await repo.GetMappingsForPointAsync("draft-point")).Single();
         var activated = await handler.HandleAsync(new UpdateMappingStatusCommand(mapping.Id, "activate", "engineer", "forged-site"));
         var saved = await repo.GetMappingAsync(mapping.Id);
-        Assert(activated.IsSuccess && saved?.Status == MappingStatus.Active && !readinessSnapshot(readiness).IsProducingReady, failures, "Draft mapping activation preserves producingReady=false.");
+        Assert(activated.IsSuccess && saved?.Status == MappingStatus.Active && !SnapshotReadiness(readiness, "draft-point").IsProducingReady, failures, "Draft mapping activation preserves producingReady=false.");
+
+        var activeMapping = await handler.HandleAsync(new CreateMappingCommand(source.Id, "active-point", DateTime.UtcNow, "engineer", "forged-site"));
+        Assert(activeMapping.IsSuccess, failures, "Create mapping for active point succeeds.");
+        var activeId = (await repo.GetMappingsForPointAsync("active-point")).Last();
+        var activeActivated = await handler.HandleAsync(new UpdateMappingStatusCommand(activeId.Id, "activate", "engineer", "forged-site"));
+        var activeSaved = await repo.GetMappingAsync(activeId.Id);
+        Assert(activeActivated.IsSuccess && activeSaved?.Status == MappingStatus.Active && SnapshotReadiness(readiness, "active-point").IsProducingReady, failures, "Active hierarchy produces producingReady=true.");
+
+        var invalidReady = new FakePointReadinessQuery()
+            .Configure("invalid-point", new PointReadinessSnapshot("invalid-point", "trusted-site", "trusted-area", false, false, false, 0));
+        var invalidHandler = new CatalogCommandHandler(repo, auth, invalidReady);
+        var invalidMapping = await invalidHandler.HandleAsync(new CreateMappingCommand(source.Id, "invalid-point", DateTime.UtcNow, "engineer", "forged-site"));
+        Assert(!invalidMapping.IsSuccess, failures, "Create for non-existent/not-ready point is rejected.");
+
+        Assert((await repo.GetMappingAsync(activeId.Id))?.Status == MappingStatus.Active, failures, "Catalog performs no Organization write after activation.");
     }
 
-    private static PointReadinessSnapshot readinessSnapshot(FakePointReadinessQuery query) =>
-        query.GetPointReadinessAsync("draft-point").GetAwaiter().GetResult()!;
+    private static async Task ReadinessVersionTupleTests(List<string> failures)
+    {
+        var ids = (Site: Guid.NewGuid(), Area: Guid.NewGuid(), Asset: Guid.NewGuid(), Point: Guid.NewGuid());
+        var query = new ReadinessQueryDouble();
+
+        query.Set(ids, SiteStatus.Active, AreaStatus.Active, AssetStatus.Active, PointStatus.Draft, 60, 300);
+        var draft = (await new OrganizationPointReadinessAdapter(query).GetPointReadinessAsync(ids.Point.ToString("D")))!;
+        Assert(draft.ReadinessVersions.PointVersion == 4 && draft.ReadinessVersions.AssetVersion == 3 && draft.ReadinessVersions.AreaVersion == 2 && draft.ReadinessVersions.SiteVersion == 1, failures, "Version tuple reflects per-object versions when all are present.");
+
+        query.SetWithCustom(ids, siteV: 10, areaV: 5, assetV: 20, pointV: 1);
+        var custom = (await new OrganizationPointReadinessAdapter(query).GetPointReadinessAsync(ids.Point.ToString("D")))!;
+        Assert(custom.ReadinessVersions.PointVersion == 1 && custom.ReadinessVersions.AssetVersion == 20 && custom.ReadinessVersions.AreaVersion == 5 && custom.ReadinessVersions.SiteVersion == 10, failures, "Changing Site Version changes readiness snapshot even with larger Asset Version.");
+        Assert(custom.ProviderVersion == 20, failures, "Backward-compatible ProviderVersion still returns Max().");
+    }
+
+    private static PointReadinessSnapshot SnapshotReadiness(FakePointReadinessQuery query, string pointId) =>
+        query.GetPointReadinessAsync(pointId).GetAwaiter().GetResult()!;
 
     private static void Assert(bool condition, List<string> failures, string message)
     {
@@ -101,6 +135,14 @@ public static class MappingReadinessTests
             _area = new AreaSnapshot(ids.Area, ids.Site, "AREA", "Area", null, areaStatus, 2);
             _asset = new AssetSnapshot(ids.Asset, ids.Site, ids.Area, "ASSET", "Asset", null, assetStatus, 3);
             _point = new PointSnapshot(ids.Point, ids.Site, ids.Area, ids.Asset, "POINT", null, "metric", "unit", "owner", interval, noData, pointStatus, 4);
+        }
+
+        public void SetWithCustom((Guid Site, Guid Area, Guid Asset, Guid Point) ids, long siteV = 1, long areaV = 2, long assetV = 3, long pointV = 4)
+        {
+            _site = new SiteSnapshot(ids.Site, "SITE", "Site", null, "UTC", SiteStatus.Active, siteV);
+            _area = new AreaSnapshot(ids.Area, ids.Site, "AREA", "Area", null, AreaStatus.Active, areaV);
+            _asset = new AssetSnapshot(ids.Asset, ids.Site, ids.Area, "ASSET", "Asset", null, AssetStatus.Active, assetV);
+            _point = new PointSnapshot(ids.Point, ids.Site, ids.Area, ids.Asset, "POINT", null, "metric", "unit", "owner", 60, 300, PointStatus.Draft, pointV);
         }
 
         public void SetInconsistent((Guid Site, Guid Area, Guid Asset, Guid Point) ids) { Set(ids, SiteStatus.Active, AreaStatus.Active, AssetStatus.Active, PointStatus.Active, 60, 300); _asset = _asset! with { SiteId = Guid.NewGuid() }; }

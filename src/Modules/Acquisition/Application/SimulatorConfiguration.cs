@@ -1,3 +1,4 @@
+using System.Globalization;
 using IUMP.Modules.Acquisition.Contracts;
 using IUMP.Modules.Catalog.Contracts;
 
@@ -34,7 +35,7 @@ public sealed class SimulatorConfigurationService
         {
             await _repository.CreateAsync(head, version, ct);
             await tx.CommitAsync(ct);
-            _events.Add(BuildEvent(head, version, authorization.SiteId!, command, "Created", null));
+            _events.Add(BuildEvent(head, version, authorization.TrustedSiteIds!, command, "Created", null));
             return ConfigurationCommandResult.Success();
         }
         catch (InvalidOperationException ex)
@@ -64,7 +65,7 @@ public sealed class SimulatorConfigurationService
             await tx.CommitAsync(ct);
             var updatedHead = new SimulatorConfigurationHead(head.ConfigurationId, head.SourceId,
                 next.ConfigurationVersion, head.Version + 1);
-            _events.Add(BuildEvent(updatedHead, next, authorization.SiteId!, command, "Edited", current));
+            _events.Add(BuildEvent(updatedHead, next, authorization.TrustedSiteIds!, command, "Edited", current));
             return ConfigurationCommandResult.Success();
         }
         catch (InvalidOperationException ex)
@@ -74,15 +75,24 @@ public sealed class SimulatorConfigurationService
         }
     }
 
-    private async Task<(bool Allowed, string Code, string? Error, ConfigurationCallerSnapshot? Caller, string? SiteId)> AuthorizeAsync(string actorUserId, Guid sourceId, CancellationToken ct)
+    private async Task<(bool Allowed, string Code, string? Error, ConfigurationCallerSnapshot? Caller, IReadOnlyList<string>? TrustedSiteIds)> AuthorizeAsync(string actorUserId, Guid sourceId, CancellationToken ct)
     {
         var caller = await _callers.ResolveAsync(actorUserId, ct);
         var scope = await _sourceScopes.GetSourceScopeAsync(sourceId, ct);
-        if (caller is null || !caller.IsActive || scope is null) return (false, "FORBIDDEN", "The target is not visible in the caller scope.", caller, scope?.SiteId);
-        if (caller.HasRole("Administrator")) return (true, "OK", null, caller, scope.SiteId);
-        if (!caller.HasRole("Engineer")) return (false, "FORBIDDEN", "Caller is not authorized.", caller, scope.SiteId);
-        if (!caller.HasSiteScope(scope.SiteId)) return (false, "NOT_FOUND", "The target is not visible in the caller scope.", caller, scope.SiteId);
-        return (true, "OK", null, caller, scope.SiteId);
+        if (caller is null || !caller.IsActive || scope is null || !scope.Exists)
+            return (false, "FORBIDDEN", "The target is not visible in the caller scope.", caller, null);
+        if (scope.SourceStatus == "Decommissioned" || scope.SourceType != "Simulator")
+            return (false, "FORBIDDEN", "The target is not visible in the caller scope.", caller, null);
+        var trustedSiteIds = scope.MappedScopes.Select(m => m.SiteId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (caller.HasRole("Administrator"))
+            return (true, "OK", null, caller, trustedSiteIds);
+        if (!caller.HasRole("Engineer"))
+            return (false, "FORBIDDEN", "Caller is not authorized.", caller, null);
+        if (trustedSiteIds.Count == 0)
+            return (false, "NOT_FOUND", "The target is not visible in the caller scope.", caller, null);
+        if (!trustedSiteIds.All(s => caller.HasSiteScope(s)))
+            return (false, "NOT_FOUND", "The target is not visible in the caller scope.", caller, null);
+        return (true, "OK", null, caller, trustedSiteIds);
     }
 
     private static bool TryBuildVersion(Guid configurationId, long configurationVersion, SimulatorConfigurationCreateCommand command,
@@ -102,12 +112,11 @@ public sealed class SimulatorConfigurationService
     }
 
     private static bool TryBuildVersion(Guid configurationId, long configurationVersion, int interval, double min, double max,
-        string? seed, SimulatorScenario scenario, string algorithmId, int algorithmVersion, ConfigurationCallerSnapshot caller,
+        ulong seed, SimulatorScenario scenario, string algorithmId, int algorithmVersion, ConfigurationCallerSnapshot caller,
         string? correlationId, string? causationId, out SimulatorConfigurationVersion version, out string? error)
     {
         version = null!;
         error = null;
-        if (string.IsNullOrWhiteSpace(seed)) { error = "DeterministicSeed is required."; return false; }
         try
         {
             version = new SimulatorConfigurationVersion(configurationId, configurationVersion, interval, min, max, seed,
@@ -126,7 +135,7 @@ public sealed class SimulatorConfigurationService
         left.AlgorithmVersion == right.AlgorithmVersion;
 
     private static SimulatorConfigurationEvent BuildEvent(SimulatorConfigurationHead head, SimulatorConfigurationVersion version,
-        string siteId, object command, string action, SimulatorConfigurationVersion? before)
+        IReadOnlyList<string> siteIds, object command, string action, SimulatorConfigurationVersion? before)
     {
         var current = Fields(head, version);
         var previous = before is null ? new Dictionary<string, object?>() : Fields(head, before);
@@ -134,7 +143,7 @@ public sealed class SimulatorConfigurationService
             SimulatorConfigurationConstants.Producer, "SimulatorConfiguration", head.ConfigurationId.ToString("D"),
             head.Version, version.CreatedByUserId, version.CreatedByUsername, action,
             action == "Created" ? "Simulator configuration created." : "Simulator configuration changed.",
-            DateTime.UtcNow, version.CorrelationId, version.CausationId, siteId, previous, current);
+            DateTime.UtcNow, version.CorrelationId, version.CausationId, siteIds, previous, current);
     }
 
     private static Dictionary<string, object?> Fields(SimulatorConfigurationHead head, SimulatorConfigurationVersion version) => new()
@@ -145,7 +154,8 @@ public sealed class SimulatorConfigurationService
         ["intervalSeconds"] = version.IntervalSeconds,
         ["minimumValue"] = version.MinimumValue,
         ["maximumValue"] = version.MaximumValue,
-        ["deterministicSeed"] = version.DeterministicSeed,
+        ["deterministicSeed"] = version.DeterministicSeed.ToString(CultureInfo.InvariantCulture),
+        ["deterministicSeedHex"] = version.DeterministicSeed.ToString("x16", CultureInfo.InvariantCulture),
         ["scenarioType"] = version.ScenarioType.ToString(),
         ["algorithmId"] = version.AlgorithmId,
         ["algorithmVersion"] = version.AlgorithmVersion

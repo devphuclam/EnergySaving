@@ -22,10 +22,12 @@ CREATE INDEX IF NOT EXISTS ix_source_point_mapping_point_time ON catalog.source_
 CREATE INDEX IF NOT EXISTS ix_source_point_mapping_source_status ON catalog.source_point_mapping (data_source_id, status);
 CREATE INDEX IF NOT EXISTS ix_source_point_mapping_status ON catalog.source_point_mapping (status);
 
--- Active effective periods for one Point must not overlap. The reviewed PostgreSQL-native
--- exclusion constraint requires btree_gist, which is not approved for this invocation.
--- BLOCKED_CAPABILITY: provision btree_gist through the approved DBA/package path, then execute:
--- ALTER TABLE catalog.source_point_mapping ADD CONSTRAINT ex_source_point_mapping_active_period
--- EXCLUDE USING gist (point_id WITH =, tstzrange(effective_from, effective_to, '[)') WITH &&)
--- WHERE (status = 'Active');
--- Do not replace this invariant with a weaker unique index or provision the extension here.
+-- Active effective periods for one Point must not overlap.
+-- Requires btree_gist extension (provision externally; not created here).
+-- This constraint is the authoritative invariant; do not weaken it.
+ALTER TABLE catalog.source_point_mapping ADD CONSTRAINT IF NOT EXISTS ex_source_point_mapping_active_period
+EXCLUDE USING gist (
+    point_id WITH =,
+    tstzrange(effective_from, effective_to, '[)') WITH &&
+)
+WHERE (status = 'Active');
