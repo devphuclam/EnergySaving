@@ -33,6 +33,7 @@ appsettings.Development.*
 *.secret.*
 .env
 .env.local
+IUMP_Local_Database_Connection_Info.md
 *.rar
 
 # Business Docs images (ignore prototype screenshots)
