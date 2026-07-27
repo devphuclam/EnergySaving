@@ -6,6 +6,7 @@
     <ProjectReference Include="..\..\src\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\Modules\IAM\IUMP.Modules.IAM.csproj" />
     <ProjectReference Include="..\..\src\Api\IUMP.Api.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Catalog\IUMP.Modules.Catalog.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Integration\IAM\IamRepositoryTests.cs" Link="IAM\IamRepositoryTests.cs" />

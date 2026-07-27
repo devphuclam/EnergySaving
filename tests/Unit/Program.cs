@@ -2,6 +2,7 @@ using IUMP.BuildingBlocks.Correlation;
 using IUMP.Modules.IAM.Domain;
 using IUMP.Tests.Unit.IAM;
 using IUMP.Tests.Unit.Api;
+using IUMP.Tests.Unit.Catalog;
 using IUMP.Tests.Integration.IAM;
 using IUMP.Tests.Unit.Fakes;
 
@@ -15,6 +16,11 @@ failures.AddRange(SessionPolicyTests.Run());
 failures.AddRange(await PocIdentityFixtureTests.Run());
 failures.AddRange(AuthSecurityPolicyTests.Run());
 failures.AddRange(AuthEndpointTests.Run());
+
+// Phase 2 — Catalog RED tests
+failures.AddRange(MetricUnitTests.Run());
+failures.AddRange(SourceMappingTests.Run());
+failures.AddRange(CatalogCommandTests.Run());
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

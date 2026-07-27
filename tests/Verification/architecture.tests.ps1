@@ -99,4 +99,16 @@ if ($isCanonicalModuleRoot) {
     }
 }
 
+if ($isCanonicalModuleRoot) {
+    $catalogInternalPattern = 'IUMP\.Modules\.Catalog\.(Domain|Application|Infrastructure)'
+    $catalogSourceFiles = Get-ChildItem -LiteralPath $HostSourceRoot -Recurse -Filter '*.cs' |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|Modules\\Catalog)[\\/]' }
+    foreach ($source in $catalogSourceFiles) {
+        $content = Get-Content -LiteralPath $source.FullName -Raw
+        if ($content -match $catalogInternalPattern) {
+            throw "Non-Catalog source references Catalog internals: $($source.FullName)"
+        }
+    }
+}
+
 Write-Output 'PASS: architecture boundary contract'
