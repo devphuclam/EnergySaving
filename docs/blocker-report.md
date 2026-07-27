@@ -122,3 +122,31 @@ completion.
 - **Lowest-risk resolution**: continue with local source/evidence review only, then use approved
   company templates, hosts, and security provisioning when supplied; no keys or sensitive approval
   content are recorded here.
+
+## Active Phase 2 capability evidence — operator-provided database verification
+
+The historical R0/T012 database-unavailable entries above are retained as history and are
+superseded for this Phase 2 invocation by the approved operator evidence in
+`IUMP_Local_Database_Connection_Info.md`. That file is environment evidence only and is not a
+project change.
+
+- **PostgreSQL capability**: `AVAILABLE`.
+- **Engine**: PostgreSQL 18.
+- **Host**: `127.0.0.1`.
+- **Port**: `5433`.
+- **Database**: `iump_dev`.
+- **Bootstrap user**: `postgres`.
+- **Credential source**: protected environment variable `IUMP_DB_PASSWORD`.
+- **Password**: `REDACTED` (never recorded here).
+- **Operator verification**: `PASS`.
+- **Database verification during this invocation**: `SKIPPED_BY_INSTRUCTION`.
+- **Database mutation/migration execution**: `NOT_RUN`.
+- **Old cluster `127.0.0.1:5432`**: `PROHIBITED`; it was not contacted.
+
+Phase 2 package classifications remain separate from database capability:
+
+- T050: `BLOCKED_BY_PACKAGE_POLICY` (locked PostgreSQL adapter packages unavailable).
+- T051: `BLOCKED_BY_PACKAGE_POLICY` (host registration depends on T050).
+- T052: `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE` (depends on T050/T051; not a database-access
+  classification).
+- `BLOCKED_BY_DATABASE_ACCESS` count for this invocation: `0`.

@@ -126,7 +126,7 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(CreateMetricCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(CreateMetricCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -142,7 +142,8 @@ public sealed class CatalogCommandHandler
             await _repo.AddMetricAsync(metric, ct);
             await tx.CommitAsync(ct);
             AddEvent("MetricStatusChanged.v1", "Metric", metric.Id.ToString(), metric.Version, ctx,
-                "Created", "Metric created", null, new { code = metric.Code, name = metric.Name, status = metric.Status.ToString() }, cmd.TargetSiteId);
+                "Created", "Metric created", SafeSnapshot(),
+                SafeSnapshot(("code", metric.Code), ("name", metric.Name), ("status", metric.Status.ToString())), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -152,7 +153,7 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(UpdateMetricStatusCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(UpdateMetricStatusCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -169,14 +170,15 @@ public sealed class CatalogCommandHandler
             await _repo.UpdateMetricAsync(metric, ct);
             await tx.CommitAsync(ct);
             AddEvent("MetricStatusChanged.v1", "Metric", metric.Id.ToString(), metric.Version, ctx,
-                cmd.Activate ? "Activated" : "Inactivated", "Metric status changed", new { status = before }, new { status = metric.Status.ToString() }, cmd.TargetSiteId);
+                cmd.Activate ? "Activated" : "Inactivated", "Metric status changed",
+                SafeSnapshot(("status", before)), SafeSnapshot(("status", metric.Status.ToString())), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateUnitCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(CreateUnitCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -191,7 +193,8 @@ public sealed class CatalogCommandHandler
             await _repo.AddUnitAsync(unit, ct);
             await tx.CommitAsync(ct);
             AddEvent("UnitStatusChanged.v1", "Unit", unit.Id.ToString(), unit.Version, ctx,
-                "Created", "Unit created", null, new { code = unit.Code, symbol = unit.Symbol, status = unit.Status.ToString() }, cmd.TargetSiteId);
+                "Created", "Unit created", SafeSnapshot(),
+                SafeSnapshot(("code", unit.Code), ("symbol", unit.Symbol), ("status", unit.Status.ToString())), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -199,7 +202,7 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(UpdateUnitStatusCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(UpdateUnitStatusCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -216,14 +219,15 @@ public sealed class CatalogCommandHandler
             await _repo.UpdateUnitAsync(unit, ct);
             await tx.CommitAsync(ct);
             AddEvent("UnitStatusChanged.v1", "Unit", unit.Id.ToString(), unit.Version, ctx,
-                cmd.Activate ? "Activated" : "Inactivated", "Unit status changed", new { status = before }, new { status = unit.Status.ToString() }, cmd.TargetSiteId);
+                cmd.Activate ? "Activated" : "Inactivated", "Unit status changed",
+                SafeSnapshot(("status", before)), SafeSnapshot(("status", unit.Status.ToString())), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(SetMetricUnitCompatibilityCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(SetMetricUnitCompatibilityCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -242,7 +246,9 @@ public sealed class CatalogCommandHandler
                 await _repo.UpdateCompatibilityAsync(existing, ct);
                 await tx.CommitAsync(ct);
                 AddEvent("MetricUnitCompatibilityChanged.v1", "MetricUnitCompatibility", $"{cmd.MetricId}:{cmd.UnitId}", existing.Version,
-                    ctx, "CanonicalChanged", "Metric/Unit compatibility changed", new { isCanonical = before }, new { isCanonical = existing.IsCanonical }, cmd.TargetSiteId);
+                    ctx, "CanonicalChanged", "Metric/Unit compatibility changed",
+                    SafeSnapshot(("metricId", cmd.MetricId.ToString()), ("unitId", cmd.UnitId.ToString()), ("isCanonical", before)),
+                    SafeSnapshot(("metricId", cmd.MetricId.ToString()), ("unitId", cmd.UnitId.ToString()), ("isCanonical", existing.IsCanonical)), cmd.TargetSiteId);
                 return Result.Success();
             }
             catch (InvalidOperationException ex) { return Result.Failure(ex.Message.Contains("canonical", StringComparison.OrdinalIgnoreCase) ? "Conflict" : "VersionConflict", ex.Message); }
@@ -254,14 +260,15 @@ public sealed class CatalogCommandHandler
             await _repo.AddCompatibilityAsync(compat, ct);
             await tx.CommitAsync(ct);
             AddEvent("MetricUnitCompatibilityChanged.v1", "MetricUnitCompatibility", $"{cmd.MetricId}:{cmd.UnitId}", compat.Version,
-                ctx, "Created", "Metric/Unit compatibility created", null, new { isCanonical = compat.IsCanonical }, cmd.TargetSiteId);
+                ctx, "Created", "Metric/Unit compatibility created", SafeSnapshot(),
+                SafeSnapshot(("metricId", cmd.MetricId.ToString()), ("unitId", cmd.UnitId.ToString()), ("isCanonical", compat.IsCanonical)), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("Conflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateDataSourceCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(CreateDataSourceCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -275,7 +282,8 @@ public sealed class CatalogCommandHandler
             await _repo.AddDataSourceAsync(source, ct);
             await tx.CommitAsync(ct);
             AddEvent("DataSourceStatusChanged.v1", "DataSource", source.Id.ToString(), source.Version, ctx,
-                "Created", "Data source created", null, new { code = source.Code, status = source.Status.ToString() }, cmd.TargetSiteId);
+                "Created", "Data source created", SafeSnapshot(),
+                SafeSnapshot(("code", source.Code), ("sourceType", source.SourceType.ToString()), ("status", source.Status.ToString())), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -283,7 +291,7 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(TransitionDataSourceCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(TransitionDataSourceCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -299,18 +307,24 @@ public sealed class CatalogCommandHandler
             await _repo.UpdateDataSourceAsync(source, ct);
             await tx.CommitAsync(ct);
             AddEvent("DataSourceStatusChanged.v1", "DataSource", source.Id.ToString(), source.Version, ctx,
-                cmd.TargetStatus.ToString(), "Data source status changed", new { status = before }, new { status = source.Status.ToString() }, cmd.TargetSiteId);
+                cmd.TargetStatus.ToString(), "Data source status changed",
+                SafeSnapshot(("status", before)), SafeSnapshot(("status", source.Status.ToString())), cmd.TargetSiteId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("VersionConflict", ex.Message); }
     }
 
     public async Task<Result> HandleAsync(CreateMappingCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(CreateMappingCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
-        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Mapping, cmd.TargetSiteId, ct);
+        var readiness = await _readiness.GetPointReadinessAsync(cmd.PointId, ct);
+        if (readiness is null || !readiness.Exists)
+            return Result.Failure("NotFound", "Point not found in Organization scope.");
+
+        // TargetSiteId is only a compatibility hint. Trusted readiness owns authorization scope.
+        var denied = await Authorize(ctx.ActorUserId, CatalogResource.Mapping, readiness.SiteId, ct);
         if (denied is not null) return denied;
         var source = await _repo.GetDataSourceAsync(cmd.DataSourceId, ct);
         if (source is null) return Result.Failure("NotFound", "Data source not found.");
@@ -322,7 +336,10 @@ public sealed class CatalogCommandHandler
             await _repo.AddMappingAsync(mapping, ct);
             await tx.CommitAsync(ct);
             AddEvent("SourcePointMappingChanged.v1", "SourcePointMapping", mapping.Id.ToString(), mapping.Version, ctx,
-                "Created", "Source-point mapping created", null, new { pointId = mapping.PointId, status = mapping.Status.ToString() }, cmd.TargetSiteId);
+                "Created", "Source-point mapping created", SafeSnapshot(),
+                SafeSnapshot(("pointId", mapping.PointId), ("status", mapping.Status.ToString()),
+                    ("effectiveFrom", mapping.EffectiveFrom), ("effectiveTo", mapping.EffectiveTo),
+                    ("producingReady", readiness.IsProducingReady)), readiness.SiteId, readiness.AreaId);
             return Result.Success();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -330,7 +347,7 @@ public sealed class CatalogCommandHandler
     }
 
     public async Task<Result> HandleAsync(UpdateMappingStatusCommand cmd, string? correlationId = null, CancellationToken ct = default)
-        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, correlationId), ct);
+        => await HandleAsync(cmd, new CatalogCommandContext(cmd.RequestedByUserId, correlationId, null), ct);
 
     public async Task<Result> HandleAsync(UpdateMappingStatusCommand cmd, CatalogCommandContext ctx, CancellationToken ct = default)
     {
@@ -367,7 +384,13 @@ public sealed class CatalogCommandHandler
             await _repo.UpdateMappingAsync(mapping, ct);
             await tx.CommitAsync(ct);
             AddEvent("SourcePointMappingChanged.v1", "SourcePointMapping", mapping.Id.ToString(), mapping.Version, ctx,
-                action, "Source-point mapping status changed", new { status = before }, new { status = mapping.Status.ToString() }, siteId);
+                action, "Source-point mapping status changed",
+                SafeSnapshot(("pointId", mapping.PointId), ("status", before),
+                    ("effectiveFrom", mapping.EffectiveFrom), ("effectiveTo", mapping.EffectiveTo),
+                    ("producingReady", readiness.IsProducingReady)),
+                SafeSnapshot(("pointId", mapping.PointId), ("status", mapping.Status.ToString()),
+                    ("effectiveFrom", mapping.EffectiveFrom), ("effectiveTo", mapping.EffectiveTo),
+                    ("producingReady", readiness.IsProducingReady)), siteId, readiness.AreaId);
             return Result.Success();
         }
         catch (InvalidOperationException ex) { return Result.Failure("Conflict", ex.Message); }
@@ -382,19 +405,22 @@ public sealed class CatalogCommandHandler
     }
 
     private void AddEvent(string eventType, string aggregateType, string aggregateId, long version, CatalogCommandContext ctx,
-        string action, string summary, object? before, object? after, string? siteId)
+        string action, string summary, IReadOnlyDictionary<string, object?> before,
+        IReadOnlyDictionary<string, object?> after, string? siteId, string? areaId = null)
     {
-        var beforeMap = ToAllowlistedMap(before);
-        var afterMap = ToAllowlistedMap(after);
         _events.Add(new CatalogEvent(Guid.NewGuid(), eventType, "1", "IUMP.Catalog", aggregateType, aggregateId, version,
-            ctx.ActorUserId, _currentCaller?.Username ?? ctx.ActorUserId, beforeMap, afterMap, action, summary, DateTime.UtcNow,
-            ctx.CorrelationId, ctx.CausationId, siteId, null));
+            ctx.ActorUserId, _currentCaller?.Username ?? ctx.ActorUserId, before, after, action, summary, DateTime.UtcNow,
+            ctx.CorrelationId, ctx.CausationId, siteId, areaId));
     }
 
-    private static IReadOnlyDictionary<string, object?> ToAllowlistedMap(object? value)
+    private static IReadOnlyDictionary<string, object?> SafeSnapshot(params (string Key, object? Value)[] values)
     {
-        if (value is null) return new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
-        var map = value.GetType().GetProperties().ToDictionary(p => p.Name, p => p.GetValue(value));
+        var map = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (key, value) in values)
+        {
+            if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("Event snapshot keys are required.", nameof(values));
+            map[key] = value;
+        }
         return new ReadOnlyDictionary<string, object?>(map);
     }
 

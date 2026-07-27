@@ -1,24 +1,35 @@
-# Phase 2 corrective RED evidence — Final closure
+# Phase 2 RED evidence — post-hoc reproduced
 
-## RED defects identified and corrected
+This record is intentionally labelled **Post-hoc reproduced RED evidence**. It is not presented
+as the original chronological RED run.
 
-| ID | Defect | Evidence |
-|---|---|---|
-| A | T039 lacked executable Source/Mapping lifecycle tests | Added Draft/Active/Suspended/Decommissioned transitions, terminal state enforcement, rejected-transition version preservation; same for Mapping Draft/Active/Inactive/Superseded |
-| B | Mapping activation bypassed readiness port | Added `ICatalogPointReadinessQuery` contract with `PointReadinessSnapshot`; handler resolves PointId readiness before Mapping activation |
-| C | TargetSiteId used as authorization authority | Mapping activation authorizes against readiness.SiteId; command-supplied TargetSiteId ignored |
-| D | T049 cast `ICatalogCommandRepository` to `FakeCatalogCommandRepository` | Replaced with `ICatalogRepositoryTestProviderFactory` + `CatalogRepositoryTestProvider`; `ConfigureSourceDependencies`/`ConfigureMappingDependencies`/`CreatePointReadiness` controls through abstraction; `Reset()` clears state |
-| E | T049 missing tests | Added: Source code uniqueness, lifecycle persistence, Mapping overlap rejection, Draft deletion, Audit-only dependency, operational dependency, transaction commit+rollback, optimistic version conflict |
-| F | CausationId always copied from CorrelationId | Added `CatalogCommandContext` with distinct `CorrelationId`/`CausationId`; `AddEvent` preserves both from context |
-| G | T040 missing event families | Added tests for: MetricStatusChanged.v1, UnitStatusChanged.v1, MetricUnitCompatibilityChanged.v1, DataSourceStatusChanged.v1, SourcePointMappingChanged.v1; distinct correlation/causation, safe before/after allowlists, rejected Mapping activation via readiness |
-| H | T055 wrong baseline | Updated to `908bddbc1eb68cf8fcdbb095a561e2323bb4e6eb` |
+## Reproduction
 
-## Corrective RED command
+- Repository: `devphuclam/EnergySaving`
+- Baseline worktree commit: `908bddbc1eb68cf8fcdbb095a561e2323bb4e6eb`
+- Temporary native Git worktree: `C:\Users\TD-999\AppData\Local\Temp\iump-phase2-red-686815e2199c4fd582583ce422eab383`; created at that commit and removed after capture
+- Test-only change: corrected Catalog command tests exposing the remaining B–E behavior; no
+  production correction was applied in the baseline worktree
+- Database: not required, not connected, and not mutated
+- Restore/download: not run
 
-The corrective RED tests (exercising the behavior listed above against the unfixed baseline) would fail because the nine defects listed above prevented the correct behavior. After the production fixes, the focused executable exits 0 with zero failures:
+Commands and actual results:
 
-```
-dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build
+```text
+dotnet build C:\Users\TD-999\AppData\Local\Temp\iump-phase2-red-686815e2199c4fd582583ce422eab383\tests\Unit\IUMP.Tests.Unit.csproj --no-restore -c Debug
 Exit: 0
-PASS: all tests
+0 warnings, 0 errors
+
+dotnet run --project C:\Users\TD-999\AppData\Local\Temp\iump-phase2-red-686815e2199c4fd582583ce422eab383\tests\Unit\IUMP.Tests.Unit.csproj --no-restore -c Debug --no-build
+Exit: 1
 ```
+
+The focused executable reported these exact failures:
+
+1. `CreateMapping must query trusted Point readiness before authorization`
+2. `Mapping events must preserve producingReady readiness fact`
+3. `Owner-event payloads must use explicit allowlists, not reflection`
+
+These failures are the reproduced RED evidence for the narrow implementation-path corrections.
+The current worktree contains the corresponding production fixes and its focused executable is
+recorded separately as GREEN evidence in `phase-02-catalog.md`.
