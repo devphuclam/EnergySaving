@@ -15,7 +15,8 @@ public enum ActivationCaseOutcome
     ProviderDrift,
     RetryExhaustion,
     StaleVersion,
-    AtomicCommitFailure
+    AtomicCommitFailure,
+    BeginFailure
 }
 
 public sealed class FakePointActivationProviderFactorySet : IPointActivationProviderFactorySet
@@ -27,7 +28,8 @@ public sealed class FakePointActivationProviderFactorySet : IPointActivationProv
         FakePointActivationProviderFactory.Create(ActivationCaseOutcome.ProviderDrift),
         FakePointActivationProviderFactory.Create(ActivationCaseOutcome.RetryExhaustion),
         FakePointActivationProviderFactory.Create(ActivationCaseOutcome.StaleVersion),
-        FakePointActivationProviderFactory.Create(ActivationCaseOutcome.AtomicCommitFailure)
+        FakePointActivationProviderFactory.Create(ActivationCaseOutcome.AtomicCommitFailure),
+        FakePointActivationProviderFactory.Create(ActivationCaseOutcome.BeginFailure)
     };
 }
 
@@ -69,6 +71,7 @@ public sealed class FakePointActivationProviderFactory : IPointActivationProvide
         var outboxFailure = outcome == ActivationCaseOutcome.OutboxFailure;
         var staleVersion = outcome == ActivationCaseOutcome.StaleVersion;
         var commitFailure = outcome == ActivationCaseOutcome.AtomicCommitFailure;
+        var beginFailure = outcome == ActivationCaseOutcome.BeginFailure;
 
         // For stale version: update point version to exceed expectedVersion (1)
         if (staleVersion)
@@ -95,6 +98,7 @@ public sealed class FakePointActivationProviderFactory : IPointActivationProvide
         };
         var outbox = new FakeTransactionalOutboxWriter(backend) { FailOnEnqueue = outboxFailure };
         backend.FailOnCommit = commitFailure;
+        backend.FailOnBegin = beginFailure;
 
         return new FakePointActivationProviderFactory
         {

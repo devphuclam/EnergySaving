@@ -1,133 +1,91 @@
 # Phase 5 Activation Checkpoint (T107)
 
-## Result commit identity
+## Scope and baseline
 
-Working tree at parent baseline `b1270473ec63ab432affeeb98016c661b81a42e9` with all Phase 5
-corrections applied via the micro-closure. Clean worktree; no unrelated tracked changes.
+- Repository: `devphuclam/EnergySaving`
+- Parent baseline: `cb5b6b46c10b90be5501e6c9ff9f3dc47522fd89`
+- Closure scope: safe rollback before successful begin, T095 retry, T103 BeginFailure, T105-T107 evidence.
+- Stop: T107. T108 and later were not executed.
 
-## Changed files (transaction-safety micro-closure)
+## Changed files for this closure
 
-- `src/BuildingBlocks/Persistence/HostTransactionCoordinator.cs` — CommitAsync catch uses `CancellationToken.None` for rollback (not caller `ct`), LockAsync enforces canonical order via `(int)target + 1`, BeginAsync defers `_begun=true` until after backend succeeds; added `IsBegun`, `RegisteredTargets`, `HasParticipant`
-- `tests/Unit/Fakes/FakeAtomicBackend.cs` — added `FailOnBegin`, `FailOnRollback`; `RollbackAsync` increments count before FailOnRollback check
-- `tests/Unit/Organization/PointActivationTransactionTests.cs` — 19 cases (was 17), 66 checks; added `LockOrderCanonical` (positive nine-target + 6 negatives), `RollbackFailurePreservesCommitException`, `BeginFailureSafety`; renamed `AssertionCount`→`CompositeCheckCount`
-- `tests/Unit/Organization/PointActivationTests.cs` — renamed `AssertionCount`→`CompositeCheckCount`; 52 cases, 52 checks
-- `tests/Integration/Organization/PointActivationTransactionTests.cs` — renamed `AssertionCount`→`CompositeCheckCount`; 6 cases, 30 checks; AtomicCommitFailure verifies workspace/rollback/commit counts
-- `tests/Unit/Program.cs` — prints runtime TestCount/CompositeCheckCount
-- `tests/Verification/architecture.tests.ps1` — T105 extended with `CancellationToken.None`, canonical lock order, begin-failure, `CompositeCheckCount`, exact RED commands, T106/T107 rewritten findings
-- `specs/002-asset-simulator-latest/checklists/phase-05-review.md` — T106 with 14 findings (F01–F14)
-- `specs/002-asset-simulator-latest/checklists/phase-05-activation.md` — T107 (this file)
-- `specs/002-asset-simulator-latest/checklists/phase-05-red.md` — post-hoc RED evidence (9 failures)
+- `src/BuildingBlocks/Persistence/HostTransactionCoordinator.cs`
+- `tests/Unit/Organization/PointActivationTransactionTests.cs`
+- `tests/Unit/Fakes/FakePointActivationProviderFactory.cs`
+- `tests/Integration/Organization/PointActivationTransactionTests.cs`
+- `tests/Verification/architecture.tests.ps1`
+- `specs/002-asset-simulator-latest/checklists/phase-05-red.md`
+- `specs/002-asset-simulator-latest/checklists/phase-05-review.md`
+- `specs/002-asset-simulator-latest/checklists/phase-05-activation.md`
 
-## Post-hoc RED output
+## Runtime evidence
 
-Baseline: `b1270473`. Tests against buggy coordinator (CommitAsync catch uses caller ct,
-LockAsync validates only `expectedOrder > _lastOrder`, BeginAsync sets `_begun=true` before
-backend succeeds).
+Debug build and focused run both exited `0` after the correction:
 
-Build: `dotnet build .\IUMP.slnx --no-restore` → exit 0
-
-```
+```text
+T079: assertions=87; failures=0
+T080: assertions=62; failures=0
 T094: cases=52; checks=52; failures=0
-T095: cases=19; checks=67; failures=9
+T095: cases=20; checks=75; failures=0
 T096: cases=1; failures=0
-T103: cases=6; checks=30; failures=0
-FAILURES:
-  canonical: Point-first: must throw
-  canonical: IAM order=2: must throw
-  canonical: skip to Metric: must throw
-  canonical: skip Area: must throw
-  canonical: after Integration: must throw
-  cancel: rollback=1: expected 1, got 0
-  cancel: workspace null: must be removed
-  begin-fail: _begun false: must be false
-  begin-fail: rollback not called after dispose: must not call rollback
+T103: cases=7; checks=40; failures=0
+T071: tests=19; assertions=39; failures=0
+T088: scenarios=24; assertions=24; failures=0
+PASS: all tests
 ```
 
-9 natural failures from 3 production defects:
-- Defect A: CommitAsync catch uses caller `ct` for rollback (2 failures)
-- Defect B: LockAsync validates only `expectedOrder > _lastOrder` (5 failures)
-- Defect D: BeginAsync sets `_begun=true` before backend succeeds (2 failures)
+`& .\tests\Verification\architecture.tests.ps1` returned `PASS: architecture boundary contract`.
 
-No sabotage, placeholder, database/container/secret use.
+Fresh harness verification after the final documentation/static-check correction:
 
-## Runtime test counts (GREEN)
+```text
+.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest: exit 0
+Harness Fast summary: PASS=8
 
-All tests PASS with fixed coordinator:
+.\scripts\harness.ps1 -Mode Full -Feature 002-asset-simulator-latest: exit 20
+Harness Full summary: PASS=10, BLOCKED_BY_MISSING_TOOL=1, BLOCKED_BY_COMPANY_APPROVAL=2
+```
 
-| Test | Cases | Checks | Failures |
-|---|---|---|---|
-| T094 | 52 | 52 | 0 |
-| T095 | 19 | 66 | 0 |
-| T096 | 1 | — | 0 |
-| T103 | 6 | 30 | 0 |
+Full-mode blocked checks are explicitly not passes: database check `BLK-ENV-002` is
+`BLOCKED_BY_MISSING_TOOL` because `psql` is unavailable; CI `BLK-ENV-003` and container target
+`BLK-ENV-004` are `BLOCKED_BY_COMPANY_APPROVAL`. These environment checks do not classify the
+approved PostgreSQL capability as `BLOCKED_BY_DATABASE_ACCESS`.
 
-T079: 87 assertions, T080: 62 assertions, T071: 19 tests/39 assertions, T088: 24 scenarios/24 assertions — all pass.
+## Begin-failure evidence
 
-## Commit-failure cleanup evidence
+- Direct `RollbackAsync` after failed begin returns safely; backend rollback remains `0`.
+- Failed begin preserves `IsBegun=false`, `IsCompleted=false`, `TransactionId=Guid.Empty`, and no workspace.
+- T103 `BeginFailure` executes the real `ActivateMeasurementPoint.ExecuteAsync` and returns
+  `TRANSACTION_ROLLED_BACK`; Point status/version, lifecycle, and outbox remain unchanged;
+  backend CommitCount and RollbackCount remain `0`; disposal is safe.
+- T095 same-coordinator retry changes `FailOnBegin` to false, begins successfully with a non-empty
+  TransactionId, and performs exactly one backend rollback.
+- Repeated rollback after a successful rollback is a no-op.
 
-T095 AtomicCommitFailurePublishesNone and T103 AtomicCommitFailure prove:
-- Point unchanged (version, status preserved)
-- Lifecycle unchanged (count preserved)
-- Outbox unchanged (count preserved)
-- Workspace removed (`GetWorkspace` returns null)
-- Backend `RollbackCount == 1`
-- Backend `CommitCount == 0`
-- Coordinator `IsCompleted == true`
-
-## Workspace cleanup evidence
-
-T095 LockFailureRollback and CancellationRollback prove:
-- Workspace null after rollback
-- Backend `RollbackCount == 1`
-
-## Exact retry trace
-
-T095 RetryDelays proves: `[50, 150, 450]` with exactly 3 recorded delays.
-
-## Cancellation result
-
-T095 CancellationRollback passes a cancelled `CancellationToken` to `CommitAsync`.
-CommitAsync throws `OperationCanceledException`, rollback is called once (with
-`CancellationToken.None`, not the cancelled caller token).
-
-## Provider-version validation evidence
-
-T094 verifies all 8 provider version checks (`UserVersion > 0`, `ScopeVersion > 0`,
-`MetricVersion > 0`, `UnitVersion > 0`, `CompatibilityVersion > 0`, `MappingVersion > 0`,
-`SourceVersion > 0`) plus `CompatibilityIdentity` nonblank and `CompatibilityStatus` exactly
-`"Active"`.
-
-## Architecture verification
-
-`& .\tests\Verification\architecture.tests.ps1` → `PASS`
-
-## T094–T107 ledger
+## Ledger and decision
 
 | Task | Result |
 |---|---|
-| T094 | PASS (52 cases, 0 failures) |
-| T095 | PASS (19 cases, 0 failures) |
-| T096 | PASS (1 case, 0 failures) |
+| T094 | PASS |
+| T095 | PASS (20 cases, 75 checks) |
+| T096 | PASS |
 | T097 | PASS |
 | T098 | PASS |
 | T099 | PASS |
 | T100 | PASS |
 | T101 | PASS |
 | T102 | PASS |
-| T103 | PASS (6 cases, 0 failures) |
+| T103 | PASS (7 cases, 40 checks) |
 | T104 | BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE |
 | T105 | PASS |
-| T106 | PASS (0 Critical, 0 High; 14 findings F01–F14 resolved) |
+| T106 | PASS (0 unresolved Critical/High) |
 | T107 | PASS |
 
 **PASS 13, BLOCKED 1, FAIL 0, runnable NOT_RUN 0**.
 
-## Capability and progression
-
-- PostgreSQL capability: AVAILABLE at `127.0.0.1:5433/iump_dev`; no database mutation.
+- PostgreSQL capability: AVAILABLE at `127.0.0.1:5433/iump_dev`; no database mutation was run.
 - Port `5432`: not used.
 - Ready for Phase 6: **YES**.
-- Release-ready: **NO** (T104 blocked).
-- T108 and later: **not executed**.
+- Release-ready: **NO** while T104 remains blocked.
 
 Stop after T107.

@@ -1,64 +1,62 @@
-# Phase 5 Post-hoc Reproduced Transaction-Safety RED
+# Post-hoc Reproduced Phase 5 Begin-Failure RED
 
-Parent baseline: `b1270473ec63ab432affeeb98016c661b81a42e9`.
+Repository: `devphuclam/EnergySaving`
+Parent baseline: `cb5b6b46c10b90be5501e6c9ff9f3dc47522fd89`
+Temporary native worktree: `C:\Users\TD-999\AppData\Local\Temp\iump-phase5-begin-red-cb5b6`
 
-## Reproduction method
+Only these test/static files were changed in the RED worktree:
 
-Corrected tests (T094/T095/T103 with CompositeCheckCount, canonical lock-order negative
-tests, cancellation workspace assertions, RollbackFailure, BeginFailureSafety) applied
-against the unmodified production coordinator at the baseline.
+- `tests/Unit/Organization/PointActivationTransactionTests.cs`
+- `tests/Unit/Fakes/FakePointActivationProviderFactory.cs`
+- `tests/Integration/Organization/PointActivationTransactionTests.cs`
+- `tests/Verification/architecture.tests.ps1`
 
-The only production differences between baseline and fixed:
-- baseline `CommitAsync` catch uses caller `ct` for rollback, not `CancellationToken.None`
-- baseline `LockAsync` validates only `expectedOrder > _lastOrder`, not canonical target
-- baseline `BeginAsync` sets `_begun = true` before backend `BeginAsync` succeeds
+No production source was modified. No database, package restore, container, migration,
+secret, or port `5432` activity occurred. Existing local ignored build metadata was copied into the
+temporary worktree only so `--no-restore` could compile.
 
-## Build command and exit
+## Exact RED commands and exits
 
+```text
+dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore --configuration Debug
+Exit code: **0** (Build succeeded; 0 warnings; 0 errors)
+
+dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-build --configuration Debug
+Exit code: **1**
 ```
-dotnet build .\IUMP.slnx --no-restore
-```
-Exit code: **0** (0 warnings, 0 errors)
 
-## Focused run command and exit
+Focused run output:
 
-```
-dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build
-```
-Exit code: **1** (non-zero)
-
-## Run output
-
-```
+```text
+T079: assertions=87; failures=0
+T080: assertions=62; failures=0
 T094: cases=52; checks=52; failures=0
-T095: cases=19; checks=67; failures=9
+T095: cases=20; checks=75; failures=5
 T096: cases=1; failures=0
-T103: cases=6; checks=30; failures=0
-PASS: all tests (non-Phase-5 tests pass)
+T103: cases=7; checks=40; failures=4
+T071: tests=19; assertions=39; failures=0
+T088: scenarios=24; assertions=24; failures=0
 FAILURES:
-  canonical: Point-first: must throw
-  canonical: IAM order=2: must throw
-  canonical: skip to Metric: must throw
-  canonical: skip Area: must throw
-  canonical: after Integration: must throw
-  cancel: rollback=1: expected 1, got 0
-  cancel: workspace null: must be removed
-  begin-fail: _begun false: must be false
+  begin-retry: pre-begin rollback safe: must not throw NullReferenceException
+  begin-retry: no backend rollback before begin: must remain zero
+  begin-fail: direct rollback safe: must not throw NullReferenceException
+  begin-fail: rollback not called after direct rollback: must remain zero
   begin-fail: rollback not called after dispose: must not call rollback
+  BeginFailure: must return a stable result, got NullReferenceException
+  BeginFailure: must return TRANSACTION_ROLLED_BACK, got EXECUTION_EXCEPTION
+  BeginFailure: backend rollback count must be 0 because begin created no transaction
+  BeginFailure: host must remain unbegun, incomplete, and empty
+RED_RUN_EXIT=1
 ```
 
-## Defects demonstrated
+Static command:
 
-| # | Defect | Evidence |
-|---|---|---|
-| 1 | Cancelled commit rollback uses caller `ct` → fails | T095 cancel: RollbackCount=0, workspace not removed |
-| 2 | LockAsync does not validate canonical target order | T095: 5 wrong-target cases accepted (Point-first, IAM order=2, skip Metric, skip Area, after Integration) |
-| 3 | BeginAsync sets `_begun=true` before backend succeeds | T095 begin-fail: IsBegun true after failure, RollbackAsync called with null `_innerTx` |
-| 4 | T094 reports composite checks as "assertions" | T094 output: `checks=52` (not `assertions=52`) — terminology corrected in GREEN |
+```text
+& .\tests\Verification\architecture.tests.ps1
+exit 1
+T105 FAIL: RollbackAsync must guard before begin and null backend transaction.
+```
 
-## Clean evidence
-
-- No database access, package restore, containers, or secrets.
-- No production sabotage.
-- Only one reverted file (coordinator).
-- Test/static changes are the corrected versions committed in the fix.
+This is the required **Post-hoc reproduced Phase 5 begin-failure RED**: the baseline forwards a
+null backend transaction during direct/orchestrator rollback, and the corrected same-coordinator
+retry and static guard checks were absent.

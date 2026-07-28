@@ -455,6 +455,8 @@ if ($isCanonicalModuleRoot) {
     # and all provider reads/rechecks/staging are transaction-aware.
     if ($hostTx -match 'NoOpParticipant|NoOp') { $issues += 'T105 FAIL: missing providers must not be replaced by NoOp participants.' }
     if ($hostTx -notmatch 'MISSING_TRANSACTION_PARTICIPANT' -or $hostTx -notmatch 'RequiredTargets') { $issues += 'T105 FAIL: BeginAsync must fail closed when any required participant is missing.' }
+    if ($hostTx -notmatch 'if\s*\(!_begun\s*\|\|\s*_innerTx\s+is\s+null\)\s*return') { $issues += 'T105 FAIL: RollbackAsync must guard before begin and null backend transaction.' }
+    if ($hostTx -notmatch 'RollbackAsync\(_innerTx!,\s*ct\)') { $issues += 'T105 FAIL: RollbackAsync must call backend only with a real transaction.' }
 
     # IHostTransactionParticipant must have only AcquireLockAsync
     $participantInterfacePath = Join-Path $repoRoot 'src\BuildingBlocks\Persistence\IHostTransactionParticipant.cs'
@@ -521,12 +523,21 @@ if ($isCanonicalModuleRoot) {
     if ($hostTx -notmatch 'new\[\]\s*\{\s*50,\s*150,\s*450\s*\}' -or $hostTx -notmatch 'attempt\s*<\s*4') { $issues += 'T105 FAIL: retry must include 50/150/450ms and four total attempts.' }
     if ($eventSource -match 'ctx\.CausationId\s*\?\?' -or $eventSource -notmatch 'ctx\.CausationId') { $issues += 'T105 FAIL: nullable CausationId must be preserved without correlation fallback.' }
     if ($integration -notmatch 'ActivateMeasurementPoint\.ExecuteAsync') { $issues += 'T105 FAIL: T103 must invoke the actual activation orchestrator.' }
+    if ($integration -notmatch 'BeginFailure') { $issues += 'T105 FAIL: T103 must include a BeginFailure outcome.' }
     # T103 must include StaleVersion and AtomicCommitFailure cases
     if ($integration -notmatch 'StaleVersion|stale') { $issues += 'T105 FAIL: T103 must include a StaleVersion case.' }
     if ($integration -notmatch 'AtomicCommitFailure|atomic') { $issues += 'T105 FAIL: T103 must include an AtomicCommitFailure case.' }
     if ($integration -match 'AssertionCount') { $issues += 'T105 FAIL: T103 must use CompositeCheckCount not AssertionCount.' }
     $unitProgram = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Program.cs') -Raw
     if ($unitProgram -notmatch 'Unit\.Organization\.PointActivationTransactionTests\.Run') { $issues += 'T105 FAIL: T095 unit suite must be explicitly registered in Program.' }
+    if ($t095Source -notmatch 'BeginFailureRetry') { $issues += 'T105 FAIL: T095 must prove same-coordinator begin retry.' }
+    if ($t095Source -match 'catch\s*\(NullReferenceException\).*Check\([^\)]*,\s*null\)') { $issues += 'T105 FAIL: DisposeAsync exception must be recorded as a failure, not a pass.' }
+    $t106Path = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-review.md'
+    $t106Content = Get-Content -LiteralPath $t106Path -Raw
+    if ($t106Content -notmatch 'cb5b6b46c10b90be5501e6c9ff9f3dc47522fd89' -or $t106Content -notmatch 'BeginFailure') { $issues += 'T105 FAIL: T106 must use the closure baseline and record BeginFailure.' }
+    $t107Path = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-activation.md'
+    $t107Content = Get-Content -LiteralPath $t107Path -Raw
+    if ($t107Content -notmatch 'cb5b6b46c10b90be5501e6c9ff9f3dc47522fd89' -or $t107Content -notmatch 'BeginFailure') { $issues += 'T105 FAIL: T107 must use the closure baseline and record BeginFailure evidence.' }
     # Check that Phase 5 RED evidence does not describe intentional breakage induction
     # (Passive mentions like "no sabotage was used" are acceptable; active declarations of
     #  defect injection are not.)

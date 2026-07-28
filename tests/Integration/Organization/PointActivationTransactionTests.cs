@@ -50,9 +50,19 @@ public sealed class PointActivationTransactionTests
                 : new List<PointLifecycleEntry>();
             var beforeOutboxCount = factory.CommittedOutbox.Count;
 
-            var result = ActivateMeasurementPoint.ExecuteAsync(factory.PointId, factory.ExpectedVersion, factory.Context,
-                factory.TargetLookup, factory.Iam, factory.Organization, factory.Catalog, factory.Authorization,
-                factory.Outbox, factory.HostTransaction).GetAwaiter().GetResult();
+            Exception? executionException = null;
+            ActivationResult result;
+            try
+            {
+                result = ActivateMeasurementPoint.ExecuteAsync(factory.PointId, factory.ExpectedVersion, factory.Context,
+                    factory.TargetLookup, factory.Iam, factory.Organization, factory.Catalog, factory.Authorization,
+                    factory.Outbox, factory.HostTransaction).GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (factory.Outcome == ActivationCaseOutcome.BeginFailure)
+            {
+                executionException = ex;
+                result = ActivationResult.Failure(ActivationOutcome.Validation, "EXECUTION_EXCEPTION", ex.GetType().Name);
+            }
 
             var afterPoint = factory.TargetLookup.GetPointAsync(factory.PointId).GetAwaiter().GetResult();
             var afterLifecycle = afterPoint is not null
@@ -129,6 +139,30 @@ public sealed class PointActivationTransactionTests
                         failures.Add($"{factory.Outcome}: backend rollback must be called exactly once after commit failure, got {factory.Backend.RollbackCount}");
                     if (factory.Backend.CommitCount != 0)
                         failures.Add($"{factory.Outcome}: backend commit count must be 0 after failure, got {factory.Backend.CommitCount}");
+                    break;
+
+                case ActivationCaseOutcome.BeginFailure:
+                    CompositeCheckCount += 10;
+                    if (executionException is not null)
+                        failures.Add($"{factory.Outcome}: must return a stable result, got {executionException.GetType().Name}");
+                    if (result.ErrorCode != "TRANSACTION_ROLLED_BACK")
+                        failures.Add($"{factory.Outcome}: must return TRANSACTION_ROLLED_BACK, got {result.ErrorCode}");
+                    if (afterPoint is null || beforePoint is null || afterPoint.Status != beforePoint.Status || afterPoint.Version != beforePoint.Version)
+                        failures.Add($"{factory.Outcome}: Point status/version must remain unchanged");
+                    if (afterLifecycle.Count != beforeLifecycle.Count)
+                        failures.Add($"{factory.Outcome}: lifecycle must remain unchanged");
+                    if (afterOutboxCount != beforeOutboxCount)
+                        failures.Add($"{factory.Outcome}: outbox must remain unchanged");
+                    if (factory.Backend.CommitCount != 0)
+                        failures.Add($"{factory.Outcome}: backend commit count must be 0");
+                    if (factory.Backend.RollbackCount != 0)
+                        failures.Add($"{factory.Outcome}: backend rollback count must be 0 because begin created no transaction");
+                    if (factory.HostTransaction.IsBegun || factory.HostTransaction.IsCompleted || factory.HostTransaction.TransactionId != Guid.Empty)
+                        failures.Add($"{factory.Outcome}: host must remain unbegun, incomplete, and empty");
+                    if (factory.Backend.GetWorkspace(factory.HostTransaction) is not null)
+                        failures.Add($"{factory.Outcome}: no workspace may exist");
+                    try { factory.HostTransaction.DisposeAsync().GetAwaiter().GetResult(); }
+                    catch (Exception ex) { failures.Add($"{factory.Outcome}: DisposeAsync must be safe, got {ex.GetType().Name}"); }
                     break;
             }
         }

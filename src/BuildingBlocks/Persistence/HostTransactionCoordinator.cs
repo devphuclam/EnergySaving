@@ -131,6 +131,7 @@ public sealed class HostTransactionCoordinator : IHostTransaction
     public async ValueTask RollbackAsync(CancellationToken ct = default)
     {
         if (_completed) return;
+        if (!_begun || _innerTx is null) return;
         try
         {
             await _backend.RollbackAsync(_innerTx!, ct);

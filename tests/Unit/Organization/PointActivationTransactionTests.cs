@@ -36,6 +36,7 @@ public static class PointActivationTransactionTests
         OneBackendRollback(f);
         NoParticipantCommitSurface(f);
         RollbackFailurePreservesCommitException(f);
+        BeginFailureRetry(f);
         BeginFailureSafety(f);
 
         return f;
@@ -438,6 +439,29 @@ public static class PointActivationTransactionTests
         Check(f, "rollback-fail: rollback attempted", backend.RollbackCount != 1 ? $"expected 1, got {backend.RollbackCount}" : null);
     }
 
+    private static void BeginFailureRetry(List<string> f)
+    {
+        TestCount++;
+        var backend = new FakeAtomicBackend(new FakeOrganizationCommandRepository()) { FailOnBegin = true };
+        var coord = new HostTransactionCoordinator(backend);
+        RegisterAll(coord);
+        try { coord.BeginAsync().GetAwaiter().GetResult(); Check(f, "begin-retry: first begin must fail", "no exception"); }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("BEGIN_FAILED")) { Check(f, "begin-retry: first begin", null); }
+        try { coord.RollbackAsync().GetAwaiter().GetResult(); Check(f, "begin-retry: pre-begin rollback safe", null); }
+        catch (Exception ex) { Check(f, "begin-retry: pre-begin rollback safe", $"must not throw {ex.GetType().Name}"); }
+        Check(f, "begin-retry: no backend rollback before begin", backend.RollbackCount != 0 ? "must remain zero" : null);
+        backend.FailOnBegin = false;
+        try
+        {
+            coord.BeginAsync().GetAwaiter().GetResult();
+            Check(f, "begin-retry: second begin succeeds", null);
+            Check(f, "begin-retry: TransactionId assigned", coord.TransactionId == Guid.Empty ? "must be non-empty" : null);
+            coord.RollbackAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception ex) { Check(f, "begin-retry: second begin succeeds", ex.Message); }
+        Check(f, "begin-retry: one rollback after successful begin", backend.RollbackCount != 1 ? $"expected 1, got {backend.RollbackCount}" : null);
+    }
+
     // -- 19. begin failure safety --
     private static void BeginFailureSafety(List<string> f)
     {
@@ -460,7 +484,11 @@ public static class PointActivationTransactionTests
         Check(f, "begin-fail: TransactionId empty", coord.TransactionId != Guid.Empty ? "must be Empty" : null);
         // DisposeAsync must be safe — on baseline coordinator (buggy) this crashes because
         // _begun=true but _innerTx=null leads to NullReferenceException in backend rollback.
-        try { coord.DisposeAsync().GetAwaiter().GetResult(); } catch (NullReferenceException) { Check(f, "begin-fail: dispose crash (baseline bug)", null); }
+        try { coord.RollbackAsync().GetAwaiter().GetResult(); Check(f, "begin-fail: direct rollback safe", null); }
+        catch (Exception ex) { Check(f, "begin-fail: direct rollback safe", $"must not throw {ex.GetType().Name}"); }
+        Check(f, "begin-fail: rollback not called after direct rollback", backend.RollbackCount != 0 ? "must remain zero" : null);
+        try { coord.DisposeAsync().GetAwaiter().GetResult(); Check(f, "begin-fail: dispose safe", null); }
+        catch (Exception ex) { Check(f, "begin-fail: dispose safe", $"must not throw {ex.GetType().Name}"); }
         Check(f, "begin-fail: rollback not called after dispose", backend.RollbackCount != 0 ? "must not call rollback" : null);
     }
 

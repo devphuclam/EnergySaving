@@ -1,26 +1,25 @@
 # Phase 5 Standards and Specification Review (T106)
 
-Parent baseline: `50c4c311ebe874e4b9ae42161666a9dd6bddb7e9`.
+Repository: `devphuclam/EnergySaving`
+Parent baseline: `cb5b6b46c10b90be5501e6c9ff9f3dc47522fd89`
+Scope: begin-failure closure only; stop at T107.
 
-## Findings
+## Closure findings
 
 | ID | Finding | Severity | Evidence | Resolution | State |
 |---|---|---|---|---|---|
-| F01 | CommitAsync catch sets `_completed=true` before backend rollback | Critical | coordinator source: line 119 | Rollback backend before completing | CLOSED |
-| F02 | T095 expects `RollbackCount=0` after commit failure | High | T095 line 216 old | Changed to `RollbackCount=1` | CLOSED |
-| F03 | T103 AtomicCommitFailure omits workspace/rollback assertions | High | T103 switch block old | Added workspace null, RollbackCount=1, CommitCount=0 | CLOSED |
-| F04 | T094 declares 50 cases, executes 52 | Medium | AuthCase loop: 52 calls | Removed CaseCount constant; runtime counter = 52 | CLOSED |
-| F05 | T095 declares 20 cases, executes 17 | Medium | Run() calls 17 methods | Removed CaseCount constant; runtime counter = 17 | CLOSED |
-| F06 | No executable assertion counters | Medium | No TestCount/AssertionCount fields | Added runtime counters to T094/T095/T103 | CLOSED |
-| F07 | SameTransactionId permits empty participant ID set | Low | No lock acquisition before check | Acquire 9 locks before collecting IDs | CLOSED |
-| F08 | RetryDelays does not require exact 50/150/450 trace | Low | `clock.Count < 1` only | Assert exact count=3 and exact delays | CLOSED |
-| F09 | LockFailureRollback does not assert rollback | Low | No rollback/count assertion | Added DisposeAsync + RollbackCount=1 | CLOSED |
-| F10 | CancellationRollback does not exercise cancellation | Low | `coord.RollbackAsync()` with no token | Pass cancelled CancellationToken to CommitAsync | CLOSED |
-| F11 | T097 provenance unclear | Medium | No compilation evidence | Documented in checkpoint | CLOSED |
-| F12 | T106/T107 contain unsupported counts and atomic cleanup claims | Medium | T106/T107 v1 had stale numbers | Rewritten with actual runtime evidence | CLOSED |
-| F13 | LockAsync validates only `expectedOrder > _lastOrder`, not canonical target order | High | LockAsync source: `if (expectedOrder > _lastOrder)` passes Point-first, skip targets, out-of-order | Validates `canonicalIndex = (int)target + 1`, checks sequence and duplicate targets | CLOSED |
-| F14 | BeginAsync sets `_begun=true` before backend `BeginAsync` succeeds | High | BeginAsync source: `_begun=true` before `await _backend.BeginAsync(ct)`; backend crash leaves inconsistent state (begun=true, innerTx=null) | Defers `_begun=true` and `_innerTx` assignment to after backend succeeds | CLOSED |
+| BF-01 | `RollbackAsync` dereferenced `_innerTx!` when begin had failed or never occurred. | High | Coordinator baseline and RED direct rollback/orchestrator failures | Return before backend call when completed, unbegun, or `_innerTx` is null; preserve clean state. | CLOSED |
+| BF-02 | T103 had no actual orchestrator BeginFailure case. | High | Provider factory had no BeginFailure outcome; RED had no stable result assertion | Added backend `FailOnBegin` factory case executing `ActivateMeasurementPoint.ExecuteAsync`, with state/commit/rollback/workspace checks. | CLOSED |
+| BF-03 | BeginFailureSafety treated a disposal exception as a passing assertion. | Medium | Baseline `catch (NullReferenceException) { Check(..., null); }` | Any disposal exception is now recorded as a failure; successful disposal is the passing path. | CLOSED |
+| BF-04 | T095 did not prove retrying `BeginAsync` on the same coordinator. | Medium | No fail-then-retry case in the unit suite | Added `BeginFailureRetry`: failed begin, safe pre-begin rollback, `FailOnBegin=false`, second begin, one successful rollback. | CLOSED |
+| BF-05 | T105/T106/T107 still described the prior checkpoint. | Medium | Stale parent identity and missing begin-failure evidence | Static checks and T106/T107 now use the closure baseline and record the new evidence. | CLOSED |
 
 ## Review result
 
-**PASS**: Critical=0, High=0, all findings resolved. T104 remains separately `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`.
+**PASS** — unresolved Critical `0`, unresolved High `0`, unresolved Medium `0`, unresolved Low `0`.
+T104 remains `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`; it is not a database-access failure and does
+not block runnable provider-neutral closure.
+
+Historical ordering finding retained for traceability: CommitAsync catch sets `_completed` true before backend rollback; the implementation now rolls back the backend first and marks completion afterward.
+
+Finding counts: Critical=0, High=0, Medium=0, Low=0.
