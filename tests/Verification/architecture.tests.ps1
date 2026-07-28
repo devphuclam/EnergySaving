@@ -602,6 +602,23 @@ if ($isCanonicalModuleRoot) {
 
     $attemptServicePath = Join-Path $ModuleRoot 'Acquisition\Application\ProductionAttemptService.cs'
     $attemptService = Get-Content -LiteralPath $attemptServicePath -Raw
+    $runCommandsPath = Join-Path $ModuleRoot 'Acquisition\Application\RunCommands.cs'
+    $runCommands = Get-Content -LiteralPath $runCommandsPath -Raw
+    if ($runCommands -notmatch 'AlgorithmVersion\s*!=\s*SimulatorConfigurationConstants\.AlgorithmVersion') {
+        $issues += 'T128 FAIL: Start must require the normative AlgorithmVersion == 1.'
+    }
+    if ($runCommands -notmatch 'Enum\.IsDefined\(snapshot\.Scenario\)' -or
+        $runCommands -notmatch 'SimulatorScenario\.Constant\s+or\s+SimulatorScenario\.Normal') {
+        $issues += 'T128 FAIL: Start must reject unknown SimulatorScenario values.'
+    }
+    $startValidation = $runCommands.IndexOf('ValidateStart(snapshot', [StringComparison]::Ordinal)
+    $startInitialization = $runCommands.IndexOf('_generator.Initialize', [StringComparison]::Ordinal)
+    $startRunId = $runCommands.IndexOf('var runId = Guid.NewGuid()', [StringComparison]::Ordinal)
+    $startTransaction = $runCommands.IndexOf('_unitOfWork.BeginAsync', [StringComparison]::Ordinal)
+    if ($startValidation -lt 0 -or $startInitialization -le $startValidation -or
+        $startRunId -le $startValidation -or $startTransaction -le $startValidation) {
+        $issues += 'T128 FAIL: complete Start validation must precede PRNG, Run ID, and transaction begin.'
+    }
     $pendingRead = $attemptService.IndexOf('GetPendingAsync', [StringComparison]::Ordinal)
     $generation = $attemptService.IndexOf('_generator.Generate', [StringComparison]::Ordinal)
     if ($pendingRead -lt 0 -or $generation -lt 0 -or $pendingRead -gt $generation) {
@@ -617,8 +634,16 @@ if ($isCanonicalModuleRoot) {
         $issues += 'T128 FAIL: Worker coordinator must load existing Pending before owner eligibility.'
     }
     if ([regex]::Matches($attemptService, 'StageReservationAsync').Count -ne 1 -or
-        $attemptService -notmatch 'NextSourceSequence\s*=\s*checked\(sequence\s*\+\s*1\)') {
+        $attemptService -notmatch 'SimulatorRunPointReservationTransition[\s\S]*checked\(sequence\s*\+\s*1\)') {
         $issues += 'T128 FAIL: one new reservation must advance cursor/state/Generated exactly once.'
+    }
+    $tryReserve = $attemptService.IndexOf('_attempts.TryReserveAsync', [StringComparison]::Ordinal)
+    $stageReservation = $attemptService.IndexOf('_runs.StageReservationAsync', [StringComparison]::Ordinal)
+    if ($tryReserve -lt 0 -or $stageReservation -le $tryReserve) {
+        $issues += 'T128 FAIL: Pending insertion must win before Run-Point/Generated staging.'
+    }
+    if ($attemptService -notmatch 'TelemetryDispatchResultValidator\.EnsureValid\(result\)') {
+        $issues += 'T128 FAIL: terminal result validation must run before completion staging.'
     }
     if ($attemptService -notmatch 'if\s*\(finalized\.FirstTransition\)[\s\S]*StageFinalCounterAsync') {
         $issues += 'T128 FAIL: final counter mutation must occur only on the first terminal transition.'
@@ -659,6 +684,41 @@ if ($isCanonicalModuleRoot) {
         ($runContracts + $attemptContracts) -match 'DbContext|IQueryable|Npgsql') {
         $issues += 'T128 FAIL: Acquisition must own pinned provider-neutral Run/state/attempt contracts.'
     }
+    if ($runContracts -match 'StageReservationAsync\([^)]*SimulatorRunPointState' -or
+        $runContracts -notmatch 'StageReservationAsync\(SimulatorRunPointReservationTransition') {
+        $issues += 'T128 FAIL: StageReservationAsync must accept only a mutable transition contract.'
+    }
+    $transitionContract = [regex]::Match(
+        $runContracts,
+        '(?s)record SimulatorRunPointReservationTransition\(.*?\);').Value
+    foreach ($pinned in @(
+        'PointVersionAtStart','MappingId','MappingVersion','MetricId','UnitId',
+        'UnitCode','SourceVersion','SiteId','AreaId'
+    )) {
+        if ($transitionContract -match "\b$pinned\b") {
+            $issues += "T128 FAIL: reservation transition exposes pinned update field $pinned."
+        }
+    }
+    if ($attemptContracts -notmatch 'TERMINAL_RESULT_INVALID' -or
+        $attemptContracts -notmatch 'TelemetryAttemptOutcome\.Accepted[\s\S]*ProductionFinalClassification\.Accepted' -or
+        $attemptContracts -notmatch 'TelemetryAttemptOutcome\.Rejected[\s\S]*ProductionFinalClassification\.Rejected') {
+        $issues += 'T128 FAIL: terminal outcome/classification validation is absent or incomplete.'
+    }
+
+    $fakeRunRepositoryPath = Join-Path $repoRoot 'tests\Unit\Fakes\FakeAcquisitionRunRepositories.cs'
+    $fakeRunRepository = Get-Content -LiteralPath $fakeRunRepositoryPath -Raw
+    if ($fakeRunRepository -match '_committed\.Attempts\[key\]\s*=\s*Clone\(attempt\)' -or
+        $fakeRunRepository -notmatch '_committed\s*=\s*winner') {
+        $issues += 'T128 FAIL: uniqueness-race fake must publish the complete winning transaction, not an isolated attempt.'
+    }
+    foreach ($required in @(
+        'ExpectedRunVersion','ExpectedPointStateVersion','ExpectedNextSourceSequence',
+        'ResultingPrngState','NextDueAtUtc'
+    )) {
+        if ($fakeRunRepository -notmatch $required) {
+            $issues += "T128 FAIL: fake reservation is missing optimistic/mutable check $required."
+        }
+    }
 
     $migration7Path = Join-Path $repoRoot 'database\migrations\0007_acquisition_run.sql'
     $migration7 = Get-Content -LiteralPath $migration7Path -Raw
@@ -680,6 +740,22 @@ if ($isCanonicalModuleRoot) {
         $migration7 -notmatch 'accepted_count\s*\+\s*rejected_count\s*<=\s*generated_count') {
         $issues += 'T128 FAIL: migration 0007 is missing state length, identity uniqueness, or counter invariants.'
     }
+    if ($migration7 -notmatch 'reject_simulator_run_point_pinned_mutation' -or
+        $migration7 -notmatch 'trg_simulator_run_point_pinned_immutable') {
+        $issues += 'T128 FAIL: migration 0007 lacks Run-Point pinned-field immutability.'
+    }
+    foreach ($column in @(
+        'run_id','point_id','point_version_at_start','mapping_id','mapping_version',
+        'metric_id','unit_id','unit_code','source_version','site_id','area_id'
+    )) {
+        if ($migration7 -notmatch "NEW\.$column\s+IS\s+DISTINCT\s+FROM\s+OLD\.$column") {
+            $issues += "T128 FAIL: migration 0007 pinned immutability omits $column."
+        }
+    }
+    if ($migration7 -notmatch "telemetry_outcome\s*=\s*'Accepted'[\s\S]*final_classification\s*=\s*'Accepted'" -or
+        $migration7 -notmatch "telemetry_outcome\s*=\s*'Rejected'[\s\S]*final_classification\s*=\s*'Rejected'[\s\S]*latest_advanced\s*=\s*false[\s\S]*rejection_code\s+IS\s+NOT\s+NULL[\s\S]*length\(btrim\(rejection_code\)\)\s*>\s*0") {
+        $issues += 'T128 FAIL: migration 0007 lacks Accepted/Rejected terminal-pair consistency.'
+    }
 
     $t124Path = Join-Path $repoRoot 'tests\Integration\Acquisition\RunAttemptRepositoryTests.cs'
     $t124 = Get-Content -LiteralPath $t124Path -Raw
@@ -690,6 +766,47 @@ if ($isCanonicalModuleRoot) {
     }
     if ($t124 -notmatch 'TestCount\+\+' -or $t124 -notmatch 'AssertionCount\+\+') {
         $issues += 'T128 FAIL: T124 must maintain actual scenario and assertion counters.'
+    }
+    $raceScenario = [regex]::Match(
+        $t124,
+        '(?s)private async Task ReservationRaceAsync\(\).*?(?=private async Task)').Value
+    if ($raceScenario -match 'GeneratedCount\s*==\s*0|NextSourceSequence\s*==\s*0' -or
+        $raceScenario -notmatch 'GeneratedCount:\s*1' -or
+        $raceScenario -notmatch 'NextSourceSequence:\s*1') {
+        $issues += 'T128 FAIL: T124 race scenario must expect the committed winner advancement.'
+    }
+    foreach ($scenario in @(
+        'PinnedStateAndOptimisticConflictAsync',
+        'ReservationRaceAsync',
+        'AcceptedFinalizeReplayConflictAsync',
+        'RejectedAndDuplicateClassificationAsync',
+        'InvalidTerminalResultsAsync',
+        'FinalizationCommitFailureAsync'
+    )) {
+        if ($t124 -notmatch [regex]::Escape($scenario)) {
+            $issues += "T128 FAIL: T124 omits required provider-neutral scenario $scenario."
+        }
+    }
+    if ($t124 -notmatch 'AttemptPinnedMutationAsync' -or
+        $t124 -notmatch 'AttemptPayloadMutationAsync' -or
+        $t124 -notmatch 'PINNED_STATE_IMMUTABLE' -or
+        $t124 -notmatch 'ATTEMPT_PAYLOAD_IMMUTABLE') {
+        $issues += 'T128 FAIL: T124 must execute pinned-state and immutable-payload rejection scenarios.'
+    }
+    foreach ($counterPath in @(
+        'tests\Unit\Acquisition\DeterministicGeneratorVectorTests.cs',
+        'tests\Unit\Acquisition\MeasurementIdentityTests.cs',
+        'tests\Unit\Acquisition\RunControlTests.cs',
+        'tests\Unit\Worker\ProductionDispatchTests.cs',
+        'tests\Unit\Acquisition\ProductionAttemptTests.cs',
+        'tests\Unit\Acquisition\AcquisitionEventTests.cs'
+    )) {
+        $counterSource = Get-Content -LiteralPath (Join-Path $repoRoot $counterPath) -Raw
+        if ($counterSource -match '(TestCount|CheckCount)\s*=\s*[1-9][0-9]*\s*;' -or
+            $counterSource -notmatch 'TestCount\+\+' -or
+            $counterSource -notmatch 'CheckCount\+\+') {
+            $issues += "T128 FAIL: $counterPath must use actual executed counters."
+        }
     }
 
     if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Acquisition\Infrastructure\PostgresRunRepositories.cs')) {

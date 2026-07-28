@@ -12,8 +12,8 @@ public static class ProductionAttemptTests
 
     public static List<string> Run()
     {
-        TestCount = 7;
-        CheckCount = 25;
+        TestCount = 0;
+        CheckCount = 0;
         var failures = new List<string>();
         RunAsync(failures).GetAwaiter().GetResult();
         return failures;
@@ -31,6 +31,7 @@ public static class ProductionAttemptTests
             repositories, repositories, configurations, repositories, generator, identities,
             new FakeUtcClock(Phase6Fixtures.Now));
 
+        TestCount++;
         var reserved = await service.ReserveAsync(runId, Phase6Fixtures.PointId, "corr-reserve", "lineage");
         Check(!reserved.ExistingPending && !reserved.UniquenessWinnerReloaded,
             "new slot wins reservation", failures);
@@ -56,6 +57,7 @@ public static class ProductionAttemptTests
               reserved.Attempt.Payload,
             "committed Pending can be loaded by primary identity", failures);
 
+        TestCount++;
         var pendingAgain = await service.ReserveAsync(
             runId, Phase6Fixtures.PointId, "different-correlation", "different-lineage");
         Check(pendingAgain.ExistingPending && pendingAgain.Attempt.Payload == reserved.Attempt.Payload,
@@ -64,6 +66,7 @@ public static class ProductionAttemptTests
               (await repositories.GetAsync(runId))!.GeneratedCount == 1,
             "Pending retry does not regenerate identity/value or increment Generated", failures);
 
+        TestCount++;
         var accepted = new TelemetryDispatchResult(
             TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted, true, null, null);
         var finalized = await service.FinalizeAsync(runId, Phase6Fixtures.PointId, 0, accepted);
@@ -97,6 +100,60 @@ public static class ProductionAttemptTests
         Check(conflict && (await repositories.GetAsync(runId))!.AcceptedCount == 1,
             "different terminal replay raises invariant conflict without counter mutation", failures);
 
+        var invalidRunId = Guid.Parse("cccccccc-1111-4111-8111-cccccccccccc");
+        var invalidRepositories = new FakeAcquisitionRunRepositories();
+        invalidRepositories.Seed(
+            Phase6Fixtures.Run(invalidRunId), Phase6Fixtures.Point(invalidRunId));
+        invalidRepositories.SeedAttempt(Phase6Fixtures.Pending(invalidRunId));
+        var invalidService = new ProductionAttemptService(
+            invalidRepositories, invalidRepositories, configurations, invalidRepositories,
+            new DeterministicGenerator(), new MeasurementIdentity(),
+            new FakeUtcClock(Phase6Fixtures.Now));
+        var invalidResults = new[]
+        {
+            new TelemetryDispatchResult(
+                TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Rejected,
+                false, null, "INVALID"),
+            new TelemetryDispatchResult(
+                TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Accepted,
+                false, null, null),
+            new TelemetryDispatchResult(
+                TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
+                true, null, "INVALID"),
+            new TelemetryDispatchResult(
+                TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
+                false, null, " "),
+            new TelemetryDispatchResult(
+                (TelemetryAttemptOutcome)999, ProductionFinalClassification.Accepted,
+                false, null, null)
+        };
+        foreach (var invalidResult in invalidResults)
+        {
+            TestCount++;
+            var invalidRejected = false;
+            try
+            {
+                await invalidService.FinalizeAsync(
+                    invalidRunId, Phase6Fixtures.PointId, 0, invalidResult);
+            }
+            catch (InvalidOperationException ex)
+            {
+                invalidRejected = ex.Message == TelemetryDispatchResultValidator.InvalidCode;
+            }
+            var unchanged = await invalidRepositories.GetAsync(
+                invalidRunId, Phase6Fixtures.PointId, 0);
+            Check(invalidRejected && unchanged is
+                  {
+                      Status: SimulatorProductionAttemptStatus.Pending,
+                      CompletedAtUtc: null,
+                      Version: 1
+                  } &&
+                  (await invalidRepositories.GetAsync(invalidRunId)) is
+                  { AcceptedCount: 0, RejectedCount: 0 },
+                "invalid terminal pair returns TERMINAL_RESULT_INVALID without mutation", failures);
+        }
+
+        TestCount++;
         var duplicateRunId = Guid.Parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
         var duplicateRepositories = new FakeAcquisitionRunRepositories();
         duplicateRepositories.Seed(Phase6Fixtures.Run(duplicateRunId),
@@ -123,6 +180,7 @@ public static class ProductionAttemptTests
         Check((await duplicateRepositories.GetAsync(duplicateRunId))!.AcceptedCount == 1,
             "Duplicate replay never increments a second time", failures);
 
+        TestCount++;
         var raceRunId = Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
         var raceRepositories = new FakeAcquisitionRunRepositories
         {
@@ -137,14 +195,23 @@ public static class ProductionAttemptTests
             raceRunId, Phase6Fixtures.PointId, "corr-race", "lineage-race");
         Check(race.UniquenessWinnerReloaded && !race.ExistingPending,
             "uniqueness-race loser reloads the committed winner", failures);
-        Check((await raceRepositories.GetAsync(raceRunId))!.GeneratedCount == 0 &&
-              (await raceRepositories.GetPointStateAsync(raceRunId, Phase6Fixtures.PointId))!
-              .NextSourceSequence == 0,
-            "race loser rolls back cursor, PRNG state, and Generated", failures);
+        var racePoint = await raceRepositories.GetPointStateAsync(
+            raceRunId, Phase6Fixtures.PointId);
+        Check((await raceRepositories.GetAsync(raceRunId)) is
+              { GeneratedCount: 1, Version: 2 } &&
+              racePoint is { NextSourceSequence: 1, Version: 2 } &&
+              !racePoint.PrngState.SequenceEqual(Phase6Fixtures.Point(raceRunId).PrngState),
+            "race winner atomically commits Pending, PRNG, cursor and Generated once", failures);
         Check(raceGenerator.GenerateCount == 1 &&
               (await raceRepositories.GetAsync(raceRunId, Phase6Fixtures.PointId, 0)) is not null,
             "race preserves exactly the winner Pending attempt", failures);
+        await raceService.FinalizeAsync(
+            raceRunId, Phase6Fixtures.PointId, 0, accepted);
+        Check((await raceRepositories.GetAsync(raceRunId)) is
+              { GeneratedCount: 1, AcceptedCount: 1, RejectedCount: 0 },
+            "race winner finalizes Accepted without a second state advance", failures);
 
+        TestCount++;
         var rollbackRunId = Guid.Parse("ffffffff-ffff-4fff-8fff-ffffffffffff");
         var rollbackRepositories = new FakeAcquisitionRunRepositories { FailNextCommit = true };
         rollbackRepositories.Seed(Phase6Fixtures.Run(rollbackRunId),
@@ -171,6 +238,7 @@ public static class ProductionAttemptTests
               .NextSourceSequence == 0,
             "reservation rollback leaves cursor unchanged", failures);
 
+        TestCount++;
         var finalizeRunId = Guid.Parse("12345678-1234-4234-8234-123456789012");
         var finalizeRepositories = new FakeAcquisitionRunRepositories();
         finalizeRepositories.Seed(Phase6Fixtures.Run(finalizeRunId),
@@ -217,6 +285,7 @@ public static class ProductionAttemptTests
 
     private static void Check(bool condition, string message, List<string> failures)
     {
+        CheckCount++;
         if (!condition) failures.Add($"T112: {message}.");
     }
 }

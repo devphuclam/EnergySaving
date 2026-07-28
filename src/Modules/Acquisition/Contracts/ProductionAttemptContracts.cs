@@ -84,6 +84,40 @@ public sealed record TelemetryDispatchResult(
     string? ErrorCode,
     string? RejectionCode);
 
+public static class TelemetryDispatchResultValidator
+{
+    public const string InvalidCode = "TERMINAL_RESULT_INVALID";
+
+    public static void EnsureValid(TelemetryDispatchResult result)
+    {
+        if (!Enum.IsDefined(result.Outcome) || !Enum.IsDefined(result.FinalClassification))
+            throw new InvalidOperationException(InvalidCode);
+
+        var valid = result.Outcome switch
+        {
+            TelemetryAttemptOutcome.Accepted =>
+                result.FinalClassification == ProductionFinalClassification.Accepted &&
+                result.RejectionCode is null,
+            TelemetryAttemptOutcome.Rejected =>
+                result.FinalClassification == ProductionFinalClassification.Rejected &&
+                !result.LatestAdvanced &&
+                !string.IsNullOrWhiteSpace(result.RejectionCode),
+            TelemetryAttemptOutcome.Duplicate =>
+                result.FinalClassification switch
+                {
+                    ProductionFinalClassification.Accepted => result.RejectionCode is null,
+                    ProductionFinalClassification.Rejected =>
+                        !result.LatestAdvanced &&
+                        !string.IsNullOrWhiteSpace(result.RejectionCode),
+                    _ => false
+                },
+            _ => false
+        };
+        if (!valid)
+            throw new InvalidOperationException(InvalidCode);
+    }
+}
+
 public sealed record AttemptFinalizeResult(
     SimulatorProductionAttempt Attempt,
     bool FirstTransition,
@@ -96,7 +130,10 @@ public interface ISimulatorProductionAttemptRepository
     Task<SimulatorProductionAttempt?> GetAsync(Guid runId, Guid pointId, long sourceSequence,
         CancellationToken ct = default);
     Task<IReadOnlyList<SimulatorProductionAttempt>> ListPendingAsync(CancellationToken ct = default);
-    Task<bool> TryReserveAsync(SimulatorProductionAttempt attempt, ISimulatorRunTransaction transaction,
+    Task<bool> TryReserveAsync(
+        SimulatorProductionAttempt attempt,
+        SimulatorRunPointReservationTransition transition,
+        ISimulatorRunTransaction transaction,
         CancellationToken ct = default);
     Task<AttemptFinalizeResult> FinalizeAsync(Guid runId, Guid pointId, long sourceSequence,
         TelemetryDispatchResult result, DateTime completedAtUtc, ISimulatorRunTransaction transaction,

@@ -68,27 +68,29 @@ public sealed class ProductionAttemptService : IProductionAttemptService
         var attempt = new SimulatorProductionAttempt(
             run.RunId, point.PointId, sequence, payload, SimulatorProductionAttemptStatus.Pending,
             null, null, null, null, null, now, null, 1);
-        var nextPoint = point with
-        {
-            NextSourceSequence = checked(sequence + 1),
-            PrngState = generated.State.ToArray(),
-            NextDueAtUtc = now.AddSeconds(configuration.IntervalSeconds),
-            Version = checked(point.Version + 1)
-        };
+        var transition = new SimulatorRunPointReservationTransition(
+            run.RunId,
+            point.PointId,
+            run.Version,
+            point.Version,
+            sequence,
+            generated.State.ToArray(),
+            checked(sequence + 1),
+            now.AddSeconds(configuration.IntervalSeconds));
 
         await using var tx = await _unitOfWork.BeginAsync(ct);
         try
         {
             await tx.LockAsync(SimulatorStartLockTarget.AcquisitionRun,
                 $"{run.RunId:D}/{point.PointId:D}", ct);
-            if (!await _attempts.TryReserveAsync(attempt, tx, ct))
+            if (!await _attempts.TryReserveAsync(attempt, transition, tx, ct))
             {
                 await tx.RollbackAsync(CancellationToken.None);
                 var winner = await _attempts.GetAsync(runId, pointId, sequence, ct)
                     ?? throw new InvalidOperationException("RESERVATION_WINNER_NOT_FOUND");
                 return new AttemptReserveResult(winner, false, true);
             }
-            await _runs.StageReservationAsync(run.RunId, run.Version, nextPoint, tx, ct);
+            await _runs.StageReservationAsync(transition, tx, ct);
             await tx.CommitAsync(ct);
             return new AttemptReserveResult(attempt, false, false);
         }
@@ -106,6 +108,7 @@ public sealed class ProductionAttemptService : IProductionAttemptService
         TelemetryDispatchResult result,
         CancellationToken ct = default)
     {
+        TelemetryDispatchResultValidator.EnsureValid(result);
         var run = await _runs.GetAsync(runId, ct) ?? throw new InvalidOperationException("RUN_NOT_FOUND");
         await using var tx = await _unitOfWork.BeginAsync(ct);
         try

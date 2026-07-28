@@ -15,8 +15,8 @@ public static class ProductionDispatchTests
 
     public static List<string> Run()
     {
-        TestCount = 8;
-        CheckCount = 34;
+        TestCount = 0;
+        CheckCount = 0;
         var failures = new List<string>();
         RunAsync(failures).GetAwaiter().GetResult();
         return failures;
@@ -26,6 +26,7 @@ public static class ProductionDispatchTests
     {
         var configurations = await ProductionAttemptTests.ConfigurationRepositoryAsync();
 
+        TestCount++;
         var pendingRunId = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
         var pendingRepositories = new FakeAcquisitionRunRepositories();
         var initialPoint = Phase6Fixtures.Point(pendingRunId);
@@ -75,6 +76,7 @@ public static class ProductionDispatchTests
         Check(pendingPointAfter.LeaseOwner is null && pendingPointAfter.LeaseToken is null,
             "successful dispatch releases the lease", failures);
 
+        TestCount++;
         var newRunId = Guid.Parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
         var newRepositories = new FakeAcquisitionRunRepositories();
         newRepositories.Seed(Phase6Fixtures.Run(newRunId), Phase6Fixtures.Point(newRunId));
@@ -109,6 +111,7 @@ public static class ProductionDispatchTests
         Check(!newTelemetry.ObservedActiveTransaction,
             "new-slot Telemetry dispatch is outside the reservation transaction", failures);
 
+        TestCount++;
         var crashRunId = Guid.Parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
         var crashRepositories = new FakeAcquisitionRunRepositories();
         crashRepositories.Seed(Phase6Fixtures.Run(crashRunId), Phase6Fixtures.Point(crashRunId));
@@ -143,6 +146,7 @@ public static class ProductionDispatchTests
               (await crashRepositories.GetAsync(crashRunId))!.GeneratedCount == 1,
             "crash retry never regenerates or increments Generated again", failures);
 
+        TestCount++;
         var isolatedRunId = Guid.Parse("abcd0000-0000-4000-8000-000000000001");
         var isolatedRepositories = new FakeAcquisitionRunRepositories();
         var firstPoint = Phase6Fixtures.Point(isolatedRunId);
@@ -181,6 +185,7 @@ public static class ProductionDispatchTests
               { GeneratedCount: 2, AcceptedCount: 1 },
             "isolated failure preserves each Point reservation and successful counter", failures);
 
+        TestCount++;
         var renewalRunId = Guid.Parse("abcd0000-0000-4000-8000-000000000003");
         var renewalRepositories = new FakeAcquisitionRunRepositories();
         renewalRepositories.Seed(
@@ -214,6 +219,7 @@ public static class ProductionDispatchTests
               SimulatorProductionAttemptStatus.Completed,
             "delayed dispatch finalizes once under the renewed lease", failures);
 
+        TestCount++;
         var cancelledRunId = Guid.Parse("abcd0000-0000-4000-8000-000000000002");
         var cancelledRepositories = new FakeAcquisitionRunRepositories();
         cancelledRepositories.Seed(
@@ -248,6 +254,7 @@ public static class ProductionDispatchTests
                   cancelledRunId, Phase6Fixtures.PointId))?.LeaseOwner is null,
             "cancellation releases the claimed lease with a non-cancelled cleanup token", failures);
 
+        TestCount++;
         var idleRepositories = new FakeAcquisitionRunRepositories();
         var pausedRunId = Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
         var stoppedRunId = Guid.Parse("ffffffff-ffff-4fff-8fff-ffffffffffff");
@@ -275,6 +282,7 @@ public static class ProductionDispatchTests
               (await idleRepositories.GetAsync(stoppedRunId))!.GeneratedCount == 0,
             "Paused and Stopped counters remain unchanged", failures);
 
+        TestCount++;
         var ownerRunId = Guid.Parse("12345678-1234-4234-8234-123456789012");
         var ownerRepositories = new FakeAcquisitionRunRepositories();
         ownerRepositories.Seed(Phase6Fixtures.Run(ownerRunId), Phase6Fixtures.Point(ownerRunId));
@@ -323,6 +331,7 @@ public static class ProductionDispatchTests
 
     private static void Check(bool condition, string message, List<string> failures)
     {
+        CheckCount++;
         if (!condition) failures.Add($"T111: {message}.");
     }
 }

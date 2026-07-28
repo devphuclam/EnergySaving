@@ -17,8 +17,8 @@ public static class AcquisitionEventTests
 
     public static List<string> Run()
     {
-        TestCount = 4;
-        CheckCount = 14;
+        TestCount = 0;
+        CheckCount = 0;
         var failures = new List<string>();
         var running = Phase6Fixtures.Run(Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"));
         var paused = running with
@@ -42,6 +42,7 @@ public static class AcquisitionEventTests
 
         var start = SimulatorRunEventFactory.Create(null, running, ["site-b", "site-a", "site-a"],
             Phase6Fixtures.Administrator, "Start", Phase6Fixtures.Now, "corr", "cause");
+        TestCount++;
         Check(start.EventType == "SimulatorRunStateChanged.v1" &&
               start.SchemaVersion == 1 && start.Producer == "IUMP.Acquisition",
             "Start uses the exact event family, schema and producer", failures);
@@ -57,6 +58,7 @@ public static class AcquisitionEventTests
 
         var pause = SimulatorRunEventFactory.Create(running, paused, ["site-a"],
             Phase6Fixtures.Administrator, "Pause", Phase6Fixtures.Now, "corr-p", null);
+        TestCount++;
         Check(pause.Before["status"]?.ToString() == "Running" &&
               pause.After["status"]?.ToString() == "Paused",
             "Pause records exact Running to Paused state", failures);
@@ -65,6 +67,7 @@ public static class AcquisitionEventTests
 
         var resume = SimulatorRunEventFactory.Create(paused, resumed, ["site-a"],
             Phase6Fixtures.Administrator, "Resume", Phase6Fixtures.Now, "corr-r", null);
+        TestCount++;
         Check(resume.Before["status"]?.ToString() == "Paused" &&
               resume.After["status"]?.ToString() == "Running",
             "Resume records exact Paused to Running state", failures);
@@ -73,6 +76,7 @@ public static class AcquisitionEventTests
 
         var stop = SimulatorRunEventFactory.Create(resumed, stopped, ["site-a"],
             Phase6Fixtures.Administrator, "Stop", Phase6Fixtures.Now, "corr-s", null);
+        TestCount++;
         Check(stop.Before["status"]?.ToString() == "Running" &&
               stop.After["status"]?.ToString() == "Stopped",
             "Stop records exact prior to Stopped state", failures);
@@ -91,6 +95,7 @@ public static class AcquisitionEventTests
 
     private static void Check(bool condition, string message, List<string> failures)
     {
+        CheckCount++;
         if (!condition) failures.Add($"T113: {message}.");
     }
 }

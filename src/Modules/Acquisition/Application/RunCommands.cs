@@ -51,20 +51,39 @@ public sealed class SimulatorRunCommandService
                 ? RunCommandResult.Success(existing.RunId, existing.Version)
                 : RunCommandResult.Failure("PRECONDITION_FAILED", "A nonterminal Run already exists.");
 
+        List<(SimulatorStartPointSnapshot Point, byte[] State)> initialized;
+        try
+        {
+            initialized = snapshot.Points
+                .OrderBy(point => point.PointId)
+                .Select(point => (
+                    Point: point,
+                    State: _generator.Initialize(
+                        snapshot.DeterministicSeed,
+                        point.PointId,
+                        snapshot.ConfigurationId,
+                        snapshot.ConfigurationVersion,
+                        snapshot.AlgorithmVersion)))
+                .ToList();
+        }
+        catch (ArgumentException)
+        {
+            return RunCommandResult.Failure(
+                "CONFIGURATION_INVALID", "The immutable configuration is invalid.");
+        }
+
         var runId = Guid.NewGuid();
         var run = new SimulatorRun(
             runId, snapshot.SourceId, snapshot.SourceVersion, snapshot.ConfigurationId,
             snapshot.ConfigurationVersion, snapshot.AlgorithmId, snapshot.AlgorithmVersion,
             SimulatorRunStatus.Running, 1, 0, 0, 0, null, null, now, now, null, null, null,
             caller!.UserId, caller.Username, command.CorrelationId, command.CausationId);
-        var points = snapshot.Points
-            .OrderBy(point => point.PointId)
-            .Select(point => new SimulatorRunPointState(
-                runId, point.PointId, point.PointVersion, point.MappingId, point.MappingVersion,
-                point.MetricId, point.UnitId, point.UnitCode, snapshot.SourceVersion, 0,
-                _generator.Initialize(snapshot.DeterministicSeed, point.PointId, snapshot.ConfigurationId,
-                    snapshot.ConfigurationVersion, snapshot.AlgorithmVersion),
-                now, point.SiteId, point.AreaId, null, null, 0, null, 1))
+        var points = initialized
+            .Select(item => new SimulatorRunPointState(
+                runId, item.Point.PointId, item.Point.PointVersion, item.Point.MappingId,
+                item.Point.MappingVersion, item.Point.MetricId, item.Point.UnitId,
+                item.Point.UnitCode, snapshot.SourceVersion, 0, item.State,
+                now, item.Point.SiteId, item.Point.AreaId, null, null, 0, null, 1))
             .ToList();
 
         await using var tx = await _unitOfWork.BeginAsync(ct);
@@ -186,10 +205,14 @@ public sealed class SimulatorRunCommandService
             return ("PRECONDITION_FAILED", "Source is not a Simulator.");
         if (!string.Equals(snapshot.SourceStatus, "Active", StringComparison.Ordinal))
             return ("SOURCE_NOT_ACTIVE", "Source must be Active.");
-        if (snapshot.SourceVersion <= 0 || snapshot.ConfigurationVersion <= 0 ||
-            snapshot.IntervalSeconds <= 0 || snapshot.AlgorithmVersion <= 0 ||
+        if (snapshot.SourceId == Guid.Empty || snapshot.ConfigurationId == Guid.Empty ||
+            snapshot.SourceVersion <= 0 || snapshot.ConfigurationVersion <= 0 ||
+            snapshot.IntervalSeconds <= 0 ||
+            snapshot.AlgorithmVersion != SimulatorConfigurationConstants.AlgorithmVersion ||
             !string.Equals(snapshot.AlgorithmId, SimulatorConfigurationConstants.AlgorithmId,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal) ||
+            !Enum.IsDefined(snapshot.Scenario) ||
+            snapshot.Scenario is not (SimulatorScenario.Constant or SimulatorScenario.Normal))
             return ("CONFIGURATION_INVALID", "The immutable configuration is invalid.");
         if (!double.IsFinite(snapshot.MinimumValue) || !double.IsFinite(snapshot.MaximumValue) ||
             (snapshot.Scenario == SimulatorScenario.Constant && snapshot.MinimumValue != snapshot.MaximumValue) ||
@@ -197,11 +220,22 @@ public sealed class SimulatorRunCommandService
             return ("CONFIGURATION_INVALID", "The immutable configuration is invalid.");
         if (snapshot.Points.Count == 0)
             return ("MAPPING_MISSING", "At least one effective Mapping is required.");
+        var pointIds = new HashSet<Guid>();
+        var mappingIds = new HashSet<Guid>();
         foreach (var point in snapshot.Points)
         {
+            if (point.PointId == Guid.Empty || point.MappingId == Guid.Empty ||
+                point.AssetId == Guid.Empty || point.MetricId == Guid.Empty ||
+                point.UnitId == Guid.Empty || string.IsNullOrWhiteSpace(point.SiteId) ||
+                string.IsNullOrWhiteSpace(point.AreaId) || string.IsNullOrWhiteSpace(point.UnitCode))
+                return ("CONFIGURATION_INVALID", "The immutable configuration is invalid.");
+            if (!pointIds.Add(point.PointId))
+                return ("CONFIGURATION_INVALID", "Duplicate Point identity.");
+            if (!mappingIds.Add(point.MappingId))
+                return ("CONFIGURATION_INVALID", "Duplicate Mapping identity.");
             if (point.PointVersion <= 0 || point.SiteVersion <= 0 || point.AreaVersion <= 0 ||
                 point.AssetVersion <= 0 || point.MappingVersion <= 0)
-                return ("PROVIDER_VERSION_INVALID", "Provider versions must be positive.");
+                return ("CONFIGURATION_INVALID", "Provider versions must be positive.");
             if (!string.Equals(point.MappingStatus, "Active", StringComparison.Ordinal) ||
                 point.EffectiveFromUtc > now || point.EffectiveToUtc is { } until && until <= now)
                 return ("MAPPING_NOT_ACTIVE", "Mapping must be effective and Active.");

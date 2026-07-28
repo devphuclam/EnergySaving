@@ -107,6 +107,33 @@ CREATE INDEX IF NOT EXISTS ix_simulator_run_point_lease
 CREATE INDEX IF NOT EXISTS ix_simulator_run_point_recovery
     ON acquisition.simulator_run_point_state (run_id, next_due_at_utc, point_id);
 
+CREATE OR REPLACE FUNCTION acquisition.reject_simulator_run_point_pinned_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.run_id IS DISTINCT FROM OLD.run_id
+       OR NEW.point_id IS DISTINCT FROM OLD.point_id
+       OR NEW.point_version_at_start IS DISTINCT FROM OLD.point_version_at_start
+       OR NEW.mapping_id IS DISTINCT FROM OLD.mapping_id
+       OR NEW.mapping_version IS DISTINCT FROM OLD.mapping_version
+       OR NEW.metric_id IS DISTINCT FROM OLD.metric_id
+       OR NEW.unit_id IS DISTINCT FROM OLD.unit_id
+       OR NEW.unit_code IS DISTINCT FROM OLD.unit_code
+       OR NEW.source_version IS DISTINCT FROM OLD.source_version
+       OR NEW.site_id IS DISTINCT FROM OLD.site_id
+       OR NEW.area_id IS DISTINCT FROM OLD.area_id
+    THEN
+        RAISE EXCEPTION 'simulator Run-Point pinned state is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_simulator_run_point_pinned_immutable
+    ON acquisition.simulator_run_point_state;
+CREATE TRIGGER trg_simulator_run_point_pinned_immutable
+BEFORE UPDATE ON acquisition.simulator_run_point_state
+FOR EACH ROW EXECUTE FUNCTION acquisition.reject_simulator_run_point_pinned_mutation();
+
 CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
     run_id uuid NOT NULL,
     point_id uuid NOT NULL,
@@ -186,6 +213,37 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
             AND latest_advanced IS NOT NULL
             AND completed_at_utc IS NOT NULL
             AND completed_at_utc >= created_at_utc
+        )
+    ),
+    CONSTRAINT ck_simulator_production_attempt_terminal_pair CHECK (
+        status = 'Pending'
+        OR (
+            telemetry_outcome = 'Accepted'
+            AND final_classification = 'Accepted'
+            AND rejection_code IS NULL
+        )
+        OR (
+            telemetry_outcome = 'Rejected'
+            AND final_classification = 'Rejected'
+            AND latest_advanced = false
+            AND rejection_code IS NOT NULL
+            AND length(btrim(rejection_code)) > 0
+        )
+        OR (
+            telemetry_outcome = 'Duplicate'
+            AND (
+                (
+                    final_classification = 'Accepted'
+                    AND rejection_code IS NULL
+                )
+                OR
+                (
+                    final_classification = 'Rejected'
+                    AND latest_advanced = false
+                    AND rejection_code IS NOT NULL
+                    AND length(btrim(rejection_code)) > 0
+                )
+            )
         )
     ),
     CONSTRAINT ck_simulator_production_attempt_version_positive CHECK (version > 0)

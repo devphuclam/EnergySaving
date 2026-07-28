@@ -32,6 +32,14 @@ public sealed class FakeRunAttemptRepositoryTestProviderFactory :
         public void FailNextCommit() => _repositories.FailNextCommit = true;
         public void SimulateReserveUniquenessRace() =>
             _repositories.SimulateReserveUniquenessRace = true;
+        public Task AttemptPinnedMutationAsync(
+            SimulatorRunPointState replacement,
+            ISimulatorRunTransaction transaction) =>
+            _repositories.AttemptPinnedMutationAsync(replacement, transaction);
+        public Task AttemptPayloadMutationAsync(
+            SimulatorProductionAttempt replacement,
+            ISimulatorRunTransaction transaction) =>
+            _repositories.AttemptPayloadMutationAsync(replacement, transaction);
     }
 }
 
@@ -154,6 +162,7 @@ public sealed class FakeAcquisitionRunRepositories :
     public int LeaseRenewalCount { get; private set; }
     public bool FailNextCommit { get; set; }
     public bool SimulateReserveUniquenessRace { get; set; }
+    public int CommittedPointCount => _committed.Points.Count;
     public IReadOnlyList<SimulatorRunOwnerEvent> CommittedEvents =>
         _committed.Events.Select(Clone).ToList();
 
@@ -285,24 +294,46 @@ public sealed class FakeAcquisitionRunRepositories :
         return Task.CompletedTask;
     }
 
-    public Task StageReservationAsync(Guid runId, long expectedRunVersion,
-        SimulatorRunPointState nextPointState, ISimulatorRunTransaction transaction,
+    public Task StageReservationAsync(
+        SimulatorRunPointReservationTransition transition,
+        ISimulatorRunTransaction transaction,
         CancellationToken ct = default)
     {
         var state = Workspace(transaction);
-        var run = state.Runs.GetValueOrDefault(runId) ?? throw new InvalidOperationException("RUN_NOT_FOUND");
-        if (run.Version != expectedRunVersion) throw new InvalidOperationException("VERSION_CONFLICT");
-        var current = state.Points.GetValueOrDefault((runId, nextPointState.PointId))
+        ApplyReservation(state, transition);
+        return Task.CompletedTask;
+    }
+
+    private static void ApplyReservation(
+        State state,
+        SimulatorRunPointReservationTransition transition)
+    {
+        var run = state.Runs.GetValueOrDefault(transition.RunId)
+            ?? throw new InvalidOperationException("RUN_NOT_FOUND");
+        if (run.Version != transition.ExpectedRunVersion)
+            throw new InvalidOperationException("VERSION_CONFLICT");
+        var key = (transition.RunId, transition.PointId);
+        var current = state.Points.GetValueOrDefault(key)
             ?? throw new InvalidOperationException("RUN_POINT_NOT_FOUND");
-        if (nextPointState.NextSourceSequence != current.NextSourceSequence + 1)
+        if (current.Version != transition.ExpectedPointStateVersion)
+            throw new InvalidOperationException("RUN_POINT_VERSION_CONFLICT");
+        if (current.NextSourceSequence != transition.ExpectedNextSourceSequence ||
+            transition.NextSourceSequence != checked(current.NextSourceSequence + 1))
             throw new InvalidOperationException("SEQUENCE_ADVANCE_INVALID");
-        state.Runs[runId] = run with
+        if (transition.ResultingPrngState.Length != 25)
+            throw new InvalidOperationException("PRNG_STATE_LENGTH");
+        state.Runs[transition.RunId] = run with
         {
             GeneratedCount = checked(run.GeneratedCount + 1),
             Version = checked(run.Version + 1)
         };
-        state.Points[(runId, nextPointState.PointId)] = Clone(nextPointState);
-        return Task.CompletedTask;
+        state.Points[key] = current with
+        {
+            NextSourceSequence = transition.NextSourceSequence,
+            PrngState = transition.ResultingPrngState.ToArray(),
+            NextDueAtUtc = transition.NextDueAtUtc,
+            Version = checked(current.Version + 1)
+        };
     }
 
     public Task StageFinalCounterAsync(Guid runId, long expectedRunVersion,
@@ -347,15 +378,20 @@ public sealed class FakeAcquisitionRunRepositories :
             .OrderBy(attempt => attempt.RunId).ThenBy(attempt => attempt.PointId)
             .ThenBy(attempt => attempt.SourceSequence).Select(Clone).ToList());
 
-    public Task<bool> TryReserveAsync(SimulatorProductionAttempt attempt,
+    public Task<bool> TryReserveAsync(
+        SimulatorProductionAttempt attempt,
+        SimulatorRunPointReservationTransition transition,
         ISimulatorRunTransaction transaction, CancellationToken ct = default)
     {
         var key = (attempt.RunId, attempt.PointId, attempt.SourceSequence);
         if (SimulateReserveUniquenessRace)
         {
             SimulateReserveUniquenessRace = false;
-            if (!_committed.Attempts.ContainsKey(key))
-                _committed.Attempts[key] = Clone(attempt);
+            var winner = Clone(_committed);
+            if (!winner.Attempts.ContainsKey(key))
+                winner.Attempts[key] = Clone(attempt);
+            ApplyReservation(winner, transition);
+            _committed = winner;
             return Task.FromResult(false);
         }
         var state = Workspace(transaction);
@@ -370,6 +406,7 @@ public sealed class FakeAcquisitionRunRepositories :
         TelemetryDispatchResult result, DateTime completedAtUtc, ISimulatorRunTransaction transaction,
         CancellationToken ct = default)
     {
+        TelemetryDispatchResultValidator.EnsureValid(result);
         var state = Workspace(transaction);
         var key = (runId, pointId, sourceSequence);
         var attempt = state.Attempts.GetValueOrDefault(key)
@@ -415,6 +452,44 @@ public sealed class FakeAcquisitionRunRepositories :
 
     public void SeedAttempt(SimulatorProductionAttempt attempt) =>
         _committed.Attempts[(attempt.RunId, attempt.PointId, attempt.SourceSequence)] = Clone(attempt);
+
+    public Task AttemptPinnedMutationAsync(
+        SimulatorRunPointState replacement,
+        ISimulatorRunTransaction transaction)
+    {
+        var current = Workspace(transaction).Points.GetValueOrDefault(
+            (replacement.RunId, replacement.PointId));
+        if (current is null ||
+            current.RunId != replacement.RunId ||
+            current.PointId != replacement.PointId ||
+            current.PointVersionAtStart != replacement.PointVersionAtStart ||
+            current.MappingId != replacement.MappingId ||
+            current.MappingVersion != replacement.MappingVersion ||
+            current.MetricId != replacement.MetricId ||
+            current.UnitId != replacement.UnitId ||
+            current.UnitCode != replacement.UnitCode ||
+            current.SourceVersion != replacement.SourceVersion ||
+            current.SiteId != replacement.SiteId ||
+            current.AreaId != replacement.AreaId)
+            throw new InvalidOperationException("PINNED_STATE_IMMUTABLE");
+        return Task.CompletedTask;
+    }
+
+    public Task AttemptPayloadMutationAsync(
+        SimulatorProductionAttempt replacement,
+        ISimulatorRunTransaction transaction)
+    {
+        var current = Workspace(transaction).Attempts.GetValueOrDefault(
+            (replacement.RunId, replacement.PointId, replacement.SourceSequence));
+        if (current is null ||
+            current.RunId != replacement.RunId ||
+            current.PointId != replacement.PointId ||
+            current.SourceSequence != replacement.SourceSequence ||
+            current.Payload != replacement.Payload ||
+            current.CreatedAtUtc != replacement.CreatedAtUtc)
+            throw new InvalidOperationException("ATTEMPT_PAYLOAD_IMMUTABLE");
+        return Task.CompletedTask;
+    }
 
     private State Workspace(ISimulatorRunTransaction transaction)
     {

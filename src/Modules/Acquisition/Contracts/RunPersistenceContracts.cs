@@ -66,6 +66,16 @@ public sealed record SimulatorRunPointState(
     DateTime? LeaseExpiresAtUtc,
     long Version);
 
+public sealed record SimulatorRunPointReservationTransition(
+    Guid RunId,
+    Guid PointId,
+    long ExpectedRunVersion,
+    long ExpectedPointStateVersion,
+    long ExpectedNextSourceSequence,
+    byte[] ResultingPrngState,
+    long NextSourceSequence,
+    DateTime NextDueAtUtc);
+
 public sealed record RunCallerSnapshot(
     string UserId,
     string Username,
@@ -205,7 +215,7 @@ public interface IAcquisitionRunRepository
         DateTime leaseUntilUtc,
         CancellationToken ct = default);
     Task ReleaseLeaseAsync(SimulatorRunLease lease, CancellationToken ct = default);
-    Task StageReservationAsync(Guid runId, long expectedRunVersion, SimulatorRunPointState nextPointState,
+    Task StageReservationAsync(SimulatorRunPointReservationTransition transition,
         ISimulatorRunTransaction transaction, CancellationToken ct = default);
     Task StageFinalCounterAsync(Guid runId, long expectedRunVersion, ProductionFinalClassification classification,
         ISimulatorRunTransaction transaction, CancellationToken ct = default);
