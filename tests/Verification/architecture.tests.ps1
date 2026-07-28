@@ -426,7 +426,10 @@ if ($isCanonicalModuleRoot) {
     $activation = Get-Content -LiteralPath $activationPath -Raw
     if ($activation -match '\.Max\s*\(') { $issues += 'T105 FAIL: activation must compare exact provider versions, not Max/sum compression.' }
     if ($activation -match 'Audit|password|secret') { $issues += 'T105 FAIL: activation path must not persist Audit or secret fields.' }
-    if ($activation -notmatch 'OUTBOX_PARTICIPANT_REQUIRED' -or $activation -notmatch 'OutboxTransactionParticipantAdapter') { $issues += 'T105 FAIL: activation must require/bridge an outbox host-transaction participant.' }
+    if ($activation -notmatch 'RegisterRequiredParticipants' -or $activation -notmatch 'ITransactionalOutboxWriter' -or
+        $activation -notmatch 'outbox.EnqueueAsync' -or $activation -match 'OutboxTransactionParticipantAdapter|OUTBOX_PARTICIPANT_REQUIRED') {
+        $issues += 'T105 FAIL: activation must require the typed outbox host-transaction participant.'
+    }
     $outboxPath = Join-Path $ModuleRoot 'Integration\Contracts\OutboxContracts.cs'
     $outbox = Get-Content -LiteralPath $outboxPath -Raw
     $writerContract = [regex]::Match($outbox, '(?s)interface\s+ITransactionalOutboxWriter.*?\}')
@@ -437,6 +440,29 @@ if ($isCanonicalModuleRoot) {
     $integrationSource = Join-Path $repoRoot 'tests\Integration\Organization\PointActivationTransactionTests.cs'
     $integration = Get-Content -LiteralPath $integrationSource -Raw
     if ($integration -match 'Npgsql|DbContext|SELECT\s|INSERT\s|UPDATE\s|FakeOrganization') { $issues += 'T105 FAIL: Phase 5 integration source must remain provider-neutral and fake-free.' }
+
+    # Corrective convergence: one typed host transaction, no automatic NoOp participants,
+    # and all provider reads/rechecks/staging are transaction-aware.
+    if ($hostTx -match 'NoOpParticipant|NoOp') { $issues += 'T105 FAIL: missing providers must not be replaced by NoOp participants.' }
+    if ($hostTx -notmatch 'MISSING_TRANSACTION_PARTICIPANT' -or $hostTx -notmatch 'RequiredTargets') { $issues += 'T105 FAIL: BeginAsync must fail closed when any required participant is missing.' }
+    $participantContract = [regex]::Match($hostTx, '(?s)interface\s+IHostTransactionParticipant.*?\}')
+    if ($participantContract.Success -and $participantContract.Value -match 'CommitAsync|RollbackAsync') { $issues += 'T105 FAIL: participants must not own CommitAsync/RollbackAsync.' }
+    if ($activation -match 'BeginTransactionAsync|IOrganizationTransaction|new\s+AsyncTransaction') { $issues += 'T105 FAIL: activation must not open an independent Organization transaction.' }
+    $queryContracts = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Organization\Contracts\OrganizationQueryContracts.cs') -Raw
+    foreach ($port in @('IActivationIdentityParticipant','IActivationOrganizationParticipant','IActivationCatalogParticipant')) {
+        if ($queryContracts -notmatch "interface\s+$port[\s\S]*?IHostTransaction") { $issues += "T105 FAIL: $port must be typed to IHostTransaction." }
+    }
+    if ($outbox -notmatch 'ITransactionalOutboxWriter\s*:\s*IHostTransactionParticipant' -or $outbox -notmatch 'IHostTransaction\s+hostTransaction') { $issues += 'T105 FAIL: outbox writer must be a typed host participant.' }
+    if ($queryContracts -notmatch 'string\?\s+PointId' -or $queryContracts -notmatch 'string\?\s+MappingPointId' -or
+        $queryContracts -notmatch 'CompatibilityIdentity' -or $queryContracts -notmatch 'CompatibilityStatus') { $issues += 'T105 FAIL: catalog snapshot must carry target Point and compatibility identity/version/status.' }
+    if ($hostTx -notmatch 'new\[\]\s*\{\s*50,\s*150,\s*450\s*\}' -or $hostTx -notmatch 'attempt\s*<\s*4') { $issues += 'T105 FAIL: retry must include 50/150/450ms and four total attempts.' }
+    if ($eventSource -match 'ctx\.CausationId\s*\?\?' -or $eventSource -notmatch 'ctx\.CausationId') { $issues += 'T105 FAIL: nullable CausationId must be preserved without correlation fallback.' }
+    if ($integration -notmatch 'ActivateMeasurementPoint\.ExecuteAsync') { $issues += 'T105 FAIL: T103 must invoke the actual activation orchestrator.' }
+    $unitProgram = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Program.cs') -Raw
+    if ($unitProgram -notmatch 'Unit\.Organization\.PointActivationTransactionTests\.Run') { $issues += 'T105 FAIL: T095 unit suite must be explicitly registered in Program.' }
+    $phase6Files = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Recurse -File |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.FullName -match '[\\/]Phase6[\\/]|phase-06|TelemetryIngestion|SimulatorRun' }
+    if ($phase6Files) { $issues += 'T105 FAIL: Phase 6 implementation/evidence files must not be introduced.' }
 }
 
 if ($issues.Count -gt 0) {

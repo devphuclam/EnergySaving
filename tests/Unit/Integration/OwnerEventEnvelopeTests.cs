@@ -31,6 +31,10 @@ public static class OwnerEventEnvelopeTests
         if (envelope.ActorId != "admin" || envelope.ActorUsername != "admin@test") failures.Add("trusted actor identity missing.");
         if (envelope.Action != "Activated") failures.Add("action must be Activated.");
         if (envelope.CorrelationId != "event-correlation" || envelope.CausationId != "event-causation") failures.Add("correlation/causation not propagated.");
+        var nullCausation = OrganizationEvents.BuildPointStatusChanged(point, PointStatus.Draft, PointStatus.Active,
+            new OrganizationCommandContext("admin", "event-correlation-null", null), caller);
+        if (nullCausation.CorrelationId != "event-correlation-null" || nullCausation.CausationId is not null)
+            failures.Add("absent CausationId must remain null and separate from CorrelationId.");
         if (envelope.OccurredAt.Kind != DateTimeKind.Utc) failures.Add("occurred-at must be UTC.");
         if (envelope.SiteId != site.Id.ToString() || envelope.AreaId != area.Id.ToString()) failures.Add("trusted Site/Area IDs missing.");
         AssertKeys(failures, envelope.Before, "Before");
@@ -38,6 +42,11 @@ public static class OwnerEventEnvelopeTests
         if (envelope.Before["status"]?.ToString() != "Draft" || envelope.After["status"]?.ToString() != "Active") failures.Add("status snapshots are incorrect.");
         if (envelope.Before["version"] is not long beforeVersion || beforeVersion != 1) failures.Add("before version must be prior version.");
         if (envelope.After["version"] is not long afterVersion || afterVersion != 2) failures.Add("after version must be aggregate version.");
+        if (envelope.Before is IDictionary<string, object?> mutable)
+        {
+            try { mutable["status"] = "Tampered"; failures.Add("Before snapshot must be immutable."); }
+            catch (NotSupportedException) { }
+        }
         if (envelope.Before.Keys.Concat(envelope.After.Keys).Any(k => k.Contains("password", StringComparison.OrdinalIgnoreCase) || k.Contains("secret", StringComparison.OrdinalIgnoreCase) || k.Contains("token", StringComparison.OrdinalIgnoreCase)))
             failures.Add("event snapshots must not contain secrets.");
         return failures;

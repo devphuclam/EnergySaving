@@ -1,4 +1,5 @@
 using IUMP.Modules.Organization.Domain;
+using IUMP.BuildingBlocks.Persistence;
 
 namespace IUMP.Modules.Organization.Contracts;
 
@@ -119,7 +120,9 @@ public sealed record ActivationDataOwnerSnapshot(
     bool HasTrustedAreaScope,
     bool HasForbiddenCapability,
     long UserVersion,
-    long ScopeVersion);
+    long ScopeVersion,
+    string? TrustedSiteId = null,
+    string? TrustedAreaId = null);
 
 public interface IActivationIdentityQuery
 {
@@ -144,9 +147,38 @@ public sealed record ActivationCatalogSnapshot(
     string SourceType,
     DateTime EffectiveFromUtc,
     DateTime? EffectiveToUtc,
-    int ActiveMappingCount);
+    int ActiveMappingCount,
+    string? PointId = null,
+    string? MappingPointId = null,
+    string? CompatibilityIdentity = null,
+    string? CompatibilityStatus = null);
 
 public interface IActivationCatalogQuery
 {
     Task<ActivationCatalogSnapshot?> GetActivationSnapshotAsync(string pointId, string metricId, string unitId, DateTime atUtc, CancellationToken ct = default);
+}
+
+public sealed record ActivationOrganizationSnapshot(
+    MeasurementPoint Point,
+    Site Site,
+    Area Area,
+    Asset Asset,
+    bool? IntervalValidOverride = null);
+
+public interface IActivationIdentityParticipant : IHostTransactionParticipant
+{
+    Task<ActivationDataOwnerSnapshot> ReadDataOwnerAsync(IHostTransaction transaction, string dataOwnerUserId, string siteId, string areaId, CancellationToken ct = default);
+    Task<ActivationDataOwnerSnapshot> RecheckDataOwnerAsync(IHostTransaction transaction, string dataOwnerUserId, string siteId, string areaId, CancellationToken ct = default);
+}
+
+public interface IActivationOrganizationParticipant : IHostTransactionParticipant
+{
+    Task<ActivationOrganizationSnapshot?> ReadLockedSnapshotAsync(IHostTransaction transaction, PointId pointId, CancellationToken ct = default);
+    Task<MeasurementPoint> StageActivationAsync(IHostTransaction transaction, ActivationOrganizationSnapshot snapshot, string actorUserId, string? actorUsername, string? correlationId, string? causationId, CancellationToken ct = default);
+}
+
+public interface IActivationCatalogParticipant : IHostTransactionParticipant
+{
+    Task<ActivationCatalogSnapshot?> ReadActivationSnapshotAsync(IHostTransaction transaction, string pointId, string metricId, string unitId, DateTime atUtc, CancellationToken ct = default);
+    Task<ActivationCatalogSnapshot?> RecheckActivationSnapshotAsync(IHostTransaction transaction, string pointId, string metricId, string unitId, DateTime atUtc, CancellationToken ct = default);
 }

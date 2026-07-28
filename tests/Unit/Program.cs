@@ -41,9 +41,18 @@ failures.AddRange(ConfigurationCommandTests.Run());
 failures.AddRange(MappingReadinessTests.Run());
 
 // Phase 5 — Point activation and shared transaction
-failures.AddRange(PointActivationTests.Run());
-failures.AddRange(IUMP.Tests.Integration.Organization.PointActivationTransactionTests.Run());
-failures.AddRange(OwnerEventEnvelopeTests.Run());
+var t094Failures = PointActivationTests.Run();
+Console.WriteLine($"T094: cases={PointActivationTests.CaseCount}; failures={t094Failures.Count}");
+failures.AddRange(t094Failures);
+var t095Failures = IUMP.Tests.Unit.Organization.PointActivationTransactionTests.Run();
+Console.WriteLine($"T095: cases={IUMP.Tests.Unit.Organization.PointActivationTransactionTests.CaseCount}; failures={t095Failures.Count}");
+failures.AddRange(t095Failures);
+var t096Failures = OwnerEventEnvelopeTests.Run();
+Console.WriteLine($"T096: cases=1; failures={t096Failures.Count}");
+failures.AddRange(t096Failures);
+var t103Failures = IUMP.Tests.Integration.Organization.PointActivationTransactionTests.Run(new FakePointActivationProviderFactorySet());
+Console.WriteLine($"T103: cases=4; failures={t103Failures.Count}");
+failures.AddRange(t103Failures);
 
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();

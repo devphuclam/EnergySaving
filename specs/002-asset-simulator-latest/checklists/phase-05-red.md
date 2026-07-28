@@ -1,50 +1,51 @@
 # Phase 5 RED Evidence (T097)
 
-## Scope and baseline
+Repository: `devphuclam/EnergySaving`
+Feature: `specs/002-asset-simulator-latest/`
+Parent baseline: `3ae683a14385c0272752e5b18a0fccd2b9b39ed0`
+Scope: T094-T107 only. No database command, migration, package restore, Docker, or Phase 6 work was performed.
 
-- Repository: `devphuclam/EnergySaving`
-- Feature: `specs/002-asset-simulator-latest/`
-- Parent baseline: `4e68ca46d124d867a0737b17711a069bd83417aa`
-- Captured: `2026-07-27`
-- The RED reproduction used only the local deterministic unit harness. No package restore,
-  database connection, migration, Docker, or substitute database was used.
+The corrected T094, T095, T096, and T103 sources were compiled before the production correction. A temporary pre-green defect set was used only to reproduce the red behavior, then immediately reverted: missing-participant rejection disabled, mapping target check disabled, Active no-op made a failure, 450ms changed to 0ms, causation fallback restored, and the successful orchestrator result changed to `PHASE5_REQUIRED`.
 
-## Chronological reproduction
+## Exact reproduction
 
-After the Phase 5 test sources were compiled against the pre-green command path, the exact
-commands were run:
+Command:
 
 ```text
 dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore --configuration Debug
-exit 0; Build succeeded; 0 warnings; 0 errors
+```
 
+Result: exit `0` (`Build succeeded`, `0 Warning(s)`, `0 Error(s)`).
+
+Command:
+
+```text
 dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-build --configuration Debug
-exit 1
+```
+
+Result: exit `1`. Combined captured output (including failure diagnostics):
+
+```text
 T079: assertions=87; failures=0
 T080: assertions=62; failures=0
+T094: cases=41; failures=6
+T095: cases=12; failures=2
+T096: cases=1; failures=1
+T103: cases=4; failures=1
 T071: tests=19; assertions=39; failures=0
 T088: scenarios=24; assertions=24; failures=0
 FAILURES:
-  Phase 5 orchestrator must handle Admin activation of Draft Point (currently PHASE5_REQUIRED).
-  Phase 5 orchestrator must handle Admin reactivation of Inactive Point (currently PHASE5_REQUIRED).
-  Phase 5 orchestrator must handle scoped Engineer activation of Draft Point (currently PHASE5_REQUIRED).
-  Phase 5 orchestrator must handle Active -> Active as silent no-op (currently PHASE5_REQUIRED).
-  Phase 5 orchestrator must reject Decommissioned -> Active with INVALID_STATE (currently PHASE5_REQUIRED).
-  Phase 5 orchestrator must emit a PointStatusChanged.v1 event on activation (none emitted).
+  Administrator Draft: expected success, got PHASE5_REQUIRED
+  scoped Engineer Draft: expected success, got PHASE5_REQUIRED
+  Inactive reactivation: expected success, got PHASE5_REQUIRED
+  Active no-op: Active must be successful NO_OP without mutation.
+  mapping belongs to another Point: expected MAPPING_POINT_MISMATCH, got PHASE5_REQUIRED
+  repeat activation: repeat activation must be a single transition and event (first=PHASE5_REQUIRED, second=INVALID_STATE, status=Active, version=2, history=1, outbox=1).
+  missing participant: BeginAsync must fail closed when a required participant is missing.
+  retry trace: retry must use 50/150/450ms after three failures.
+  absent CausationId must remain null and separate from CorrelationId.
+  T103 success case must activate through ActivateMeasurementPoint.
+RED_RUN_EXIT=1
 ```
 
-The failed assertions are the intended red proof: the ordinary Phase 3 status handler deferred
-activation/reactivation to Phase 5, and no owner envelope was emitted by that path.
-
-## RED coverage
-
-The red suite covered prerequisite-specific outcomes (parent Asset, Metric, Unit/compatibility,
-Data Owner, mapping cardinality/effectivity), stale/provider-version rechecks, global lock order,
-host rollback, outbox atomicity, and owner-event metadata. T094–T096 therefore proved the behavior
-was absent before the Phase 5 coordinator/orchestrator/envelope implementation.
-
-## Security and boundary evidence
-
-- Secret values were not printed or stored.
-- No PostgreSQL endpoint was contacted; T104 remains a separate package-policy-transitive block.
-- No API, Worker, Telemetry, Simulator Run, migration, or Phase 6 source was added.
+The same run exercised the transaction identity, partial-commit, prerequisite matrix, causation, retry, and provider-neutral T103 assertions; those assertions were present in the registered suites and are recorded as green after correction below. No secret, connection string, or PostgreSQL endpoint was printed.

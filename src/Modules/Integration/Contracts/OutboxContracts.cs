@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using IUMP.BuildingBlocks.Persistence;
 
 namespace IUMP.Modules.Integration.Contracts;
 
@@ -19,14 +20,14 @@ public sealed record OwnerEventEnvelope
     public string Summary { get; }
     public DateTime OccurredAt { get; }
     public string CorrelationId { get; }
-    public string CausationId { get; }
+    public string? CausationId { get; }
     public string? SiteId { get; }
     public string? AreaId { get; }
 
     public OwnerEventEnvelope(Guid eventId, string eventType, int schemaVersion, string producer,
         string aggregateType, string aggregateId, long aggregateVersion, string actorId, string actorUsername,
         IReadOnlyDictionary<string, object?> before, IReadOnlyDictionary<string, object?> after,
-        string action, string summary, DateTime occurredAt, string correlationId, string causationId,
+        string action, string summary, DateTime occurredAt, string correlationId, string? causationId,
         string? siteId, string? areaId)
     {
         if (eventId == Guid.Empty) throw new ArgumentException("EventId is required.", nameof(eventId));
@@ -34,6 +35,9 @@ public sealed record OwnerEventEnvelope
         if (schemaVersion != 1) throw new ArgumentOutOfRangeException(nameof(schemaVersion));
         if (aggregateVersion <= 0) throw new ArgumentOutOfRangeException(nameof(aggregateVersion));
         if (occurredAt.Kind != DateTimeKind.Utc) throw new ArgumentException("OccurredAt must be UTC.", nameof(occurredAt));
+        if (string.IsNullOrWhiteSpace(producer) || string.IsNullOrWhiteSpace(aggregateType) || string.IsNullOrWhiteSpace(aggregateId)) throw new ArgumentException("Aggregate metadata is required.");
+        if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(actorUsername)) throw new ArgumentException("Actor metadata is required.");
+        if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(summary)) throw new ArgumentException("Action and summary are required.");
         if (string.IsNullOrWhiteSpace(correlationId)) throw new ArgumentException("CorrelationId is required.", nameof(correlationId));
         EventId = eventId; EventType = eventType; SchemaVersion = schemaVersion; Producer = producer;
         AggregateType = aggregateType; AggregateId = aggregateId; AggregateVersion = aggregateVersion;
@@ -45,15 +49,7 @@ public sealed record OwnerEventEnvelope
     }
 }
 
-public interface ITransactionalOutboxWriter
+public interface ITransactionalOutboxWriter : IHostTransactionParticipant
 {
-    ValueTask EnqueueAsync(OwnerEventEnvelope envelope, object hostTransaction, CancellationToken ct = default);
-}
-
-// Optional adapter seam: the host coordinator owns commit ordering; the writer only participates
-// in that transaction and never publishes independently.
-public interface IOutboxTransactionParticipant
-{
-    ValueTask CommitAsync(object hostTransaction, CancellationToken ct = default);
-    ValueTask RollbackAsync(object hostTransaction, CancellationToken ct = default);
+    ValueTask EnqueueAsync(OwnerEventEnvelope envelope, IHostTransaction hostTransaction, CancellationToken ct = default);
 }

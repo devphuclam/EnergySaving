@@ -18,13 +18,12 @@ public static class OrganizationEvents
         var after = Snapshot(point, newStatus, point.Version);
         var action = oldStatus == PointStatus.Inactive ? "Reactivated" : "Activated";
         var correlationId = ctx.CorrelationId ?? Guid.NewGuid().ToString("D");
-        var causationId = ctx.CausationId ?? correlationId;
         return new OwnerEventEnvelope(
             Guid.NewGuid(), "PointStatusChanged.v1", 1, "IUMP.Organization", "MeasurementPoint",
             point.Id.ToString(), point.Version, ctx.ActorUserId, actor.Username,
             new ReadOnlyDictionary<string, object?>(before), new ReadOnlyDictionary<string, object?>(after),
             action, $"Point {action.ToLowerInvariant()}.", DateTime.UtcNow,
-            correlationId, causationId,
+            correlationId, ctx.CausationId,
             point.SiteId.ToString(), point.AreaId.ToString());
     }
 

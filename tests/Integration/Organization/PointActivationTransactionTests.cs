@@ -1,35 +1,59 @@
 using IUMP.BuildingBlocks.Persistence;
+using IUMP.Modules.Integration.Contracts;
+using IUMP.Modules.Organization.Application;
+using IUMP.Modules.Organization.Contracts;
+using IUMP.Modules.Organization.Domain;
 
 namespace IUMP.Tests.Integration.Organization;
 
-// Provider-neutral integration contract. A real adapter supplies the same host transaction seam;
-// this contract intentionally contains only the public host transaction seam.
+public interface IPointActivationProviderFactory
+{
+    PointId PointId { get; }
+    long ExpectedVersion { get; }
+    OrganizationCommandContext Context { get; }
+    IOrganizationCommandRepository TargetLookup { get; }
+    IActivationIdentityParticipant Iam { get; }
+    IActivationOrganizationParticipant Organization { get; }
+    IActivationCatalogParticipant Catalog { get; }
+    IOrganizationAuthorization Authorization { get; }
+    ITransactionalOutboxWriter Outbox { get; }
+    HostTransactionCoordinator HostTransaction { get; }
+    IReadOnlyList<OwnerEventEnvelope> CommittedOutbox { get; }
+    int StagedMutationCount { get; }
+    IReadOnlyList<Guid> ParticipantTransactionIds { get; }
+}
+
+public interface IPointActivationProviderFactorySet
+{
+    IReadOnlyList<IPointActivationProviderFactory> Cases { get; }
+}
+
+// Provider-neutral contract runner: the factory supplies adapters, while this source invokes the real orchestrator.
 public static class PointActivationTransactionTests
 {
-    public static List<string> Run()
+    public static List<string> Run(IPointActivationProviderFactorySet factorySet)
     {
         var failures = new List<string>();
-        var tx = new HostTransactionCoordinator();
-        var participant = new RecordingParticipant();
-        tx.RegisterParticipant(LockTarget.IntegrationOutbox, participant);
-        for (var order = 1; order <= 9; order++)
+        foreach (var factory in factorySet.Cases)
         {
-            var target = (LockTarget)(order - 1);
-            tx.LockAsync(target, $"fixture-{order}", order).GetAwaiter().GetResult();
+            var result = ActivateMeasurementPoint.ExecuteAsync(factory.PointId, factory.ExpectedVersion, factory.Context,
+                factory.TargetLookup, factory.Iam, factory.Organization, factory.Catalog, factory.Authorization,
+                factory.Outbox, factory.HostTransaction).GetAwaiter().GetResult();
+            if (factory.Context.CausationId == "retry-exhaustion")
+            {
+                if (result.ErrorCode != "TRANSIENT_DATABASE_CONFLICT" || factory.StagedMutationCount != 0 || factory.CommittedOutbox.Count != 0) failures.Add("T103 retry exhaustion must classify as TRANSIENT_DATABASE_CONFLICT with no staged work.");
+                continue;
+            }
+            if (factory.Context.CausationId == "outbox-failure" || factory.Context.CausationId == "provider-drift")
+            {
+                if (result.IsSuccess || factory.StagedMutationCount != 0 || factory.CommittedOutbox.Count != 0) failures.Add($"{factory.Context.CausationId} must rollback all staged work.");
+                continue;
+            }
+            if (!result.IsSuccess || result.Outcome != ActivationOutcome.Allowed) failures.Add("T103 success case must activate through ActivateMeasurementPoint.");
+            if (factory.HostTransaction.LockTrace.Count != 9 || factory.HostTransaction.LockTrace[^1].Target != LockTarget.IntegrationOutbox) failures.Add("T103 must prove exact nine-target lock trace with Integration last.");
+            if (factory.CommittedOutbox.Count != 1 || factory.StagedMutationCount != 1) failures.Add("T103 must prove exactly one mutation and one outbox row.");
+            if (factory.ParticipantTransactionIds.Count == 0 || factory.ParticipantTransactionIds.Any(id => id != factory.HostTransaction.TransactionId)) failures.Add("T103 participants must share one host TransactionId.");
         }
-        if (tx.LockTrace.Count != 9) failures.Add("T103 must acquire all nine canonical lock targets.");
-        if (tx.LockTrace[^1].Target != LockTarget.IntegrationOutbox) failures.Add("Integration outbox lock must be last.");
-        if (tx.IsolationIntent != "REPEATABLE READ") failures.Add("T103 must request repeatable-read host isolation.");
-        tx.RollbackAsync().GetAwaiter().GetResult();
-        if (!participant.RolledBack) failures.Add("T103 rollback must reach the outbox participant.");
         return failures;
-    }
-
-    private sealed class RecordingParticipant : IHostTransactionParticipant
-    {
-        public bool RolledBack { get; private set; }
-        public ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default) => ValueTask.CompletedTask;
-        public ValueTask CommitAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
-        public ValueTask RollbackAsync(IHostTransaction transaction, CancellationToken ct = default) { RolledBack = true; return ValueTask.CompletedTask; }
     }
 }
