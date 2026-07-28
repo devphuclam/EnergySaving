@@ -149,3 +149,28 @@ Phase 2 package classifications remain separate from database capability:
 - T052: `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE` (depends on T050/T051; not a database-access
   classification).
 - `BLOCKED_BY_DATABASE_ACCESS` count for this invocation: `0`.
+
+## Phase 6 Simulator Run/Worker capability evidence — 2026-07-28
+
+The approved PostgreSQL runtime target remains available. Phase 6 did not connect to either local
+cluster and did not execute migration `0007_acquisition_run.sql`; database capability and adapter
+package capability remain separate.
+
+- **PostgreSQL capability**: `AVAILABLE` at `127.0.0.1:5433/iump_dev`.
+- **Credential source**: existing ignored repository-local `.env`; secret values were not read into
+  evidence, printed, serialized, copied, or committed.
+- **Database mutation/migration execution**: `NOT_RUN`.
+- **Old cluster `127.0.0.1:5432`**: `PROHIBITED`; not contacted.
+- **`psql` tool**: `BLOCKED_BY_MISSING_TOOL`.
+- **Database-access blocker count**: `0`.
+
+Phase 6 task classifications:
+
+- T125: `BLOCKED_BY_PACKAGE_POLICY` because no approved PostgreSQL adapter package is available.
+- T126: `BLOCKED_BY_PACKAGE_POLICY` because runtime registration depends on the absent adapter and
+  no package/host registration was authorized.
+- T127: `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE` because T125/T126 are incomplete. This is not
+  `BLOCKED_BY_DATABASE_ACCESS`.
+
+Provider-neutral work remains runnable and is not blocked by the package classification. Migration
+source review and fake-backed Run/attempt transaction tests do not claim PostgreSQL execution.

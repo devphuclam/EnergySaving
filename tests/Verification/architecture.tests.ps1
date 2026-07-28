@@ -337,22 +337,6 @@ if ($isCanonicalModuleRoot) {
         }
     }
 
-    # 11. No Phase 5 files in working tree
-    $phase5Indicators = @(
-        'TelemetryIngestion',
-        'Worker\b',
-        'Api\b',
-        'SimulatorRun'
-        # Point activation is the in-scope Phase 5 implementation; later-phase indicators remain forbidden here.
-    )
-    $allSourceFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.cs' |
-        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules)[\\/]' }
-    foreach ($indicator in $phase5Indicators) {
-        if ($allSourceFiles | Where-Object { $_.Name -match $indicator -and $_.FullName -notmatch 'Contracts' }) {
-            $issues += "T091-11 FAIL: Phase 5 file detected matching indicator: $indicator"
-        }
-    }
-
     # 12. ConfigurationCommandTests must have real adapter chain (CatalogSourceScopeQueryAdapter + OrganizationPointReadinessAdapter)
     $cmdTests = Join-Path $repoRoot 'tests\Unit\Acquisition\ConfigurationCommandTests.cs'
     $cmdTestSource = Get-Content -LiteralPath $cmdTests -Raw
@@ -558,10 +542,6 @@ if ($isCanonicalModuleRoot) {
     $fakeOutbox = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeTransactionalOutboxWriter.cs') -Raw
     if ($fakeOutbox -match '_committed\.(Add|AddRange|Insert)') { $issues += 'T105 FAIL: fake outbox must write to backend workspace, not directly to committed store.' }
 
-    $phase6Files = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Recurse -File |
-        Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.FullName -match '[\\/]Phase6[\\/]|phase-06|TelemetryIngestion|SimulatorRun' }
-    if ($phase6Files) { $issues += 'T105 FAIL: Phase 6 implementation/evidence files must not be introduced.' }
-
     # Check that T106 and T107 are rewritten with correct findings (Defect H)
     $t106Path = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-review.md'
     $t106Content = Get-Content -LiteralPath $t106Path -Raw
@@ -573,6 +553,169 @@ if ($isCanonicalModuleRoot) {
     $t107Path = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-activation.md'
     $t107Content = Get-Content -LiteralPath $t107Path -Raw
     if ($t107Content -notmatch 'PASS 13, BLOCKED 1, FAIL 0') { $issues += 'T105 FAIL: T107 must report final PASS 13, BLOCKED 1, FAIL 0 ledger.' }
+
+    # --- T128 Phase 6 Simulator Run/Worker boundary and determinism checks ---
+    $generatorPath = Join-Path $ModuleRoot 'Acquisition\Domain\DeterministicGenerator.cs'
+    $generator = Get-Content -LiteralPath $generatorPath -Raw
+    foreach ($constant in @(
+        '0x5851F42D4C957F2D',
+        '0x14057B7EF767814F',
+        '0xAEF17502108EF2D9',
+        '0xCBF29CE484222325',
+        '0x00000100000001B3'
+    )) {
+        if ($generator -notmatch [regex]::Escape($constant)) {
+            $issues += "T128 FAIL: deterministic generator is missing normative constant $constant."
+        }
+    }
+    if ($generator -match '\b(Random|RandomNumberGenerator)\b|DateTime\.(UtcNow|Now)|Environment\.TickCount') {
+        $issues += 'T128 FAIL: deterministic generator must not use random/time/current entropy.'
+    }
+    if ($generator -notmatch 'SerializedStateLength\s*=\s*25' -or
+        $generator -notmatch 'scenario\s*==\s*SimulatorScenario\.Constant[\s\S]*DrawCount|new\s+DeterministicGeneration\(minimumValue,\s*Serialize\(current\),\s*0\)') {
+        $issues += 'T128 FAIL: state must be exactly 25 bytes and Constant must consume zero draws.'
+    }
+
+    $vectorTestsPath = Join-Path $repoRoot 'tests\Unit\Acquisition\DeterministicGeneratorVectorTests.cs'
+    $vectorTests = Get-Content -LiteralPath $vectorTestsPath -Raw
+    foreach ($literal in @(
+        '032ba308f46f1f8e4f8167f77e7b0514000000000000000000',
+        '11.6519',
+        'ed99faae39338fb74f8167f77e7b0514013f80c23bc5fbfb3f',
+        '17.9149',
+        'ed99faae39338fb74f8167f77e7b0514000000000000000000'
+    )) {
+        if ($vectorTests -notmatch [regex]::Escape($literal)) {
+            $issues += "T128 FAIL: literal generator test is missing normative fixture $literal."
+        }
+    }
+
+    $identityPath = Join-Path $ModuleRoot 'Acquisition\Domain\MeasurementIdentity.cs'
+    $identity = Get-Content -LiteralPath $identityPath -Raw
+    if ($identity -notmatch '02e993bb-c767-5ff6-963f-530e1dfdff6b' -or
+        $identity -notmatch 'SHA1\.HashData' -or
+        $identity -notmatch '0x50' -or
+        $identity -notmatch '0x80' -or
+        $identity -match 'Guid\.NewGuid') {
+        $issues += 'T128 FAIL: Measurement identity must use the fixed SHA-1 UUIDv5 namespace without random fallback.'
+    }
+
+    $attemptServicePath = Join-Path $ModuleRoot 'Acquisition\Application\ProductionAttemptService.cs'
+    $attemptService = Get-Content -LiteralPath $attemptServicePath -Raw
+    $pendingRead = $attemptService.IndexOf('GetPendingAsync', [StringComparison]::Ordinal)
+    $generation = $attemptService.IndexOf('_generator.Generate', [StringComparison]::Ordinal)
+    if ($pendingRead -lt 0 -or $generation -lt 0 -or $pendingRead -gt $generation) {
+        $issues += 'T128 FAIL: existing Pending must be read before generator/state/cursor work.'
+    }
+    $coordinator = [regex]::Match(
+        $attemptService,
+        '(?s)public sealed class SimulatorProductionCoordinator.*').Value
+    $coordinatorPending = $coordinator.IndexOf('_attempts.LoadPendingAsync', [StringComparison]::Ordinal)
+    $coordinatorEligibility = $coordinator.IndexOf('_eligibility.IsPinnedInputActiveAsync', [StringComparison]::Ordinal)
+    if ($coordinatorPending -lt 0 -or $coordinatorEligibility -lt 0 -or
+        $coordinatorPending -gt $coordinatorEligibility) {
+        $issues += 'T128 FAIL: Worker coordinator must load existing Pending before owner eligibility.'
+    }
+    if ([regex]::Matches($attemptService, 'StageReservationAsync').Count -ne 1 -or
+        $attemptService -notmatch 'NextSourceSequence\s*=\s*checked\(sequence\s*\+\s*1\)') {
+        $issues += 'T128 FAIL: one new reservation must advance cursor/state/Generated exactly once.'
+    }
+    if ($attemptService -notmatch 'if\s*\(finalized\.FirstTransition\)[\s\S]*StageFinalCounterAsync') {
+        $issues += 'T128 FAIL: final counter mutation must occur only on the first terminal transition.'
+    }
+    if ($coordinator -notmatch 'MaintainLeaseAsync' -or
+        $coordinator -notmatch 'RenewLeaseAsync' -or
+        $coordinator -notmatch 'LEASE_LOST' -or
+        $coordinator -notmatch 'ReleaseLeaseAsync\([\s\S]*CancellationToken\.None') {
+        $issues += 'T128 FAIL: long dispatch must renew the versioned lease and release safely.'
+    }
+
+    $workerPath = Join-Path $repoRoot 'src\Worker\SimulatorProductionWorker.cs'
+    $worker = Get-Content -LiteralPath $workerPath -Raw
+    $reserveCall = $coordinator.IndexOf('_attempts.ReserveAsync', [StringComparison]::Ordinal)
+    $dispatchCall = $coordinator.IndexOf('_telemetry.DispatchAsync', [StringComparison]::Ordinal)
+    $finalizeCall = $coordinator.IndexOf('_attempts.FinalizeAsync', [StringComparison]::Ordinal)
+    if ($reserveCall -lt 0 -or $dispatchCall -le $reserveCall -or $finalizeCall -le $dispatchCall) {
+        $issues += 'T128 FAIL: Acquisition coordinator must reserve, dispatch outside reservation, then finalize.'
+    }
+    if ($attemptService -notmatch 'ListRunningAsync' -or
+        $worker -notmatch 'ISimulatorProductionCoordinator' -or
+        $worker -match 'IAcquisitionRunRepository|ISimulatorRunUnitOfWork|IUMP\.Modules\.Acquisition\.Application') {
+        $issues += 'T128 FAIL: Worker must delegate through the public Acquisition coordinator contract.'
+    }
+    if ($worker -notmatch 'LogWarning' -or $worker -notmatch 'CorrelationId') {
+        $issues += 'T128 FAIL: Worker Point failures must be structured and correlation-aware.'
+    }
+    if ($worker -match '(?i)\b(INSERT|UPDATE|DELETE)\b|DbContext|Npgsql|Telemetry.*Repository') {
+        $issues += 'T128 FAIL: Worker must not write Telemetry storage.'
+    }
+
+    $runContractsPath = Join-Path $ModuleRoot 'Acquisition\Contracts\RunPersistenceContracts.cs'
+    $attemptContractsPath = Join-Path $ModuleRoot 'Acquisition\Contracts\ProductionAttemptContracts.cs'
+    $runContracts = Get-Content -LiteralPath $runContractsPath -Raw
+    $attemptContracts = Get-Content -LiteralPath $attemptContractsPath -Raw
+    if ($runContracts -notmatch 'ConfigurationId' -or $runContracts -notmatch 'MappingId' -or
+        $runContracts -notmatch 'PointVersionAtStart' -or
+        ($runContracts + $attemptContracts) -match 'DbContext|IQueryable|Npgsql') {
+        $issues += 'T128 FAIL: Acquisition must own pinned provider-neutral Run/state/attempt contracts.'
+    }
+
+    $migration7Path = Join-Path $repoRoot 'database\migrations\0007_acquisition_run.sql'
+    $migration7 = Get-Content -LiteralPath $migration7Path -Raw
+    foreach ($table in @(
+        'acquisition.simulator_run',
+        'acquisition.simulator_run_point_state',
+        'acquisition.simulator_production_attempt'
+    )) {
+        if ($migration7 -notmatch [regex]::Escape($table)) {
+            $issues += "T128 FAIL: migration 0007 is missing Acquisition-owned table $table."
+        }
+    }
+    if ($migration7 -match '(?i)REFERENCES\s+(catalog|organization|telemetry)\.' -or
+        $migration7 -match '(?i)CREATE\s+EXTENSION') {
+        $issues += 'T128 FAIL: migration 0007 must have no cross-schema FK or CREATE EXTENSION.'
+    }
+    if ($migration7 -notmatch 'octet_length\(prng_state\)\s*=\s*25' -or
+        $migration7 -notmatch 'UNIQUE\s*\(measurement_id\)' -or
+        $migration7 -notmatch 'accepted_count\s*\+\s*rejected_count\s*<=\s*generated_count') {
+        $issues += 'T128 FAIL: migration 0007 is missing state length, identity uniqueness, or counter invariants.'
+    }
+
+    $t124Path = Join-Path $repoRoot 'tests\Integration\Acquisition\RunAttemptRepositoryTests.cs'
+    $t124 = Get-Content -LiteralPath $t124Path -Raw
+    $credentialAssignmentToken = 'Pass' + 'word='
+    if ($t124 -match '\bFake[A-Za-z0-9_]*|\bas\s+Fake|Skip|TODO|Npgsql|Host=' -or
+        $t124.IndexOf($credentialAssignmentToken, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        $issues += 'T128 FAIL: T124 runner must remain provider-neutral, credential-free, and fully executable.'
+    }
+    if ($t124 -notmatch 'TestCount\+\+' -or $t124 -notmatch 'AssertionCount\+\+') {
+        $issues += 'T128 FAIL: T124 must maintain actual scenario and assertion counters.'
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Acquisition\Infrastructure\PostgresRunRepositories.cs')) {
+        $issues += 'T128 FAIL: package-policy-blocked PostgreSQL Run adapter must not falsely exist.'
+    }
+    foreach ($compositionRoot in @(
+        (Join-Path $repoRoot 'src\Api\Program.cs'),
+        (Join-Path $repoRoot 'src\Worker\Program.cs')
+    )) {
+        $composition = Get-Content -LiteralPath $compositionRoot -Raw
+        if ($composition -match 'PostgresRunRepositories|SimulatorProductionWorker|ProductionAttemptService') {
+            $issues += "T128 FAIL: blocked Phase 6 runtime registration detected in $compositionRoot."
+        }
+    }
+
+    $phase7Indicators = @(
+        'src\Modules\Telemetry\Application\CanonicalTelemetryIngestion.cs',
+        'src\Modules\Telemetry\Application\LatestProjection.cs',
+        'src\Api\TelemetryEndpoints.cs',
+        'src\Web\Telemetry'
+    )
+    foreach ($indicator in $phase7Indicators) {
+        if (Test-Path -LiteralPath (Join-Path $repoRoot $indicator)) {
+            $issues += "T128 FAIL: Phase 7 implementation detected: $indicator."
+        }
+    }
 }
 
 if ($issues.Count -gt 0) {

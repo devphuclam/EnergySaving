@@ -1,0 +1,159 @@
+namespace IUMP.Modules.Acquisition.Contracts;
+
+public enum SimulatorProductionAttemptStatus
+{
+    Pending,
+    Completed
+}
+
+public enum TelemetryAttemptOutcome
+{
+    Accepted,
+    Rejected,
+    Duplicate
+}
+
+public enum ProductionFinalClassification
+{
+    Accepted,
+    Rejected
+}
+
+public sealed record SimulatorProductionPayload(
+    Guid MeasurementId,
+    Guid SourceId,
+    Guid RunId,
+    Guid PointId,
+    Guid MappingId,
+    long MappingVersion,
+    long SourceSequence,
+    string AlgorithmId,
+    int AlgorithmVersion,
+    Guid ConfigurationId,
+    long ConfigurationVersion,
+    DateTime SourceTimestampUtc,
+    double NumericValue,
+    string UnitCode,
+    string ProducerIdentity,
+    string CorrelationId,
+    string LineageId);
+
+public sealed record SimulatorProductionAttempt(
+    Guid RunId,
+    Guid PointId,
+    long SourceSequence,
+    SimulatorProductionPayload Payload,
+    SimulatorProductionAttemptStatus Status,
+    TelemetryAttemptOutcome? TelemetryOutcome,
+    ProductionFinalClassification? FinalClassification,
+    bool? LatestAdvanced,
+    string? ErrorCode,
+    string? RejectionCode,
+    DateTime CreatedAtUtc,
+    DateTime? CompletedAtUtc,
+    long Version);
+
+public sealed record DeterministicGeneration(
+    double Value,
+    byte[] State,
+    int DrawCount);
+
+public interface ISimulatorValueGenerator
+{
+    byte[] Initialize(ulong seed, Guid pointId, Guid configurationId, long configurationVersion,
+        int algorithmVersion);
+    DeterministicGeneration Generate(byte[] state, SimulatorScenario scenario, double minimumValue,
+        double maximumValue);
+}
+
+public interface IMeasurementIdentityFactory
+{
+    Guid Create(Guid sourceId, Guid runId, Guid pointId, Guid mappingId, long sourceSequence,
+        int algorithmVersion);
+}
+
+public sealed record AttemptReserveResult(
+    SimulatorProductionAttempt Attempt,
+    bool ExistingPending,
+    bool UniquenessWinnerReloaded);
+
+public sealed record TelemetryDispatchResult(
+    TelemetryAttemptOutcome Outcome,
+    ProductionFinalClassification FinalClassification,
+    bool LatestAdvanced,
+    string? ErrorCode,
+    string? RejectionCode);
+
+public sealed record AttemptFinalizeResult(
+    SimulatorProductionAttempt Attempt,
+    bool FirstTransition,
+    bool Replay);
+
+public interface ISimulatorProductionAttemptRepository
+{
+    Task<SimulatorProductionAttempt?> GetPendingAsync(Guid runId, Guid pointId,
+        CancellationToken ct = default);
+    Task<SimulatorProductionAttempt?> GetAsync(Guid runId, Guid pointId, long sourceSequence,
+        CancellationToken ct = default);
+    Task<IReadOnlyList<SimulatorProductionAttempt>> ListPendingAsync(CancellationToken ct = default);
+    Task<bool> TryReserveAsync(SimulatorProductionAttempt attempt, ISimulatorRunTransaction transaction,
+        CancellationToken ct = default);
+    Task<AttemptFinalizeResult> FinalizeAsync(Guid runId, Guid pointId, long sourceSequence,
+        TelemetryDispatchResult result, DateTime completedAtUtc, ISimulatorRunTransaction transaction,
+        CancellationToken ct = default);
+}
+
+public interface ITelemetryIngestionClient
+{
+    Task<TelemetryDispatchResult> DispatchAsync(SimulatorProductionPayload payload,
+        CancellationToken ct = default);
+}
+
+public interface ISimulatorProductionEligibility
+{
+    Task<(bool IsActive, string? ErrorCode)> IsPinnedInputActiveAsync(
+        SimulatorRun run, SimulatorRunPointState pointState, CancellationToken ct = default);
+}
+
+public interface IProductionAttemptService
+{
+    Task<SimulatorProductionAttempt?> LoadPendingAsync(
+        Guid runId,
+        Guid pointId,
+        CancellationToken ct = default);
+
+    Task<AttemptReserveResult> ReserveAsync(
+        Guid runId,
+        Guid pointId,
+        string correlationId,
+        string lineageId,
+        CancellationToken ct = default);
+
+    Task<AttemptFinalizeResult> FinalizeAsync(
+        Guid runId,
+        Guid pointId,
+        long sourceSequence,
+        TelemetryDispatchResult result,
+        CancellationToken ct = default);
+}
+
+public sealed record SimulatorProductionFailure(
+    Guid RunId,
+    Guid PointId,
+    string CorrelationId,
+    string Code);
+
+public sealed record SimulatorProductionCycleResult(
+    int RunningRuns,
+    int ClaimedPoints,
+    int DispatchedAttempts,
+    int FinalizedAttempts,
+    int FailedPoints,
+    IReadOnlyList<SimulatorProductionFailure> Failures);
+
+public interface ISimulatorProductionCoordinator
+{
+    Task<SimulatorProductionCycleResult> RunOnceAsync(
+        string workerId,
+        CancellationToken ct = default);
+}

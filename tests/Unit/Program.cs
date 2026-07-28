@@ -11,6 +11,7 @@ using IUMP.Tests.Unit.Acquisition;
 using IUMP.Tests.Unit.Catalog;
 using IUMP.Tests.Unit.Integration;
 using IUMP.Tests.Integration.Acquisition;
+using IUMP.Tests.Unit.Worker;
 
 var failures = new List<string>();
 
@@ -55,6 +56,26 @@ var t103Failures = t103Runner.Run(new FakePointActivationProviderFactorySet());
 Console.WriteLine($"T103: cases={t103Runner.TestCount}; checks={t103Runner.CompositeCheckCount}; failures={t103Failures.Count}");
 failures.AddRange(t103Failures);
 
+// Phase 6 — Simulator Run and Worker production
+var t108Failures = DeterministicGeneratorVectorTests.Run();
+Console.WriteLine($"T108: cases={DeterministicGeneratorVectorTests.TestCount}; checks={DeterministicGeneratorVectorTests.CheckCount}; failures={t108Failures.Count}");
+failures.AddRange(t108Failures);
+var t109Failures = MeasurementIdentityTests.Run();
+Console.WriteLine($"T109: cases={MeasurementIdentityTests.TestCount}; checks={MeasurementIdentityTests.CheckCount}; failures={t109Failures.Count}");
+failures.AddRange(t109Failures);
+var t110Failures = RunControlTests.Run();
+Console.WriteLine($"T110: cases={RunControlTests.TestCount}; checks={RunControlTests.CheckCount}; failures={t110Failures.Count}");
+failures.AddRange(t110Failures);
+var t111Failures = ProductionDispatchTests.Run();
+Console.WriteLine($"T111: cases={ProductionDispatchTests.TestCount}; checks={ProductionDispatchTests.CheckCount}; failures={t111Failures.Count}");
+failures.AddRange(t111Failures);
+var t112Failures = ProductionAttemptTests.Run();
+Console.WriteLine($"T112: cases={ProductionAttemptTests.TestCount}; checks={ProductionAttemptTests.CheckCount}; failures={t112Failures.Count}");
+failures.AddRange(t112Failures);
+var t113Failures = AcquisitionEventTests.Run();
+Console.WriteLine($"T113: cases={AcquisitionEventTests.TestCount}; checks={AcquisitionEventTests.CheckCount}; failures={t113Failures.Count}");
+failures.AddRange(t113Failures);
+
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();
 failures.AddRange(catalogRunner.Failures);
@@ -68,6 +89,12 @@ var acquisitionRunner = new ConfigurationRepositoryContractRunner(new FakeAcquis
 await acquisitionRunner.RunAllAsync();
 failures.AddRange(acquisitionRunner.Failures);
 Console.WriteLine($"T088: scenarios={acquisitionRunner.TestCount}; assertions={acquisitionRunner.AssertionCount}; failures={acquisitionRunner.Failures.Count}");
+
+var runAttemptRunner = new RunAttemptRepositoryContractRunner(
+    new FakeRunAttemptRepositoryTestProviderFactory());
+await runAttemptRunner.RunAllAsync();
+failures.AddRange(runAttemptRunner.Failures);
+Console.WriteLine($"T124: scenarios={runAttemptRunner.TestCount}; assertions={runAttemptRunner.AssertionCount}; failures={runAttemptRunner.Failures.Count}");
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();
