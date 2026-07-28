@@ -250,12 +250,16 @@ reserved production attempt.
 
 - Already-reserved Pending attempts retain their pinned Mapping identity, persisted value and
   `measurement_id`.
-- Future production stops safely when a non-terminal owner change is detected: if Source, Mapping,
-  Point or any ancestor is no longer Active, the Worker faults the next new production cycle with
-  `SOURCE_INACTIVE`, `MAPPING_INACTIVE`, `POINT_INACTIVE` or `ANCESTOR_INACTIVE`.
+- `SOURCE_INACTIVE` is Source-wide: the Worker stops the whole Run, stages one safe
+  `SimulatorRunStateChanged.v1` Stop event and produces no future Point.
+- `MAPPING_INACTIVE`, `POINT_INACTIVE` and `ANCESTOR_INACTIVE` are Point-specific: the affected
+  Point is classified without generation, reservation or dispatch; its lease is released safely;
+  unrelated due Points continue independently; and the Run remains Running while an unaffected
+  Point remains.
+- A Point-specific owner failure does not mutate another Point or advance the failed Point's
+  PRNG, cursor, Generated or final counters.
 - The Run does not silently switch to a new Mapping.
 - A replacement Mapping requires an explicit new Start and new Run.
-- Resulting Run status is Stopped with error code and is audited.
 - Reconciliation flags stale pinned-identity references for operator review.
 
 ## Source sequence semantics

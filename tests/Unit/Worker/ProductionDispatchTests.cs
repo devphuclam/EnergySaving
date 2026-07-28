@@ -186,6 +186,85 @@ public static class ProductionDispatchTests
             "isolated failure preserves each Point reservation and successful counter", failures);
 
         TestCount++;
+        var ownerIsolationRunId = Guid.Parse("abcd1000-0000-4000-8000-000000000001");
+        var ownerIsolationRepositories = new FakeAcquisitionRunRepositories();
+        var inactiveOwnerPoint = Phase6Fixtures.Point(ownerIsolationRunId);
+        var activeOwnerPointId = Guid.Parse("99999999-3333-4333-8444-555555555555");
+        var activeOwnerPoint = inactiveOwnerPoint with
+        {
+            PointId = activeOwnerPointId,
+            MappingId = Guid.Parse("99999999-dddd-4ddd-8ddd-dddddddddddd"),
+            PrngState = new DeterministicGenerator().Initialize(
+                42, activeOwnerPointId, Phase6Fixtures.ConfigurationId, 7, 1)
+        };
+        ownerIsolationRepositories.Seed(
+            Phase6Fixtures.Run(ownerIsolationRunId), inactiveOwnerPoint, activeOwnerPoint);
+        var ownerIsolationClock = new FakeUtcClock(Phase6Fixtures.Now);
+        var ownerIsolationGenerator =
+            new CountingSimulatorValueGenerator(new DeterministicGenerator());
+        var ownerIsolationIdentities =
+            new CountingMeasurementIdentityFactory(new MeasurementIdentity());
+        var ownerIsolationService = new ProductionAttemptService(
+            ownerIsolationRepositories, ownerIsolationRepositories, configurations,
+            ownerIsolationRepositories, ownerIsolationGenerator, ownerIsolationIdentities,
+            ownerIsolationClock);
+        var ownerIsolationTelemetry = new FakeTelemetryIngestionClient();
+        var ownerIsolationEligibility = new FakeSimulatorProductionEligibility
+        {
+            Selector = (_, pointState) => pointState.PointId == inactiveOwnerPoint.PointId
+                ? (false, "MAPPING_INACTIVE")
+                : (true, null)
+        };
+        var ownerIsolationWorker = Worker(
+            ownerIsolationRepositories, ownerIsolationService, ownerIsolationTelemetry,
+            ownerIsolationEligibility, ownerIsolationClock);
+        var ownerIsolationCycle =
+            await ownerIsolationWorker.RunOnceAsync("worker-owner-isolation");
+        var inactiveOwnerAfter = await ownerIsolationRepositories.GetPointStateAsync(
+            ownerIsolationRunId, inactiveOwnerPoint.PointId);
+        var activeOwnerAttempt = await ownerIsolationRepositories.GetAsync(
+            ownerIsolationRunId, activeOwnerPointId, 0);
+        var ownerIsolationRun = await ownerIsolationRepositories.GetAsync(ownerIsolationRunId);
+        Check(ownerIsolationEligibility.CheckedPointIds.SequenceEqual(
+                  [inactiveOwnerPoint.PointId, activeOwnerPointId]) &&
+              ownerIsolationCycle is
+              {
+                  ClaimedPoints: 2,
+                  FailedPoints: 1,
+                  DispatchedAttempts: 1,
+                  FinalizedAttempts: 1
+              },
+            "Point-specific owner isolation considers both due Points independently", failures);
+        Check(ownerIsolationCycle.Failures.Count == 1 &&
+              ownerIsolationCycle.Failures[0].PointId == inactiveOwnerPoint.PointId &&
+              ownerIsolationCycle.Failures[0].Code == "MAPPING_INACTIVE",
+            "inactive Point A reports its exact owner error", failures);
+        Check(ownerIsolationGenerator.GenerateCount == 1 &&
+              ownerIsolationIdentities.CreateCount == 1 &&
+              ownerIsolationIdentities.CreatedPointIds.SequenceEqual([activeOwnerPointId]) &&
+              ownerIsolationTelemetry.Payloads.Count == 1 &&
+              ownerIsolationTelemetry.Payloads[0].PointId == activeOwnerPointId,
+            "Point A performs zero generation/identity/dispatch while Point B performs each once",
+            failures);
+        Check(await ownerIsolationRepositories.GetAsync(
+                  ownerIsolationRunId, inactiveOwnerPoint.PointId, 0) is null &&
+              activeOwnerAttempt is { Status: SimulatorProductionAttemptStatus.Completed },
+            "Point A has no reservation/finalization and Point B finalizes exactly once", failures);
+        Check(inactiveOwnerAfter!.NextSourceSequence == inactiveOwnerPoint.NextSourceSequence &&
+              inactiveOwnerAfter.PrngState.SequenceEqual(inactiveOwnerPoint.PrngState) &&
+              inactiveOwnerAfter.LeaseOwner is null && inactiveOwnerAfter.LeaseToken is null,
+            "Point A cursor/PRNG remain unchanged and its lease is released", failures);
+        Check(ownerIsolationRun is
+              {
+                  Status: SimulatorRunStatus.Running,
+                  GeneratedCount: 1,
+                  AcceptedCount: 1,
+                  RejectedCount: 0
+              } &&
+              ownerIsolationRepositories.CommittedEvents.Count == 0,
+            "Run remains Running with only Point B counters and no global Stop event", failures);
+
+        TestCount++;
         var renewalRunId = Guid.Parse("abcd0000-0000-4000-8000-000000000003");
         var renewalRepositories = new FakeAcquisitionRunRepositories();
         renewalRepositories.Seed(
@@ -285,33 +364,59 @@ public static class ProductionDispatchTests
         TestCount++;
         var ownerRunId = Guid.Parse("12345678-1234-4234-8234-123456789012");
         var ownerRepositories = new FakeAcquisitionRunRepositories();
-        ownerRepositories.Seed(Phase6Fixtures.Run(ownerRunId), Phase6Fixtures.Point(ownerRunId));
+        var sourceInactivePointA = Phase6Fixtures.Point(ownerRunId);
+        var sourceInactivePointBId = Guid.Parse("99999999-4444-4444-8444-555555555555");
+        var sourceInactivePointB = sourceInactivePointA with
+        {
+            PointId = sourceInactivePointBId,
+            MappingId = Guid.Parse("99999999-eeee-4eee-8eee-eeeeeeeeeeee"),
+            PrngState = new DeterministicGenerator().Initialize(
+                42, sourceInactivePointBId, Phase6Fixtures.ConfigurationId, 7, 1)
+        };
+        ownerRepositories.Seed(
+            Phase6Fixtures.Run(ownerRunId), sourceInactivePointA, sourceInactivePointB);
         var ownerClock = new FakeUtcClock(Phase6Fixtures.Now);
+        var sourceInactiveGenerator =
+            new CountingSimulatorValueGenerator(new DeterministicGenerator());
+        var sourceInactiveIdentities =
+            new CountingMeasurementIdentityFactory(new MeasurementIdentity());
         var ownerService = new ProductionAttemptService(
             ownerRepositories, ownerRepositories, configurations, ownerRepositories,
-            new DeterministicGenerator(), new MeasurementIdentity(), ownerClock);
+            sourceInactiveGenerator, sourceInactiveIdentities, ownerClock);
+        var sourceInactiveTelemetry = new FakeTelemetryIngestionClient();
         var ownerWorker = Worker(
-            ownerRepositories, ownerService, new FakeTelemetryIngestionClient(),
+            ownerRepositories, ownerService, sourceInactiveTelemetry,
             new FakeSimulatorProductionEligibility
             {
                 IsActive = false,
-                ErrorCode = "POINT_INACTIVE"
+                ErrorCode = "SOURCE_INACTIVE"
             }, ownerClock);
         var ownerCycle = await ownerWorker.RunOnceAsync("worker-owner");
         var ownerRun = await ownerRepositories.GetAsync(ownerRunId);
         Check(ownerCycle.FailedPoints == 1 &&
               ownerRun?.Status == SimulatorRunStatus.Stopped &&
-              ownerRun.LatestErrorCode == "POINT_INACTIVE",
-            "pinned owner drift stops the Run with a stable error code", failures);
-        Check(ownerRun!.GeneratedCount == 0,
-            "owner drift stops before generation", failures);
+              ownerRun.LatestErrorCode == "SOURCE_INACTIVE" &&
+              ownerCycle.Failures[0].Code == "SOURCE_INACTIVE",
+            "Source-inactive multi-Point Run stops with stable SOURCE_INACTIVE", failures);
+        Check(ownerRun!.GeneratedCount == 0 && ownerRun.AcceptedCount == 0 &&
+              ownerRun.RejectedCount == 0 &&
+              sourceInactiveGenerator.GenerateCount == 0 &&
+              sourceInactiveIdentities.CreateCount == 0 &&
+              sourceInactiveTelemetry.Payloads.Count == 0 &&
+              await ownerRepositories.GetAsync(
+                  ownerRunId, sourceInactivePointA.PointId, 0) is null &&
+              await ownerRepositories.GetAsync(
+                  ownerRunId, sourceInactivePointB.PointId, 0) is null,
+            "Source-inactive Run produces from no Point and changes no counters", failures);
         Check(ownerRepositories.CommittedEvents.Count == 1 &&
-              ownerRepositories.CommittedEvents[0].Action == "Stop",
-            "owner drift stages the safe Stop owner event atomically", failures);
-        Check(ownerCycle.Failures.Count == 1 &&
-              ownerCycle.Failures[0].CorrelationId == ownerRun.CorrelationId &&
-              ownerCycle.Failures[0].Code == "POINT_INACTIVE",
-            "Point failure returns a classified correlation-aware outcome", failures);
+              ownerRepositories.CommittedEvents[0].Action == "Stop" &&
+              ownerRepositories.CommittedEvents[0].AggregateId == ownerRunId,
+            "Source-inactive Run stages exactly one safe global Stop event", failures);
+        Check((await ownerRepositories.GetPointStateAsync(
+                  ownerRunId, sourceInactivePointA.PointId))?.LeaseOwner is null &&
+              (await ownerRepositories.GetPointStateAsync(
+                  ownerRunId, sourceInactivePointB.PointId))?.LeaseOwner is null,
+            "Source-inactive processing releases any claimed lease safely", failures);
     }
 
     private static SimulatorProductionWorker Worker(

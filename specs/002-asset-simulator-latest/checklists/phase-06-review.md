@@ -1,50 +1,40 @@
-# Phase 6 Corrective Standards and Specification Review (T129)
+# Phase 6 Final Scope-and-Isolation Review (T129)
 
 Repository: `devphuclam/EnergySaving`
 
-Parent baseline: `89b32b7595f03fc90145f993a8ad77a61343433d`
+Parent baseline: `651c22c9db04f9cb01091f9873558f5be50530a8`
 
-Review surface: `git diff 89b32b7595f03fc90145f993a8ad77a61343433d --`, including the
-corrective working-tree delta. Standards and Spec axes were reviewed independently.
+Review surface: `git diff 651c22c9db04f9cb01091f9873558f5be50530a8 --`. Standards and
+Specification axes were reviewed independently.
 
-## Corrective findings
+## Required findings
 
 | ID | Severity | Source/test evidence | Resolution | State |
 |---|---|---|---|---|
-| P6C-A | High | `RunCommands.cs`; micro-RED 01 | Start now requires algorithm version exactly `1`; the complete snapshot is validated and generator initialization is safely converted to `CONFIGURATION_INVALID` before Run ID/transaction/mutation. | CLOSED |
-| P6C-B | High | `RunCommands.cs`; T110 unknown-scenario case; micro-RED 02 | Only `Constant` and `Normal` are accepted; unknown enum values fail before Run creation. | CLOSED |
-| P6C-C | High | `RunControlTests.cs`; T110 `50` scenarios / `150` assertions | Added the complete identity, duplicate, readiness, provider-version, authorization, atomic multi-Point, lifecycle, scoped-Engineer and stable-repeat matrix. Every rejected case proves no Run, Run-Point, event, active transaction or PRNG initialization. | CLOSED |
-| P6C-D | High | `ProductionAttemptService.cs`, fake repositories, T112 and T124 race scenarios; micro-RED 05/11 | Pending insertion is attempted first. The simulated competing winner independently commits Pending plus PRNG/cursor/due/Generated/version state atomically; loser rollback performs no second advance. | CLOSED |
-| P6C-E | High | `SimulatorRunPointReservationTransition`; T124 pinned mutation scenarios; micro-RED 06 | `StageReservationAsync` accepts only mutable transition fields and validates expected Run/Point/cursor state. T124 submits each pinned-field mutation through the provider test contract and observes `PINNED_STATE_IMMUTABLE` with no change. | CLOSED |
-| P6C-F | High | `TelemetryDispatchResultValidator`; T112/T124 invalid terminal matrices; micro-RED 07-09 | Stable `TERMINAL_RESULT_INVALID` validation now rejects mismatched/unknown/malformed terminal results before transaction staging; Pending/version/counters remain unchanged. | CLOSED |
-| P6C-G | High | `0007_acquisition_run.sql`; T128; micro-RED 10 | Added all pinned Run-Point immutability checks and NULL-safe Accepted/Rejected/Duplicate terminal-pair constraints. Migration remains source-only and unexecuted. | CLOSED |
-| P6C-H | High | `RunAttemptRepositoryTests.cs`; T124 `37` scenarios / `55` assertions | Expanded interface-only coverage for race atomicity/loser behavior, every pinned mutation, immutable payload, terminal pairs, Duplicate Accepted/Rejected metadata, commit rollback and optimistic conflict. | CLOSED |
-| P6C-I | High | T108-T113 runtime output; T128; micro-RED 12 | Removed positive constant assignments. Each suite increments `TestCount` once at the executed scenario boundary and increments `CheckCount` only in assertion helpers. | CLOSED |
-| P6C-J | High | `architecture.tests.ps1`, this review and T130 | T128 now fails on every rejected negative shape; unsupported prior PASS/progression claims were replaced with measured commands, counts and capability classifications. | CLOSED |
+| ISO-01 | High | `spec.md` multi-Point isolation acceptance; prior `contracts/simulator.md` owner-state section | Reconciled only the conflicting contract section: `SOURCE_INACTIVE` is Run-wide, while Mapping/Point/ancestor failures are Point-specific and preserve unrelated production. The feature spec was not changed. | CLOSED |
+| ISO-02 | High | `ProductionAttemptService.cs`; T111 Point-specific two-Point scenario | Point-specific failures no longer invoke global Stop. Point A reports its exact error, performs no generation/reservation/dispatch/finalization and releases its lease; Point B completes independently; the Run stays Running with only Point B counters and no Stop event. Separate multi-Point `SOURCE_INACTIVE` coverage proves one global Stop event and zero production. | CLOSED |
+| ISO-03 | High | `RunCommands.cs`; T110 changed-current-scope scenario | Existing nonterminal Run lookup now precedes current snapshot resolution. Authorization loads distinct pinned Run-Point Site IDs. A current-Site-only Engineer receives `NOT_FOUND`; pinned-Site Engineer and Administrator receive the stable existing Run without snapshot, PRNG, transaction or event work. | CLOSED |
+| ISO-04 | High | `RunCommands.cs`; T110 Source-mismatch scenario | New Start checks `snapshot.SourceId == command.SourceId`; mismatch consistently returns `NOT_FOUND` before authorization-dependent creation, PRNG, recheck or transaction and creates state for neither Source. | CLOSED |
+| ISO-05 | High | T110 `63` scenarios / `189` assertions; T111 `9` scenarios / `38` assertions; T128 | Added missing/null/non-Simulator/interval/bounds/nonfinite/Source-mismatch/existing-scope/Paused cases and both owner-isolation outcomes. T128 now guards their absence, the reconciled contract, existing-run-first order, pinned Site authorization, Source equality and all canonical T131+ Phase 7 paths. | CLOSED |
 
-## Independent review axes
+## Independent axes
 
 ### Standards
 
-No documented-standard violation remains. The change preserves Acquisition write ownership,
-provider-neutral public ports, API/Worker separation, package/secret/database/container restrictions
-and the unexecuted-migration boundary.
-
-Two Low judgement-call smells remain accepted:
-
-- repeated small counter/assertion helpers across the six dependency-free runners;
-- a localized tuple data clump in the table-driven T110 prerequisites.
-
-Neither is Critical/High or warrants broader test-framework work in this narrow correction.
+No documented-standard violation was found. The diff preserves Acquisition ownership,
+API/Worker separation, scoped authorization, contract-to-test traceability, and all restricted
+execution rules. String error codes and scenario-specific test setup were reviewed as low-risk
+judgement calls, not actionable findings in this narrow closure.
 
 ### Specification
 
-The initial Spec review found four High issues (provider-version error code, reserve/stage ordering,
-scenario counter semantics and incomplete mutation execution) plus one Medium absence-of-Point
-proof. All were corrected before this final review. No Phase 7 work or other scope creep was found.
+The first Spec review correctly identified three High checkpoint/static findings: stale T129,
+stale T130, and incomplete T131+ Phase 7 path guards. All three were corrected before the final
+review. Production behavior and the narrow contract reconciliation matched the authoritative
+scope-and-isolation decision; no scope creep was found.
 
 ## Gate
 
-- Standards: Critical `0`, High `0`; Low judgement calls `2`.
-- Specification: Critical `0`, High `0`; scope-creep findings `0`.
-- T129: **PASS** because unresolved Critical and High findings are both zero.
+- Standards: unresolved Critical `0`, High `0`.
+- Specification: unresolved Critical `0`, High `0`; scope creep `0`.
+- T129: **PASS**.

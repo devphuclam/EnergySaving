@@ -221,9 +221,13 @@ public sealed class SimulatorProductionCoordinator : ISimulatorProductionCoordin
                         if (!eligibility.IsActive)
                         {
                             var ownerCode = NormalizeOwnerErrorCode(eligibility.ErrorCode);
-                            await StopForOwnerDriftAsync(run.RunId, ownerCode, ct);
                             failures.Add(new SimulatorProductionFailure(
                                 run.RunId, point.PointId, run.CorrelationId, ownerCode));
+                            if (ownerCode == "SOURCE_INACTIVE")
+                            {
+                                await StopForOwnerDriftAsync(run.RunId, ownerCode, ct);
+                                break;
+                            }
                             continue;
                         }
 

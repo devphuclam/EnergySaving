@@ -619,6 +619,20 @@ if ($isCanonicalModuleRoot) {
         $startRunId -le $startValidation -or $startTransaction -le $startValidation) {
         $issues += 'T128 FAIL: complete Start validation must precede PRNG, Run ID, and transaction begin.'
     }
+    $existingRunRead = $runCommands.IndexOf(
+        '_runs.GetCurrentBySourceAsync(command.SourceId', [StringComparison]::Ordinal)
+    $currentSnapshotRead = $runCommands.IndexOf(
+        '_snapshots.ResolveAsync(command.SourceId', [StringComparison]::Ordinal)
+    if ($existingRunRead -lt 0 -or $currentSnapshotRead -lt 0 -or
+        $existingRunRead -gt $currentSnapshotRead) {
+        $issues += 'T128 FAIL: Start must query an existing nonterminal Run before current snapshot resolution.'
+    }
+    if ($runCommands -notmatch 'ListPointStatesAsync\(existing\.RunId[\s\S]*pinnedPoints\.Select\(point\s*=>\s*point\.SiteId\)') {
+        $issues += 'T128 FAIL: existing Run authorization must use distinct pinned Run-Point SiteIds.'
+    }
+    if ($runCommands -notmatch 'snapshot\.SourceId\s*!=\s*command\.SourceId') {
+        $issues += 'T128 FAIL: new Start must reject a snapshot whose SourceId differs from the command.'
+    }
     $pendingRead = $attemptService.IndexOf('GetPendingAsync', [StringComparison]::Ordinal)
     $generation = $attemptService.IndexOf('_generator.Generate', [StringComparison]::Ordinal)
     if ($pendingRead -lt 0 -or $generation -lt 0 -or $pendingRead -gt $generation) {
@@ -632,6 +646,13 @@ if ($isCanonicalModuleRoot) {
     if ($coordinatorPending -lt 0 -or $coordinatorEligibility -lt 0 -or
         $coordinatorPending -gt $coordinatorEligibility) {
         $issues += 'T128 FAIL: Worker coordinator must load existing Pending before owner eligibility.'
+    }
+    $ownerFailureBranch = [regex]::Match(
+        $coordinator,
+        '(?s)if\s*\(!eligibility\.IsActive\).*?continue;').Value
+    if ($ownerFailureBranch -notmatch 'ownerCode\s*==\s*"SOURCE_INACTIVE"[\s\S]*StopForOwnerDriftAsync' -or
+        $ownerFailureBranch -match 'StopForOwnerDriftAsync\(run\.RunId,\s*ownerCode,\s*ct\);\s*failures') {
+        $issues += 'T128 FAIL: SOURCE_INACTIVE must be the only owner failure routed to global Run Stop.'
     }
     if ([regex]::Matches($attemptService, 'StageReservationAsync').Count -ne 1 -or
         $attemptService -notmatch 'SimulatorRunPointReservationTransition[\s\S]*checked\(sequence\s*\+\s*1\)') {
@@ -809,6 +830,52 @@ if ($isCanonicalModuleRoot) {
         }
     }
 
+    $t110Path = Join-Path $repoRoot 'tests\Unit\Acquisition\RunControlTests.cs'
+    $t110 = Get-Content -LiteralPath $t110Path -Raw
+    foreach ($requiredStartCase in @(
+        'missing Source',
+        'non-Simulator Source',
+        'interval zero',
+        'interval negative',
+        'Constant bounds mismatch',
+        'Normal bounds invalid',
+        'NaN minimum',
+        'NaN maximum',
+        'positive Infinity',
+        'negative Infinity',
+        'snapshot Source mismatch',
+        'changed current Mapping Site',
+        'existing Paused Run'
+    )) {
+        if ($t110 -notmatch [regex]::Escape($requiredStartCase)) {
+            $issues += "T128 FAIL: T110 omits required Start case $requiredStartCase."
+        }
+    }
+    if ($t110 -notmatch 'ResolveCount\s*==\s*0' -or
+        $t110 -notmatch 'BeginCount\s*==\s*0' -or
+        $t110 -notmatch 'CommittedPointCount\s*==\s*0') {
+        $issues += 'T128 FAIL: T110 must prove existing-Run short-circuit and rejected Start atomicity.'
+    }
+
+    $t111Path = Join-Path $repoRoot 'tests\Unit\Worker\ProductionDispatchTests.cs'
+    $t111 = Get-Content -LiteralPath $t111Path -Raw
+    if ($t111 -notmatch 'Point-specific owner isolation' -or
+        $t111 -notmatch 'both due Points independently' -or
+        $t111 -notmatch 'SOURCE_INACTIVE' -or
+        $t111 -notmatch 'no global Stop event') {
+        $issues += 'T128 FAIL: T111 omits Point-specific isolation or Source-wide multi-Point Stop evidence.'
+    }
+
+    $simulatorContractPath = Join-Path $repoRoot (
+        'specs\002-asset-simulator-latest\contracts\simulator.md')
+    $simulatorContract = Get-Content -LiteralPath $simulatorContractPath -Raw
+    if ($simulatorContract -notmatch 'SOURCE_INACTIVE.*Source-wide' -or
+        $simulatorContract -notmatch 'MAPPING_INACTIVE.*POINT_INACTIVE.*ANCESTOR_INACTIVE.*Point-specific' -or
+        $simulatorContract -notmatch 'unrelated due Points continue independently' -or
+        $simulatorContract -match 'Resulting Run status is Stopped with error code') {
+        $issues += 'T128 FAIL: Simulator owner-state contract must preserve Point isolation and Source-wide Stop only.'
+    }
+
     if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Acquisition\Infrastructure\PostgresRunRepositories.cs')) {
         $issues += 'T128 FAIL: package-policy-blocked PostgreSQL Run adapter must not falsely exist.'
     }
@@ -826,7 +893,15 @@ if ($isCanonicalModuleRoot) {
         'src\Modules\Telemetry\Application\CanonicalTelemetryIngestion.cs',
         'src\Modules\Telemetry\Application\LatestProjection.cs',
         'src\Api\TelemetryEndpoints.cs',
-        'src\Web\Telemetry'
+        'src\Web\Telemetry',
+        'tests\Unit\Telemetry\MeasurementIdentityRegistryTests.cs',
+        'tests\Unit\Telemetry\IngestionOrchestrationTests.cs',
+        'tests\Unit\Telemetry\IngestionPersistenceContractTests.cs',
+        'tests\Unit\Acquisition\TelemetryFinalizationTests.cs',
+        'tests\Unit\Telemetry\TelemetryEventTests.cs',
+        'specs\002-asset-simulator-latest\checklists\phase-07-red.md',
+        'specs\002-asset-simulator-latest\checklists\phase-07-review.md',
+        'specs\002-asset-simulator-latest\checklists\phase-07-telemetry.md'
     )
     foreach ($indicator in $phase7Indicators) {
         if (Test-Path -LiteralPath (Join-Path $repoRoot $indicator)) {

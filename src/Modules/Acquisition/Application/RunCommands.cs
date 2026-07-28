@@ -34,22 +34,31 @@ public sealed class SimulatorRunCommandService
         CancellationToken ct = default)
     {
         var caller = await _callers.ResolveAsync(command.ActorUserId, ct);
+        var existing = await _runs.GetCurrentBySourceAsync(command.SourceId, ct);
+        if (existing is not null)
+        {
+            var pinnedPoints = await _runs.ListPointStatesAsync(existing.RunId, ct);
+            var existingAuthorization = Authorize(
+                caller, pinnedPoints.Select(point => point.SiteId));
+            if (!existingAuthorization.Allowed)
+                return RunCommandResult.Failure(
+                    existingAuthorization.Code, existingAuthorization.Message);
+            return existing.Status == SimulatorRunStatus.Running
+                ? RunCommandResult.Success(existing.RunId, existing.Version)
+                : RunCommandResult.Failure(
+                    "PRECONDITION_FAILED", "A nonterminal Run already exists.");
+        }
+
         var now = _clock.UtcNow;
         var snapshot = await _snapshots.ResolveAsync(command.SourceId, now, ct);
-        var authorization = Authorize(caller, snapshot?.Points.Select(point => point.SiteId));
+        if (snapshot is null || snapshot.SourceId != command.SourceId)
+            return RunCommandResult.Failure("NOT_FOUND", "The target is not visible.");
+        var authorization = Authorize(caller, snapshot.Points.Select(point => point.SiteId));
         if (!authorization.Allowed)
             return RunCommandResult.Failure(authorization.Code, authorization.Message);
-        if (snapshot is null)
-            return RunCommandResult.Failure("NOT_FOUND", "The target is not visible.");
         var validation = ValidateStart(snapshot, now);
         if (validation is not null)
             return RunCommandResult.Failure(validation.Value.Code, validation.Value.Message);
-
-        var existing = await _runs.GetCurrentBySourceAsync(command.SourceId, ct);
-        if (existing is not null)
-            return existing.Status == SimulatorRunStatus.Running
-                ? RunCommandResult.Success(existing.RunId, existing.Version)
-                : RunCommandResult.Failure("PRECONDITION_FAILED", "A nonterminal Run already exists.");
 
         List<(SimulatorStartPointSnapshot Point, byte[] State)> initialized;
         try

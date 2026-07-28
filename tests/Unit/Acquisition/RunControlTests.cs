@@ -196,6 +196,30 @@ public static class RunControlTests
             ("algorithm version two", valid with { AlgorithmVersion = 2 }, admin, "CONFIGURATION_INVALID"),
             ("unknown algorithm", valid with { AlgorithmId = "IUMP-DETERMINISTIC-V2" }, admin, "CONFIGURATION_INVALID"),
             ("unknown scenario", valid with { Scenario = (SimulatorScenario)999 }, admin, "CONFIGURATION_INVALID"),
+            ("non-Simulator Source", valid with { SourceType = "REST" }, admin, "PRECONDITION_FAILED"),
+            ("interval zero", valid with { IntervalSeconds = 0 }, admin, "CONFIGURATION_INVALID"),
+            ("interval negative", valid with { IntervalSeconds = -1 }, admin, "CONFIGURATION_INVALID"),
+            ("Constant bounds mismatch", valid with
+            {
+                Scenario = SimulatorScenario.Constant,
+                MinimumValue = 10,
+                MaximumValue = 11
+            }, admin, "CONFIGURATION_INVALID"),
+            ("Normal bounds invalid", valid with
+            {
+                MinimumValue = 10,
+                MaximumValue = 10
+            }, admin, "CONFIGURATION_INVALID"),
+            ("NaN minimum", valid with { MinimumValue = double.NaN }, admin, "CONFIGURATION_INVALID"),
+            ("NaN maximum", valid with { MaximumValue = double.NaN }, admin, "CONFIGURATION_INVALID"),
+            ("positive Infinity", valid with
+            {
+                MaximumValue = double.PositiveInfinity
+            }, admin, "CONFIGURATION_INVALID"),
+            ("negative Infinity", valid with
+            {
+                MinimumValue = double.NegativeInfinity
+            }, admin, "CONFIGURATION_INVALID"),
             ("empty source identity", valid with { SourceId = Guid.Empty }, admin, "CONFIGURATION_INVALID"),
             ("empty configuration identity", valid with { ConfigurationId = Guid.Empty }, admin, "CONFIGURATION_INVALID"),
             ("empty Point identity", WithPoint(valid, point with { PointId = Guid.Empty }), admin, "CONFIGURATION_INVALID"),
@@ -283,6 +307,56 @@ public static class RunControlTests
                 $"{item.Name} is rejected before PRNG initialization", failures);
         }
 
+        TestCount++;
+        var missingCallers = new FakeRunCallerSnapshotProvider();
+        missingCallers.Callers["admin"] = admin;
+        var missingSnapshots = new FakeSimulatorStartSnapshotProvider();
+        var missingRepositories = new FakeAcquisitionRunRepositories();
+        var missingGenerator =
+            new CountingSimulatorValueGenerator(new DeterministicGenerator());
+        var missingService = new SimulatorRunCommandService(
+            missingCallers, missingSnapshots, missingRepositories, missingRepositories,
+            missingRepositories, missingGenerator, clock);
+        var missing = await missingService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "admin", "corr-missing-source", null));
+        Check(!missing.IsSuccess && missing.Code == "NOT_FOUND",
+            "missing Source returns NOT_FOUND", failures);
+        Check(missingRepositories.CommittedPointCount == 0 &&
+              await missingRepositories.GetCurrentBySourceAsync(Phase6Fixtures.SourceId) is null &&
+              missingRepositories.CommittedEvents.Count == 0 &&
+              !missingRepositories.IsTransactionActive &&
+              missingRepositories.BeginCount == 0,
+            "missing Source leaves no Run, Run-Point, event, or transaction", failures);
+        Check(missingGenerator.InitializeCount == 0,
+            "missing Source performs no generator initialization", failures);
+
+        TestCount++;
+        var mismatchedSourceId = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab");
+        var mismatchSnapshots = new FakeSimulatorStartSnapshotProvider
+        {
+            Snapshot = valid,
+            ReturnSnapshotForAnySource = true
+        };
+        var mismatchRepositories = new FakeAcquisitionRunRepositories();
+        var mismatchGenerator =
+            new CountingSimulatorValueGenerator(new DeterministicGenerator());
+        var mismatchService = new SimulatorRunCommandService(
+            missingCallers, mismatchSnapshots, mismatchRepositories, mismatchRepositories,
+            mismatchRepositories, mismatchGenerator, clock);
+        var mismatch = await mismatchService.StartAsync(new StartSimulatorCommand(
+            mismatchedSourceId, "admin", "corr-source-mismatch", null));
+        Check(!mismatch.IsSuccess && mismatch.Code == "NOT_FOUND",
+            "snapshot Source mismatch returns NOT_FOUND", failures);
+        Check(mismatchRepositories.CommittedPointCount == 0 &&
+              await mismatchRepositories.GetCurrentBySourceAsync(mismatchedSourceId) is null &&
+              await mismatchRepositories.GetCurrentBySourceAsync(valid.SourceId) is null &&
+              mismatchRepositories.CommittedEvents.Count == 0 &&
+              mismatchRepositories.BeginCount == 0,
+            "snapshot Source mismatch creates no state for either Source", failures);
+        Check(mismatchGenerator.InitializeCount == 0 &&
+              mismatchSnapshots.RecheckCount == 0,
+            "snapshot Source mismatch fails before PRNG, recheck, or transaction", failures);
+
         foreach (var success in new[]
         {
             (
@@ -319,6 +393,58 @@ public static class RunControlTests
         }
 
         TestCount++;
+        var existingRunId = Guid.Parse("41000000-0000-4000-8000-000000000001");
+        var existingRepository = new FakeAcquisitionRunRepositories();
+        var pinnedPoint = Phase6Fixtures.Point(existingRunId);
+        existingRepository.Seed(Phase6Fixtures.Run(existingRunId), pinnedPoint);
+        var changedCurrentPoint = valid.Points[0] with
+        {
+            SiteId = "site-b",
+            AreaId = "area-site-b"
+        };
+        var changedSnapshots = new FakeSimulatorStartSnapshotProvider
+        {
+            Snapshot = valid with { Points = [changedCurrentPoint] }
+        };
+        var existingCallers = new FakeRunCallerSnapshotProvider();
+        existingCallers.Callers["admin"] = admin;
+        existingCallers.Callers["site-b-engineer"] = new RunCallerSnapshot(
+            "site-b-engineer", "site-b-engineer", true, ["Engineer"], ["site-b"]);
+        existingCallers.Callers["site-a-engineer"] = new RunCallerSnapshot(
+            "site-a-engineer", "site-a-engineer", true, ["Engineer"], ["site-a"]);
+        var existingGenerator =
+            new CountingSimulatorValueGenerator(new DeterministicGenerator());
+        var existingService = new SimulatorRunCommandService(
+            existingCallers, changedSnapshots, existingRepository, existingRepository,
+            existingRepository, existingGenerator, clock);
+        var currentScopeOnly = await existingService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "site-b-engineer", "corr-current-scope", null));
+        var pinnedScope = await existingService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "site-a-engineer", "corr-pinned-scope", null));
+        var globalAdministrator = await existingService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "admin", "corr-existing-admin", null));
+        Check(!currentScopeOnly.IsSuccess && currentScopeOnly.Code == "NOT_FOUND",
+            "existing Run rejects Engineer scoped only to changed current Mapping Site", failures);
+        Check(pinnedScope.IsSuccess && pinnedScope.RunId == existingRunId &&
+              pinnedScope.Version == 1 &&
+              globalAdministrator.IsSuccess && globalAdministrator.RunId == existingRunId,
+            "pinned Site Engineer and global Administrator obtain the stable existing Run",
+            failures);
+        Check(changedSnapshots.ResolveCount == 0 && changedSnapshots.RecheckCount == 0 &&
+              existingGenerator.InitializeCount == 0 && existingRepository.BeginCount == 0 &&
+              existingRepository.CommittedEvents.Count == 0,
+            "existing Running Start performs no snapshot, recheck, PRNG, transaction, or event",
+            failures);
+        var unchangedExisting = await existingRepository.GetAsync(existingRunId);
+        var unchangedPinned = await existingRepository.GetPointStateAsync(
+            existingRunId, Phase6Fixtures.PointId);
+        Check(unchangedExisting!.ConfigurationId == Phase6Fixtures.ConfigurationId &&
+              unchangedPinned!.SiteId == "site-a" &&
+              unchangedPinned.MappingId == Phase6Fixtures.MappingId,
+            "current Mapping changes do not alter existing pinned configuration or Mapping",
+            failures);
+
+        TestCount++;
         var pausedRunId = Guid.Parse("40000000-0000-4000-8000-000000000001");
         var pausedRepository = new FakeAcquisitionRunRepositories();
         pausedRepository.Seed(
@@ -341,6 +467,28 @@ public static class RunControlTests
         Check(stopped.IsSuccess &&
               (await pausedRepository.GetAsync(pausedRunId))?.Status == SimulatorRunStatus.Stopped,
             "Paused transitions directly to Stopped", failures);
+
+        TestCount++;
+        var pausedStartRepository = new FakeAcquisitionRunRepositories();
+        pausedStartRepository.Seed(
+            Phase6Fixtures.Run(pausedRunId, SimulatorRunStatus.Paused),
+            Phase6Fixtures.Point(pausedRunId));
+        var pausedStartSnapshots = new FakeSimulatorStartSnapshotProvider { Snapshot = valid };
+        var pausedStartGenerator =
+            new CountingSimulatorValueGenerator(new DeterministicGenerator());
+        var pausedStartService = new SimulatorRunCommandService(
+            pausedCallers, pausedStartSnapshots, pausedStartRepository, pausedStartRepository,
+            pausedStartRepository, pausedStartGenerator, clock);
+        var pausedStart = await pausedStartService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "admin", "corr-existing-paused", null));
+        Check(!pausedStart.IsSuccess && pausedStart.Code == "PRECONDITION_FAILED",
+            "existing Paused Run returns PRECONDITION_FAILED", failures);
+        Check(pausedStartSnapshots.ResolveCount == 0 &&
+              pausedStartSnapshots.RecheckCount == 0 &&
+              pausedStartGenerator.InitializeCount == 0 &&
+              pausedStartRepository.BeginCount == 0 &&
+              pausedStartRepository.CommittedEvents.Count == 0,
+            "existing Paused Run performs no snapshot, PRNG, transaction, or event", failures);
     }
 
     private static SimulatorStartSnapshot WithPoint(

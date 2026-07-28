@@ -1,20 +1,20 @@
-# Post-hoc reproduced Phase 6 invariant RED
+# Post-hoc reproduced Phase 6 scope-and-isolation RED
 
 Repository: `devphuclam/EnergySaving`
 
-Baseline SHA: `89b32b7595f03fc90145f993a8ad77a61343433d`
+Baseline: `651c22c9db04f9cb01091f9873558f5be50530a8`
 
 Temporary native worktree:
-`C:\Users\TD-999\Research\EnergySaving\Codespace-phase6-corrective-red`
+`C:\Users\TD-999\Research\EnergySaving\Codespace-phase6-scope-isolation-red`
 
-## Corrected test/static-only delta
+## Corrected test/static/contract-only files
 
-- `tests/Verification/phase06-corrective-red.tests.ps1`
+- `specs/002-asset-simulator-latest/contracts/simulator.md`
+- `tests/Verification/phase06-scope-isolation-red.tests.ps1`
 
-No production source was changed or sabotaged in the worktree. The ignored local `obj` cache was
-copied from the primary workspace solely so the detached worktree could build with `--no-restore`;
-no restore, download, install, database access, migration execution, container, secret read, or
-port `5432` contact occurred.
+The contract edit reconciled only the owner-state contradiction. No production source was changed
+or sabotaged. Ignored local `obj` caches were copied from the primary workspace solely to support
+the detached `--no-restore` build.
 
 ## Exact commands and exits
 
@@ -23,25 +23,19 @@ dotnet build IUMP.slnx --no-restore
 Exit code: 0
 Build succeeded; 0 warnings; 0 errors.
 
-powershell -NoProfile -File .\tests\Verification\phase06-corrective-red.tests.ps1
+powershell -NoProfile -File .\tests\Verification\phase06-scope-isolation-red.tests.ps1
 Exit code: 1
 ```
 
-## Exact failed assertions
+## Exact failed checks
 
-1. `algorithm_version=2` was not rejected as `CONFIGURATION_INVALID` before generator
-   initialization.
-2. An unknown `SimulatorScenario` was not rejected before Run creation.
-3. Empty Configuration/Point/Mapping/Metric/Unit identities were not completely rejected.
-4. Duplicate Point or Mapping input was not rejected before partial Run state.
-5. The uniqueness-race winner committed only Pending, not PRNG/cursor/Generated state.
-6. Reservation accepted a complete replaceable Run-Point record with mutable pinned fields.
-7. Accepted outcome with Rejected classification was not rejected.
-8. Rejected outcome with Accepted classification was not rejected.
-9. Invalid Rejected terminal metadata was not rejected.
-10. Migration `0007` lacked pinned immutability and terminal-pair constraints.
-11. T124 incorrectly expected the race winner's global Generated/cursor state to remain zero.
-12. T108-T113 contained manually assigned scenario/assertion counters.
+1. Point A owner failure took the global Stop path and prevented independent Point B production.
+2. Existing Run authorization was derived from current Mapping Sites instead of pinned Run-Point
+   Sites.
+3. Existing Running Start unnecessarily required current snapshot resolution and validation.
+4. A mismatched snapshot Source was not rejected and could create a Run for the wrong Source.
+5. Required T110 prerequisite/pinned-scope and T111 multi-Point owner-isolation cases were absent.
+6. T129 missed the Simulator spec/contract contradiction and pinned-scope finding.
 
-Classification: natural business-invariant failure at the supplied baseline. The focused test made
-no production change and manufactured no failure.
+No restore/download/install, database connection/mutation, migration execution, container, secret
+read/output, or port `5432` contact occurred.

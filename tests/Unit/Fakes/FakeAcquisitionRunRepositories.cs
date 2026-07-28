@@ -53,6 +53,7 @@ public sealed class FakeRunCallerSnapshotProvider : IRunCallerSnapshotProvider
 public sealed class FakeSimulatorStartSnapshotProvider : ISimulatorStartSnapshotProvider
 {
     public SimulatorStartSnapshot? Snapshot { get; set; }
+    public bool ReturnSnapshotForAnySource { get; set; }
     public bool RecheckResult { get; set; } = true;
     public int ResolveCount { get; private set; }
     public int RecheckCount { get; private set; }
@@ -63,7 +64,8 @@ public sealed class FakeSimulatorStartSnapshotProvider : ISimulatorStartSnapshot
         CancellationToken ct = default)
     {
         ResolveCount++;
-        return Task.FromResult(Snapshot?.SourceId == sourceId ? Snapshot : null);
+        return Task.FromResult(
+            ReturnSnapshotForAnySource || Snapshot?.SourceId == sourceId ? Snapshot : null);
     }
 
     public Task<bool> RecheckAsync(
@@ -84,9 +86,15 @@ public sealed class FakeSimulatorProductionEligibility : ISimulatorProductionEli
 {
     public bool IsActive { get; set; } = true;
     public string? ErrorCode { get; set; }
+    public Func<SimulatorRun, SimulatorRunPointState, (bool IsActive, string? ErrorCode)>?
+        Selector { get; set; }
+    public List<Guid> CheckedPointIds { get; } = new();
     public Task<(bool IsActive, string? ErrorCode)> IsPinnedInputActiveAsync(
-        SimulatorRun run, SimulatorRunPointState pointState, CancellationToken ct = default) =>
-        Task.FromResult((IsActive, ErrorCode));
+        SimulatorRun run, SimulatorRunPointState pointState, CancellationToken ct = default)
+    {
+        CheckedPointIds.Add(pointState.PointId);
+        return Task.FromResult(Selector?.Invoke(run, pointState) ?? (IsActive, ErrorCode));
+    }
 }
 
 public sealed class FakeTelemetryIngestionClient : ITelemetryIngestionClient
@@ -140,11 +148,13 @@ public sealed class CountingMeasurementIdentityFactory : IMeasurementIdentityFac
     private readonly IMeasurementIdentityFactory _inner;
     public CountingMeasurementIdentityFactory(IMeasurementIdentityFactory inner) => _inner = inner;
     public int CreateCount { get; private set; }
+    public List<Guid> CreatedPointIds { get; } = new();
 
     public Guid Create(Guid sourceId, Guid runId, Guid pointId, Guid mappingId,
         long sourceSequence, int algorithmVersion)
     {
         CreateCount++;
+        CreatedPointIds.Add(pointId);
         return _inner.Create(sourceId, runId, pointId, mappingId, sourceSequence, algorithmVersion);
     }
 }
@@ -163,6 +173,7 @@ public sealed class FakeAcquisitionRunRepositories :
     public bool FailNextCommit { get; set; }
     public bool SimulateReserveUniquenessRace { get; set; }
     public int CommittedPointCount => _committed.Points.Count;
+    public int BeginCount { get; private set; }
     public IReadOnlyList<SimulatorRunOwnerEvent> CommittedEvents =>
         _committed.Events.Select(Clone).ToList();
 
@@ -170,6 +181,7 @@ public sealed class FakeAcquisitionRunRepositories :
     {
         ct.ThrowIfCancellationRequested();
         if (_active is { IsFinished: false }) throw new InvalidOperationException("TRANSACTION_ALREADY_ACTIVE");
+        BeginCount++;
         _active = new FakeSimulatorRunTransaction(this, Clone(_committed));
         return ValueTask.FromResult<ISimulatorRunTransaction>(_active);
     }
