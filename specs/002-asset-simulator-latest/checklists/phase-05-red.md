@@ -1,8 +1,17 @@
-# Phase 5 Chronological RED Evidence
+# Phase 5 Post-hoc Reproduced Micro-RED
 
-Baseline `0c1b4f51f0dc476d3f6255328c06ae40e75d0611`. Only test changes were applied against the
-new `IHostTransactionBackend` + simplified `IHostTransactionParticipant` interfaces. No production
-code was pre-broken.
+Parent baseline: `50c4c311ebe874e4b9ae42161666a9dd6bddb7e9`.
+
+## Reproduction method
+
+The corrected tests (T094/T095/T103 with executable counters, SameTransactionId lock
+acquisition, LockFailureRollback assertions, CancellationRollback with cancelled token,
+RetryDelays with exact [50,150,450], and T103 AtomicCommitFailure assertions) were applied
+against the unmodified production code at the baseline.
+
+The production code's `HostTransactionCoordinator.CommitAsync` catch set `_completed = true`
+before calling backend rollback, making the subsequent rollback a no-op. This is the only
+production defect — no other production code was changed.
 
 ## Build
 
@@ -11,51 +20,50 @@ dotnet build .\IUMP.slnx --no-restore
 Build succeeded. 0 Warning(s) 0 Error(s)
 ```
 
-## Run (natural RED)
+## Run (RED exit non-zero)
 
 ```
-dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build
-T094: cases=50; failures=8
-T095: cases=20; failures=0
+T094: cases=52; assertions=52; failures=0
+T095: cases=17; assertions=48; failures=3
 T096: cases=1; failures=0
-T103: cases=4; failures=3
-PASS: all tests  (non-Phase-5 tests pass)
+T103: cases=6; assertions=30; failures=2
+T071: tests=19; assertions=39; failures=0
+T088: scenarios=24; assertions=24; failures=0
 FAILURES:
-  owner UserVersion=0: owner failure got
-  owner ScopeVersion=0: owner failure got
-  MetricVersion=0: expected METRIC_NOT_FOUND, got
-  UnitVersion=0: expected UNIT_NOT_FOUND, got
-  CompatibilityVersion=0: expected UNIT_INCOMPATIBLE, got
-  MappingVersion=0: expected MAPPING_MISSING, got
-  SourceVersion=0: expected SOURCE_NOT_ACTIVE, got
-  no IAM mutation: activation must not mutate IAM data.
-  OutboxFailure: staged mutation count must be 0 after rollback
-  StaleVersion: must be VERSION_CONFLICT, got
-  StaleVersion: committed Point must not change after stale version
+  commit-fail: workspace null: workspace must be removed
+  commit-fail: backend rollback=1: expected 1, got 0
+  cancel: rollback=1: expected 1, got 0
+  AtomicCommitFailure: workspace must be removed after commit failure
+  AtomicCommitFailure: backend rollback must be called exactly once after commit failure, got 0
 ```
 
-## Root causes (all natural — no injected breakage)
+## Defects demonstrated
 
-1. **Zero-version checks** (7 failures): `ValidateOwner`/`ValidateCatalog` did not reject
-   `UserVersion=0`, `ScopeVersion=0`, `MetricVersion=0`, `UnitVersion=0`,
-   `CompatibilityVersion=0`, `MappingVersion=0`, `SourceVersion=0`. Required guard clauses
-   were missing in the production code.
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | Commit failure does not invoke backend rollback | T095 commit-fail: rollback=1 expected, got 0 |
+| 2 | Commit failure leaves workspace allocated | T095 AtomicCommitFailure workspace not null |
+| 3 | T095 Cancel path does not rollback | T095 cancel: rollback=1 expected, got 0 |
+| 4 | T103 AtomicCommitFailure workspace leak | T103 workspace not removed after failure |
+| 5 | T103 AtomicCommitFailure no rollback | T103 backend rollback=0 after failure |
 
-2. **IAM non-mutation** (1 failure): Test fixture used hardcoded `TrustedSiteId="site-1"` /
-   `TrustedAreaId="area-1"` that did not match actual fixture Site/Area IDs.
-   Fix: derive IDs from the fixture instead of hardcoding.
+## What was not reproduced
 
-3. **StagedMutationCount** (1 failure): T103 asserted `StagedMutationCount == 0` after
-   rollback, but the counter was not tied to workspace state. Fix: check backend workspace
-   emptiness instead.
+The following defects existed in the original test code before the micro-closure
+corrections and are not re-testable as production RED because they were test-side
+only:
 
-4. **StaleVersion case** (2 failures): Factory created a separate Point with version 5
-   instead of modifying the target Point's version. Fix: update target Point version to 5
-   before the test.
+- T094 declared 50, executed 52 (fixed by runtime counters, no production dependency)
+- T095 declared 20, executed 17 (same)
+- SameTransactionId had no lock acquisition (fixed by test-only changes)
+- RetryDelays had weak `clock.Count < 1` check (fixed by test-only changes)
+- LockFailureRollback had no rollback assertion (fixed by test-only changes)
+- CancellationRollback had no cancellation (fixed by test-only changes — the
+  3rd RED failure above still shows the residual rollback-count defect)
 
-## Resolution
+## Clean evidence
 
-Each root cause was fixed with a targeted production guard or test correction. The same 84
-Phase 5 test assertions (50 T094 + 20 T095 + 1 T096 + 6 T103 + 7 surface checks) pass with
-zero failures after the fix set. No placeholder return values, no staged stub overwrites,
-and no pre-broken production logic were introduced at any point.
+- No database access, no package restore, no containers, no secrets.
+- No production sabotage or PHASE5_REQUIRED placeholder was used.
+- The single production defect reverted (coordinator CommitAsync catch order) is
+  exactly the defect that was corrected.

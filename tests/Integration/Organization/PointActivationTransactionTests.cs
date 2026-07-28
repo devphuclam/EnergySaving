@@ -31,13 +31,19 @@ public interface IPointActivationProviderFactorySet
     IReadOnlyList<IPointActivationProviderFactory> Cases { get; }
 }
 
-public static class PointActivationTransactionTests
+public sealed class PointActivationTransactionTests
 {
-    public static List<string> Run(IPointActivationProviderFactorySet factorySet)
+    public int TestCount;
+    public int AssertionCount;
+
+    public List<string> Run(IPointActivationProviderFactorySet factorySet)
     {
+        TestCount = 0;
+        AssertionCount = 0;
         var failures = new List<string>();
         foreach (var factory in factorySet.Cases)
         {
+            TestCount++;
             var beforePoint = factory.TargetLookup.GetPointAsync(factory.PointId).GetAwaiter().GetResult();
             var beforeLifecycle = beforePoint is not null
                 ? factory.TargetLookup.GetLifecycleForPointAsync(factory.PointId.ToString()).GetAwaiter().GetResult()
@@ -57,6 +63,7 @@ public static class PointActivationTransactionTests
             switch (factory.Outcome)
             {
                 case ActivationCaseOutcome.Success:
+                    AssertionCount += 7;
                     if (!result.IsSuccess || result.Outcome != ActivationOutcome.Allowed)
                         failures.Add($"{factory.Outcome}: must succeed, got {result.ErrorCode}");
                     if (factory.HostTransaction.LockTrace.Count != 9 || factory.HostTransaction.LockTrace[^1].Target != LockTarget.IntegrationOutbox)
@@ -75,6 +82,7 @@ public static class PointActivationTransactionTests
 
                 case ActivationCaseOutcome.OutboxFailure:
                 case ActivationCaseOutcome.ProviderDrift:
+                    AssertionCount += 5;
                     if (result.IsSuccess) failures.Add($"{factory.Outcome}: must fail, not succeed");
                     if (afterPoint is not null && afterPoint.Version != (beforePoint?.Version ?? 0))
                         failures.Add($"{factory.Outcome}: committed Point must not change after failure");
@@ -87,6 +95,7 @@ public static class PointActivationTransactionTests
                     break;
 
                 case ActivationCaseOutcome.RetryExhaustion:
+                    AssertionCount += 3;
                     if (result.ErrorCode != "TRANSIENT_DATABASE_CONFLICT")
                         failures.Add($"{factory.Outcome}: must classify as TRANSIENT_DATABASE_CONFLICT, got {result.ErrorCode}");
                     if (afterPoint is not null && afterPoint.Version != (beforePoint?.Version ?? 0))
@@ -96,6 +105,7 @@ public static class PointActivationTransactionTests
                     break;
 
                 case ActivationCaseOutcome.StaleVersion:
+                    AssertionCount += 2;
                     if (result.ErrorCode != "VERSION_CONFLICT")
                         failures.Add($"{factory.Outcome}: must be VERSION_CONFLICT, got {result.ErrorCode}");
                     if (afterPoint is not null && afterPoint.Version != (beforePoint?.Version ?? 0))
@@ -103,6 +113,7 @@ public static class PointActivationTransactionTests
                     break;
 
                 case ActivationCaseOutcome.AtomicCommitFailure:
+                    AssertionCount += 8;
                     if (result.IsSuccess) failures.Add($"{factory.Outcome}: must fail on commit");
                     if (afterPoint is not null && afterPoint.Status == PointStatus.Active)
                         failures.Add($"{factory.Outcome}: Point must not be Active after failed commit");
@@ -112,6 +123,12 @@ public static class PointActivationTransactionTests
                         failures.Add($"{factory.Outcome}: lifecycle must not change after failed commit");
                     if (afterOutboxCount != beforeOutboxCount)
                         failures.Add($"{factory.Outcome}: outbox must not change after failed commit");
+                    if (factory.Backend.GetWorkspace(factory.HostTransaction) is not null)
+                        failures.Add($"{factory.Outcome}: workspace must be removed after commit failure");
+                    if (factory.Backend.RollbackCount != 1)
+                        failures.Add($"{factory.Outcome}: backend rollback must be called exactly once after commit failure, got {factory.Backend.RollbackCount}");
+                    if (factory.Backend.CommitCount != 0)
+                        failures.Add($"{factory.Outcome}: backend commit count must be 0 after failure, got {factory.Backend.CommitCount}");
                     break;
             }
         }

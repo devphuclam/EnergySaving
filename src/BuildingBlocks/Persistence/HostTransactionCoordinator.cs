@@ -116,6 +116,8 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         }
         catch
         {
+            try { await _backend.RollbackAsync(_innerTx!, ct); }
+            catch { /* swallow rollback failure — preserve original commit exception */ }
             _completed = true;
             throw;
         }

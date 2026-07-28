@@ -9,9 +9,13 @@ namespace IUMP.Tests.Unit.Organization;
 
 public static class PointActivationTests
 {
-    public const int CaseCount = 50;
+    public static int TestCount;
+    public static int AssertionCount;
+
     public static List<string> Run()
     {
+        TestCount = 0;
+        AssertionCount = 0;
         var f = new List<string>();
         // -- authorization --
         AuthCase(f, "Admin Draft", () => Success(PointStatus.Draft, AdminCaller(), "Activated"));
@@ -72,7 +76,12 @@ public static class PointActivationTests
         return f;
     }
 
-    private static void AuthCase(List<string> failures, string name, Func<string?> test) { try { if (test() is { } err) failures.Add($"{name}: {err}"); } catch (Exception ex) { failures.Add($"{name}: {ex.Message}"); } }
+    private static void AuthCase(List<string> failures, string name, Func<string?> test)
+    {
+        TestCount++;
+        AssertionCount++;
+        try { if (test() is { } err) failures.Add($"{name}: {err}"); } catch (Exception ex) { failures.Add($"{name}: {ex.Message}"); }
+    }
 
     private static string? Success(PointStatus status, OrganizationCallerSnapshot caller, string action)
     {

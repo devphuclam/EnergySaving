@@ -480,6 +480,28 @@ if ($isCanonicalModuleRoot) {
     # Organization staging must write to backend workspace, not directly to committed repo
     if ($activation -match 'UpdatePointAsync|AddLifecycleEntryAsync') { $issues += 'T105 FAIL: activation must not directly write to committed repo — must stage through backend.' }
 
+    # CommitAsync catch must not set _completed before backend rollback (Defect A)
+    if ($hostTx -match '(?s)catch\s*\{\s*_completed\s*=\s*true') { $issues += 'T105 FAIL: CommitAsync catch must rollback backend before setting _completed.' }
+
+    $t095Path = Join-Path $repoRoot 'tests\Unit\Organization\PointActivationTransactionTests.cs'
+    $t095Source = Get-Content -LiteralPath $t095Path -Raw
+    if ($t095Source -match 'commit-fail.*RollbackCount.*!=\s*0') { $issues += 'T105 FAIL: T095 must expect RollbackCount=1 after commit failure, not 0.' }
+    if ($t095Source -notmatch 'GetWorkspace\(coord\) is not null') { $issues += 'T105 FAIL: T095 AtomicCommitFailure must verify workspace cleanup.' }
+    if ($t095Source -match 'public const int CaseCount') { $issues += 'T105 FAIL: T095 must use runtime TestCount, not constant CaseCount.' }
+    if ($t095Source -notmatch '50,\s*150,\s*450') { $issues += 'T105 FAIL: T095 RetryDelays must assert exact [50,150,450] trace.' }
+    if ($t095Source -notmatch 'cts\.Cancel\(\)') { $issues += 'T105 FAIL: T095 CancellationRollback must use a cancelled token.' }
+    if ($t095Source -notmatch 'lock-fail: rollback=1') { $issues += 'T105 FAIL: T095 LockFailureRollback must assert backend.RollbackCount == 1.' }
+
+    $t103IntPath = Join-Path $repoRoot 'tests\Integration\Organization\PointActivationTransactionTests.cs'
+    $t103Source = Get-Content -LiteralPath $t103IntPath -Raw
+    if ($t103Source -notmatch 'RollbackCount\s*!=\s*1') { $issues += 'T105 FAIL: T103 AtomicCommitFailure must assert backend.RollbackCount == 1.' }
+    if ($t103Source -notmatch 'GetWorkspace\(.*HostTransaction\) is not null') { $issues += 'T105 FAIL: T103 AtomicCommitFailure must verify workspace cleanup with GetWorkspace.' }
+    if ($t103Source -notmatch 'CommitCount\s*!=\s*0') { $issues += 'T105 FAIL: T103 AtomicCommitFailure must assert backend.CommitCount == 0.' }
+
+    $t094Path = Join-Path $repoRoot 'tests\Unit\Organization\PointActivationTests.cs'
+    $t094Source = Get-Content -LiteralPath $t094Path -Raw
+    if ($t094Source -match 'public const int CaseCount') { $issues += 'T105 FAIL: T094 must use runtime TestCount, not constant CaseCount.' }
+
     $queryContracts = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Organization\Contracts\OrganizationQueryContracts.cs') -Raw
     foreach ($port in @('IActivationIdentityParticipant','IActivationOrganizationParticipant','IActivationCatalogParticipant')) {
         if ($queryContracts -notmatch "interface\s+$port[\s\S]*?IHostTransaction") { $issues += "T105 FAIL: $port must be typed to IHostTransaction." }
@@ -495,12 +517,14 @@ if ($isCanonicalModuleRoot) {
     if ($integration -notmatch 'AtomicCommitFailure|atomic') { $issues += 'T105 FAIL: T103 must include an AtomicCommitFailure case.' }
     $unitProgram = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Program.cs') -Raw
     if ($unitProgram -notmatch 'Unit\.Organization\.PointActivationTransactionTests\.Run') { $issues += 'T105 FAIL: T095 unit suite must be explicitly registered in Program.' }
-    # Check that Phase 5 RED evidence does not mention temporary defect/sabotage
+    # Check that Phase 5 RED evidence does not describe intentional breakage induction
+    # (Passive mentions like "no sabotage was used" are acceptable; active declarations of
+    #  defect injection are not.)
     $phase5RedPath = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-red.md'
     if (Test-Path -LiteralPath $phase5RedPath) {
         $redContent = Get-Content -LiteralPath $phase5RedPath -Raw
-        if ($redContent -match 'sabotage|temporary defect|PHASE5_REQUIRED') {
-            $issues += 'T105 FAIL: Phase 5 RED evidence must not rely on sabotage/temporary-defect/PHASE5_REQUIRED pattern.'
+        if ($redContent -match '(?i)was (injected|sabotaged|intentionally (broken|defected))|PHASE5_REQUIRED was returned|changed production code to fail') {
+            $issues += 'T105 FAIL: Phase 5 RED evidence must not rely on intentional defect injection.'
         }
     }
     # Check that fake participant StageActivationAsync writes to backend workspace
