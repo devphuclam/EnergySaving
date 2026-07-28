@@ -43,9 +43,6 @@ public sealed class IngestMeasurement
         if (!MeasurementIdentityVerifier.TryVerify(request, out var measurementId))
             return TelemetryIngestionResult.Failed(
                 "MEASUREMENT_ID_INVALID", request.CorrelationId);
-        if (!double.IsFinite(request.NumericValue))
-            return TelemetryIngestionResult.Failed(
-                "NUMERIC_VALUE_NONFINITE", request.CorrelationId);
 
         var fingerprint = TelemetryRequestFingerprintV1.Compute(request);
         var existing = await _repository.GetTerminalAsync(measurementId, ct);
@@ -57,6 +54,11 @@ public sealed class IngestMeasurement
         if (slot is not null && slot.MeasurementId != measurementId)
             return TelemetryIngestionResult.Failed(
                 "MEASUREMENT_SLOT_CONFLICT", request.CorrelationId);
+
+        if (!double.IsFinite(request.NumericValue))
+            return await _persistence.PersistRejectedAsync(
+                measurementId, fingerprint, request, "NUMERIC_VALUE_NONFINITE",
+                _clock.UtcNow, null, ct);
 
         var staticError = ValidateStatic(request);
         if (staticError is not null)
@@ -132,6 +134,8 @@ public sealed class IngestMeasurement
         if (!provider.SourceExists) return "SOURCE_MISSING";
         if (provider.SourceId != request.SourceId) return "SOURCE_MISMATCH";
         if (!provider.SourceActive) return "SOURCE_INACTIVE";
+        if (!string.Equals(provider.SourceType, "Simulator", StringComparison.Ordinal))
+            return "SOURCE_TYPE_NOT_SIMULATOR";
         if (!provider.MappingExists) return "MAPPING_MISSING";
         if (!provider.MappingActive || !provider.MappingEffective) return "MAPPING_NOT_ACTIVE";
         if (provider.MappingPointId != request.PointId) return "MAPPING_POINT_MISMATCH";
@@ -146,9 +150,16 @@ public sealed class IngestMeasurement
         if (!provider.UnitCompatible) return "UNIT_INCOMPATIBLE";
         if (!string.Equals(provider.UnitCode, request.UnitCode, StringComparison.Ordinal))
             return "UNIT_MISMATCH";
-        if (provider.OrganizationVersion <= 0 || provider.SourceVersion <= 0 ||
-            provider.MetricVersion <= 0 || provider.UnitVersion <= 0)
+        if (provider.SiteVersion <= 0 || provider.AreaVersion <= 0 ||
+            provider.AssetVersion <= 0 || provider.PointVersion <= 0 ||
+            provider.SourceVersion <= 0 || provider.MappingVersion <= 0 ||
+            provider.MetricVersion <= 0 || provider.UnitVersion <= 0 ||
+            provider.CompatibilityVersion <= 0)
             return "PROVIDER_VERSION_INVALID";
+        if (string.IsNullOrWhiteSpace(provider.CompatibilityIdentity))
+            return "COMPATIBILITY_IDENTITY_MISSING";
+        if (!string.Equals(provider.CompatibilityStatus, "Active", StringComparison.Ordinal))
+            return "COMPATIBILITY_STATUS_NOT_ACTIVE";
         return null;
     }
 }

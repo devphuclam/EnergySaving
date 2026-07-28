@@ -100,8 +100,11 @@ public sealed class FakeSimulatorProductionEligibility : ISimulatorProductionEli
 public sealed class FakeTelemetryIngestionClient : ITelemetryIngestionClient
 {
     public List<SimulatorProductionPayload> Payloads { get; } = new();
+    private static Guid DefaultPersistedId { get; } = Guid.NewGuid();
     public TelemetryDispatchResult Result { get; set; } =
-        new(TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted, true, null, null);
+        new(TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted,
+            true, true, null, null, DefaultPersistedId, "Good", null,
+            DateTime.UtcNow, "auto-correlation", "auto-lineage");
     public bool ThrowTransient { get; set; }
     public Func<SimulatorProductionPayload, Exception?>? FailureSelector { get; set; }
     public TimeSpan DispatchDelay { get; set; }
@@ -118,6 +121,40 @@ public sealed class FakeTelemetryIngestionClient : ITelemetryIngestionClient
         if (FailureSelector?.Invoke(payload) is { } failure) throw failure;
         if (ThrowTransient) throw new TimeoutException("TRANSIENT_TELEMETRY");
         return Result;
+    }
+
+    public async Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
+        SimulatorProductionPayload payload, CancellationToken ct = default)
+    {
+        var stable = await DispatchAsync(payload, ct);
+        return ToCanonical(payload, stable);
+    }
+
+    private static CanonicalTelemetryIngestionResult ToCanonical(
+        SimulatorProductionPayload payload, TelemetryDispatchResult stable)
+    {
+        var disposition = stable.Outcome switch
+        {
+            TelemetryAttemptOutcome.Accepted => CanonicalTelemetryDisposition.Accepted,
+            TelemetryAttemptOutcome.Rejected => CanonicalTelemetryDisposition.Rejected,
+            TelemetryAttemptOutcome.Duplicate => CanonicalTelemetryDisposition.Duplicate,
+            _ => throw new InvalidOperationException("TERMINAL_RESULT_INVALID")
+        };
+        return new CanonicalTelemetryIngestionResult(
+            disposition,
+            new CanonicalTelemetryOriginalResult(
+                stable.FinalClassification,
+                stable.MeasurementPersisted ?? stable.FinalClassification == ProductionFinalClassification.Accepted,
+                stable.PersistedMeasurementId,
+                stable.QualityCode,
+                stable.ReasonCode,
+                stable.RejectionCode,
+                stable.LatestAdvanced,
+                stable.CompletedAtUtc ?? DateTime.UtcNow,
+                stable.OriginalCorrelationId ?? "auto-generated",
+                stable.OriginalLineageId ?? "auto-generated"),
+            stable.ErrorCode,
+            payload.CorrelationId);
     }
 }
 
@@ -427,9 +464,16 @@ public sealed class FakeAcquisitionRunRepositories :
         {
             var same = attempt.TelemetryOutcome == result.Outcome &&
                 attempt.FinalClassification == result.FinalClassification &&
+                attempt.MeasurementPersisted == result.MeasurementPersisted &&
+                attempt.PersistedMeasurementId == result.PersistedMeasurementId &&
+                attempt.QualityCode == result.QualityCode &&
+                attempt.ReasonCode == result.ReasonCode &&
                 attempt.LatestAdvanced == result.LatestAdvanced &&
                 attempt.ErrorCode == result.ErrorCode &&
-                attempt.RejectionCode == result.RejectionCode;
+                attempt.RejectionCode == result.RejectionCode &&
+                attempt.CompletedAtUtc == completedAtUtc &&
+                attempt.OriginalCorrelationId == result.OriginalCorrelationId &&
+                attempt.OriginalLineageId == result.OriginalLineageId;
             if (!same) throw new InvalidOperationException("TERMINAL_RESULT_CONFLICT");
             return Task.FromResult(new AttemptFinalizeResult(Clone(attempt), false, true));
         }
@@ -438,10 +482,16 @@ public sealed class FakeAcquisitionRunRepositories :
             Status = SimulatorProductionAttemptStatus.Completed,
             TelemetryOutcome = result.Outcome,
             FinalClassification = result.FinalClassification,
+            MeasurementPersisted = result.MeasurementPersisted,
+            PersistedMeasurementId = result.PersistedMeasurementId,
+            QualityCode = result.QualityCode,
+            ReasonCode = result.ReasonCode,
             LatestAdvanced = result.LatestAdvanced,
             ErrorCode = result.ErrorCode,
             RejectionCode = result.RejectionCode,
             CompletedAtUtc = completedAtUtc,
+            OriginalCorrelationId = result.OriginalCorrelationId,
+            OriginalLineageId = result.OriginalLineageId,
             Version = checked(attempt.Version + 1)
         };
         state.Attempts[key] = completed;

@@ -67,7 +67,7 @@ public sealed class ProductionAttemptService : IProductionAttemptService
             "IUMP.Worker.Simulator", correlationId, lineageId);
         var attempt = new SimulatorProductionAttempt(
             run.RunId, point.PointId, sequence, payload, SimulatorProductionAttemptStatus.Pending,
-            null, null, null, null, null, now, null, 1);
+            null, null, null, null, null, null, null, null, null, now, null, null, null, 1);
         var transition = new SimulatorRunPointReservationTransition(
             run.RunId,
             point.PointId,
@@ -115,8 +115,9 @@ public sealed class ProductionAttemptService : IProductionAttemptService
         {
             await tx.LockAsync(SimulatorStartLockTarget.AcquisitionRun,
                 $"{runId:D}/{pointId:D}/{sourceSequence}", ct);
+            var completedAt = result.CompletedAtUtc ?? _clock.UtcNow;
             var finalized = await _attempts.FinalizeAsync(runId, pointId, sourceSequence, result,
-                _clock.UtcNow, tx, ct);
+                completedAt, tx, ct);
             if (finalized.FirstTransition)
                 await _runs.StageFinalCounterAsync(runId, run.Version, result.FinalClassification, tx, ct);
             await tx.CommitAsync(ct);

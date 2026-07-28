@@ -94,34 +94,50 @@ public static class IngestionPersistenceContractTests
         {
             var system = IngestionOrchestrationTests.Create();
             var request = TelemetryTestData.Request();
+            var winnerTerminal = TelemetryTestData.Terminal(
+                request, TelemetryFinalClassification.Accepted);
             system.Store.RaceWinnerOnStage =
-                TelemetryTestData.Terminal(request, TelemetryFinalClassification.Accepted);
+                (winnerTerminal, request.NumericValue, request.UnitCode);
             var result = IngestionOrchestrationTests.Execute(system, request);
             Check(result.Disposition == TelemetryDisposition.Duplicate, "race duplicate", failures);
             Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 1, "winner only", failures);
             Check(system.Store.ListCommittedRawAsync().Result.Count == 1, "winner raw only", failures);
             Check(system.Store.LatestCount == 1, "winner Latest only", failures);
             Check(system.Store.ListCommittedAsync().Result.Count == 1, "winner event only", failures);
+            var raw = system.Store.ListCommittedRawAsync().Result[0];
+            Check(raw.NumericValue == request.NumericValue && raw.UnitCode == request.UnitCode,
+                "winner raw uses exact value/unit", failures);
+            var ev = system.Store.ListCommittedAsync().Result[0];
+            Check(ev.EventType == "MeasurementAccepted.v1" && ev.After.Count > 0,
+                "winner event has type and payload", failures);
+            Check(MeasurementIdentityRegistryTests.TerminalEqual(
+                result.OriginalResult, winnerTerminal), "exact stored winner terminal", failures);
         });
         Case("conflicting unique-race winner returns conflict", failures, () =>
         {
             var system = IngestionOrchestrationTests.Create();
             var request = TelemetryTestData.Request();
-            var winner = TelemetryTestData.Terminal(
-                request with { NumericValue = 44 }, TelemetryFinalClassification.Accepted);
-            system.Store.RaceWinnerOnStage = winner;
+            var winnerRequest = request with { NumericValue = 44 };
+            var winnerTerminal = TelemetryTestData.Terminal(
+                winnerRequest, TelemetryFinalClassification.Accepted);
+            system.Store.RaceWinnerOnStage =
+                (winnerTerminal, winnerRequest.NumericValue, winnerRequest.UnitCode);
             var result = IngestionOrchestrationTests.Execute(system, request);
             Check(result.ErrorCode == "IDEMPOTENCY_CONFLICT", "race conflict", failures);
             Check(system.Store.ListCommittedRawAsync().Result.Count == 1, "conflict winner raw only", failures);
             Check(system.Store.ListCommittedAsync().Result.Count == 1, "conflict winner event only", failures);
+            var raw = system.Store.ListCommittedRawAsync().Result[0];
+            Check(raw.NumericValue == winnerRequest.NumericValue && raw.UnitCode == winnerRequest.UnitCode,
+                "conflict winner raw uses exact value/unit", failures);
         });
         Case("different-ID slot-race winner returns slot conflict", failures, () =>
         {
             var system = IngestionOrchestrationTests.Create();
             var winnerRequest = TelemetryTestData.Request();
+            var winnerTerminal = TelemetryTestData.Terminal(
+                winnerRequest, TelemetryFinalClassification.Accepted);
             system.Store.RaceWinnerOnStage =
-                TelemetryTestData.Terminal(
-                    winnerRequest, TelemetryFinalClassification.Accepted);
+                (winnerTerminal, winnerRequest.NumericValue, winnerRequest.UnitCode);
             var mapping = Guid.Parse("66666666-6666-4666-8666-666666666666");
             var loserRequest = IngestionOrchestrationTests.WithIdentity(
                 winnerRequest with { MappingId = mapping });
@@ -130,6 +146,9 @@ public static class IngestionPersistenceContractTests
             var result = IngestionOrchestrationTests.Execute(system, loserRequest);
             Check(result.ErrorCode == "MEASUREMENT_SLOT_CONFLICT", "slot race conflict", failures);
             Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 1, "slot winner only", failures);
+            Check(MeasurementIdentityRegistryTests.TerminalEqual(
+                system.Store.ListCommittedTerminalsAsync().Result[0], winnerTerminal),
+                "slot race stores winner exactly", failures);
         });
         Case("Bad bypasses Latest seam and still persists raw", failures, () =>
         {

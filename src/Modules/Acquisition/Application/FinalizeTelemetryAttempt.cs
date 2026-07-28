@@ -29,6 +29,7 @@ public sealed class FinalizeTelemetryAttempt
             throw new InvalidOperationException("ATTEMPT_NOT_PENDING");
         var canonical = await _telemetry.DispatchCanonicalAsync(pending.Payload, ct);
         var original = canonical.OriginalResult;
+        CanonicalTelemetryOriginalResultValidator.EnsureValid(original);
         var outcome = canonical.Disposition switch
         {
             CanonicalTelemetryDisposition.Accepted => TelemetryAttemptOutcome.Accepted,
@@ -37,10 +38,10 @@ public sealed class FinalizeTelemetryAttempt
             _ => throw new InvalidOperationException("TERMINAL_RESULT_INVALID")
         };
         var result = new TelemetryDispatchResult(
-            outcome, original.FinalClassification, original.LatestAdvanced ?? false,
-            canonical.ErrorCode, original.RejectionCode, original.PersistedMeasurementId,
-            original.QualityCode, original.ReasonCode, original.CompletedAtUtc,
-            original.OriginalCorrelationId, original.OriginalLineageId);
+            outcome, original.FinalClassification, original.MeasurementPersisted,
+            original.LatestAdvanced ?? false, canonical.ErrorCode, original.RejectionCode,
+            original.PersistedMeasurementId, original.QualityCode, original.ReasonCode,
+            original.CompletedAtUtc, original.OriginalCorrelationId, original.OriginalLineageId);
         TelemetryDispatchResultValidator.EnsureValid(result);
         var finalized = await _attempts.FinalizeAsync(
             pending.RunId, pending.PointId, pending.SourceSequence, result, ct);

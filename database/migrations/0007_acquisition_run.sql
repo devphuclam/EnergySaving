@@ -155,11 +155,17 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
     status text NOT NULL,
     telemetry_outcome text,
     final_classification text,
+    measurement_persisted boolean,
+    persisted_measurement_id uuid,
+    quality_code text,
+    reason_code text,
     latest_advanced boolean,
     error_code text,
     rejection_code text,
     created_at_utc timestamptz NOT NULL,
     completed_at_utc timestamptz,
+    original_correlation_id text,
+    original_lineage_id text,
     version bigint NOT NULL DEFAULT 1,
     PRIMARY KEY (run_id, point_id, source_sequence),
     CONSTRAINT uq_simulator_production_attempt_measurement UNIQUE (measurement_id),
@@ -220,11 +226,18 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
         OR (
             telemetry_outcome = 'Accepted'
             AND final_classification = 'Accepted'
+            AND measurement_persisted = true
+            AND persisted_measurement_id IS NOT NULL
+            AND quality_code IS NOT NULL
             AND rejection_code IS NULL
         )
         OR (
             telemetry_outcome = 'Rejected'
             AND final_classification = 'Rejected'
+            AND measurement_persisted = false
+            AND persisted_measurement_id IS NULL
+            AND quality_code IS NULL
+            AND reason_code IS NULL
             AND latest_advanced = false
             AND rejection_code IS NOT NULL
             AND length(btrim(rejection_code)) > 0
@@ -245,6 +258,12 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
                 )
             )
         )
+    ),
+    CONSTRAINT ck_simulator_production_attempt_original_provenance CHECK (
+        (status = 'Pending')
+        OR
+        (original_correlation_id IS NOT NULL AND length(btrim(original_correlation_id)) > 0
+         AND original_lineage_id IS NOT NULL AND length(btrim(original_lineage_id)) > 0)
     ),
     CONSTRAINT ck_simulator_production_attempt_version_positive CHECK (version > 0)
 );

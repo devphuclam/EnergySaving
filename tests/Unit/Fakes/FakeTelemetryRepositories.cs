@@ -31,7 +31,7 @@ public sealed class FakeTelemetryRepositories :
 
     public TelemetryFakeFailure Failure { get; set; }
     public bool LatestAdvanceResult { get; set; } = true;
-    public TelemetryTerminalResult? RaceWinnerOnStage { get; set; }
+    public (TelemetryTerminalResult Winner, double NumericValue, string UnitCode)? RaceWinnerOnStage { get; set; }
     public IReadOnlyList<TelemetryFlowLock> LastLockTrace { get; private set; } = [];
 
     public ValueTask<ITelemetryFlowTransaction> BeginRepeatableReadAsync(
@@ -61,9 +61,9 @@ public sealed class FakeTelemetryRepositories :
         var tx = Require(transaction);
         ThrowIf(TelemetryFakeFailure.TerminalInsert);
         TelemetryTerminalResultValidator.EnsureValid(result);
-        if (RaceWinnerOnStage is { } winner)
+        if (RaceWinnerOnStage is { } w)
         {
-            PublishRaceWinner(winner);
+            PublishRaceWinner(w.Winner, w.NumericValue, w.UnitCode);
             RaceWinnerOnStage = null;
             throw new TelemetryUniqueRaceException();
         }
@@ -178,28 +178,52 @@ public sealed class FakeTelemetryRepositories :
         if (Failure == point) throw new InvalidOperationException($"INJECTED_{point}");
     }
 
-    private void PublishRaceWinner(TelemetryTerminalResult winner)
+    private void PublishRaceWinner(TelemetryTerminalResult winner,
+        double numericValue, string unitCode)
     {
         TelemetryTerminalResultValidator.EnsureValid(winner);
         _terminals[winner.MeasurementId] = winner.Copy();
         if (winner.FinalClassification != TelemetryFinalClassification.Accepted) return;
+        var sourceTs = winner.CompletedAtUtc.AddSeconds(-2);
+        var receivedAt = winner.CompletedAtUtc.AddSeconds(-1);
+        var processingAt = winner.CompletedAtUtc;
         var raw = new RawMeasurement(
             winner.MeasurementId, winner.SourceId, winner.SimulatorRunId, winner.PointId,
             winner.MappingId, winner.MappingVersion, winner.SourceSequence,
-            winner.CompletedAtUtc, winner.CompletedAtUtc, winner.CompletedAtUtc, 0d, "kW",
+            sourceTs, receivedAt, processingAt,
+            numericValue, unitCode,
             winner.QualityCode!.Value, winner.ReasonCode,
             winner.OriginalCorrelationId, winner.OriginalLineageId);
         _raw[winner.MeasurementId] = raw;
         if (winner.LatestAdvanced == true)
             _latest[winner.PointId] = new LatestProjectionCandidate(
-                winner.MeasurementId, winner.PointId, winner.CompletedAtUtc,
-                winner.SourceSequence, winner.CompletedAtUtc, winner.QualityCode.Value);
+                winner.MeasurementId, winner.PointId, sourceTs,
+                winner.SourceSequence, processingAt, winner.QualityCode.Value);
+        var after = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["measurementId"] = winner.MeasurementId.ToString("D"),
+            ["sourceId"] = winner.SourceId.ToString("D"),
+            ["simulatorRunId"] = winner.SimulatorRunId.ToString("D"),
+            ["pointId"] = winner.PointId.ToString("D"),
+            ["mappingId"] = winner.MappingId.ToString("D"),
+            ["mappingVersion"] = winner.MappingVersion,
+            ["sourceSequence"] = winner.SourceSequence,
+            ["sourceTimestampUtc"] = sourceTs,
+            ["receivedAtUtc"] = receivedAt,
+            ["processingAtUtc"] = processingAt,
+            ["numericValue"] = numericValue,
+            ["unitCode"] = unitCode,
+            ["qualityCode"] = winner.QualityCode?.ToString() ?? "",
+            ["latestAdvanced"] = winner.LatestAdvanced ?? false,
+            ["correlationId"] = winner.OriginalCorrelationId,
+            ["lineageId"] = winner.OriginalLineageId
+        };
         _events.Add(new TelemetryOwnerEvent(
             Guid.NewGuid(), "MeasurementAccepted.v1", 1, "IUMP.Telemetry", "Measurement",
             winner.MeasurementId, 1, "IUMP.Telemetry", "trusted-simulator",
-            "Accepted", "Measurement accepted.", winner.CompletedAtUtc,
-            winner.OriginalCorrelationId, null, "site", null,
-            new Dictionary<string, object?>(), new Dictionary<string, object?>()));
+            "Accepted", "Measurement accepted.", processingAt,
+            winner.OriginalCorrelationId, null, "site-1", "area-1",
+            new Dictionary<string, object?>(), after));
     }
 
     private sealed class Transaction : ITelemetryFlowTransaction

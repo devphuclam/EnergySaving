@@ -94,6 +94,16 @@ var t135Failures = TelemetryEventTests.Run();
 Console.WriteLine($"T135: cases={TelemetryEventTests.TestCount}; checks={TelemetryEventTests.CheckCount}; failures={t135Failures.Count}");
 failures.AddRange(t135Failures);
 
+// T149: architecture verification — 32 checks
+var t149Failures = ArchitectureVerification.Run();
+Console.WriteLine($"T149: checks={ArchitectureVerification.CheckCount}; failures={t149Failures.Count}");
+failures.AddRange(t149Failures);
+
+// T150: review sign-off — 11 review checks
+var t150Failures = Phase7ReviewCheck.Run();
+Console.WriteLine($"T150: checks=11; failures={t150Failures.Count}");
+failures.AddRange(t150Failures);
+
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();
 failures.AddRange(catalogRunner.Failures);

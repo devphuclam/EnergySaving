@@ -107,17 +107,34 @@ public static class MeasurementIdentityRegistryTests
                     .SequenceEqual([typeof(TelemetryMeasurementRequest)]),
                 "fingerprint accepts immutable request only", failures);
         });
-        Case("nonfinite rejected before reservation", failures, () =>
+        Case("nonfinite produces stable 32-byte fingerprint without exception", failures, () =>
         {
             foreach (var value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
             {
-                try
+                var fp = TelemetryRequestFingerprintV1.Compute(
+                    TelemetryTestData.Request() with { NumericValue = value });
+                Check(fp.Length == 32, $"nonfinite {value} fingerprint length", failures);
+                var fp2 = TelemetryRequestFingerprintV1.Compute(
+                    TelemetryTestData.Request() with { NumericValue = value });
+                Check(fp.SequenceEqual(fp2), $"nonfinite {value} fingerprint stable", failures);
+            }
+        });
+        Case("null static strings produce stable fingerprint without exception", failures, () =>
+        {
+            foreach (var field in new[] { "AlgorithmId", "UnitCode", "CorrelationId", "LineageId" })
+            {
+                var request = field switch
                 {
-                    TelemetryRequestFingerprintV1.Compute(
-                        TelemetryTestData.Request() with { NumericValue = value });
-                    failures.Add("nonfinite fingerprint did not fail");
-                }
-                catch (ArgumentException) { CheckCount++; }
+                    "AlgorithmId" => TelemetryTestData.Request() with { AlgorithmId = null! },
+                    "UnitCode" => TelemetryTestData.Request() with { UnitCode = null! },
+                    "CorrelationId" => TelemetryTestData.Request() with { CorrelationId = null! },
+                    "LineageId" => TelemetryTestData.Request() with { LineageId = null! },
+                    _ => TelemetryTestData.Request()
+                };
+                var fp = TelemetryRequestFingerprintV1.Compute(request);
+                Check(fp.Length == 32, $"null {field} fingerprint length", failures);
+                var fp2 = TelemetryRequestFingerprintV1.Compute(request);
+                Check(fp.SequenceEqual(fp2), $"null {field} fingerprint stable", failures);
             }
         });
         Case("exact Accepted duplicate replay", failures, () =>
@@ -222,8 +239,9 @@ public static class TelemetryTestData
     }
 
     public static TelemetryProviderSnapshot Provider() => new(
-        PointId, true, true, true, true, true, 1,
-        SourceId, true, true, 1,
+        PointId, true, true, true, true, true, 1, 1, 1, 1,
+        SourceId, "Simulator", true, true, 1,
         MappingId, true, true, true, PointId, 1,
-        true, true, true, 1, true, true, true, "kW", 1, "site-1", "area-1");
+        true, true, true, 1, true, true, true, "kW", 1,
+        "compat-id", 1, "Active", "site-1", "area-1");
 }

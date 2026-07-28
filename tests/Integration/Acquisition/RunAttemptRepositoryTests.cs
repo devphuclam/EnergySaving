@@ -244,7 +244,7 @@ public sealed class RunAttemptRepositoryContractRunner
         var accepted = await FinalizeAsync(provider, runId,
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted,
-                true, null, null));
+                true, true, null, null));
         Assert(accepted.FirstTransition &&
                (await provider.Runs.GetAsync(runId)) is
                { GeneratedCount: 1, AcceptedCount: 1, RejectedCount: 0 },
@@ -353,7 +353,7 @@ public sealed class RunAttemptRepositoryContractRunner
             runId, 0, Guid.Parse("60000000-0000-5000-8000-000000000001")));
         var accepted = new TelemetryDispatchResult(
             TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted,
-            true, null, null);
+            true, true, null, null);
         var first = await FinalizeAsync(provider, runId, accepted);
         TestCount++;
         Assert(first.FirstTransition && !first.Replay &&
@@ -375,8 +375,8 @@ public sealed class RunAttemptRepositoryContractRunner
             await provider.Attempts.FinalizeAsync(
                 runId, PointId, 0,
                 new TelemetryDispatchResult(
-                    TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-                    false, "REJECTED", "INVALID"), Now, tx);
+                     TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
+                    false, false, "REJECTED", "INVALID"), Now, tx);
         }
         catch (InvalidOperationException ex)
         {
@@ -397,7 +397,7 @@ public sealed class RunAttemptRepositoryContractRunner
         await FinalizeAsync(rejectedProvider, rejectedRunId,
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-                false, "REJECTED", "OUT_OF_RANGE"));
+                false, false, "REJECTED", "OUT_OF_RANGE"));
         TestCount++;
         Assert((await rejectedProvider.Runs.GetAsync(rejectedRunId))?.RejectedCount == 1 &&
                (await rejectedProvider.Runs.GetAsync(rejectedRunId))?.AcceptedCount == 0,
@@ -412,7 +412,7 @@ public sealed class RunAttemptRepositoryContractRunner
         var duplicate = await FinalizeAsync(duplicateProvider, duplicateRunId,
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Accepted,
-                false, "DUPLICATE", null));
+                true, false, "DUPLICATE", null));
         Assert(duplicate.Attempt.TelemetryOutcome == TelemetryAttemptOutcome.Duplicate &&
                duplicate.Attempt.FinalClassification == ProductionFinalClassification.Accepted,
             "Duplicate preserves the original final classification");
@@ -432,7 +432,7 @@ public sealed class RunAttemptRepositoryContractRunner
             rejectedDuplicateRunId,
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Rejected,
-                false, "DUPLICATE", "OUT_OF_RANGE"));
+                false, false, "DUPLICATE", "OUT_OF_RANGE"));
         Assert(rejectedDuplicate.Attempt is
                {
                    TelemetryOutcome: TelemetryAttemptOutcome.Duplicate,
@@ -482,31 +482,31 @@ public sealed class RunAttemptRepositoryContractRunner
         {
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Rejected,
-                false, null, "INVALID"),
+                false, false, null, "INVALID"),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Accepted,
-                false, null, null),
+                false, false, null, null),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-                true, null, "INVALID"),
+                false, true, null, "INVALID"),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-                false, null, " "),
+                false, false, null, " "),
             new TelemetryDispatchResult(
                 (TelemetryAttemptOutcome)999, ProductionFinalClassification.Accepted,
-                false, null, null),
+                false, false, null, null),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Accepted, (ProductionFinalClassification)999,
-                false, null, null),
+                false, false, null, null),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Accepted,
-                false, null, "UNEXPECTED"),
+                true, false, null, "UNEXPECTED"),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Rejected,
-                true, null, "OUT_OF_RANGE"),
+                false, true, null, "OUT_OF_RANGE"),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Rejected,
-                false, null, null)
+                false, false, null, null)
         };
         foreach (var (result, index) in invalid.Select((value, index) => (value, index)))
         {
@@ -554,7 +554,7 @@ public sealed class RunAttemptRepositoryContractRunner
             await FinalizeAsync(provider, runId,
                 new TelemetryDispatchResult(
                     TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted,
-                    true, null, null));
+                    true, true, null, null));
         }
         catch (InvalidOperationException ex)
         {
@@ -671,7 +671,7 @@ public sealed class RunAttemptRepositoryContractRunner
             "IUMP.Worker.Simulator", "corr-payload", "lineage-payload");
         return new SimulatorProductionAttempt(
             runId, PointId, sequence, payload, SimulatorProductionAttemptStatus.Pending,
-            null, null, null, null, null, Now, null, 1);
+            null, null, null, null, null, null, null, null, null, Now, null, null, null, 1);
     }
 }
 

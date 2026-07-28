@@ -46,11 +46,17 @@ public sealed record SimulatorProductionAttempt(
     SimulatorProductionAttemptStatus Status,
     TelemetryAttemptOutcome? TelemetryOutcome,
     ProductionFinalClassification? FinalClassification,
+    bool? MeasurementPersisted,
+    Guid? PersistedMeasurementId,
+    string? QualityCode,
+    string? ReasonCode,
     bool? LatestAdvanced,
     string? ErrorCode,
     string? RejectionCode,
     DateTime CreatedAtUtc,
     DateTime? CompletedAtUtc,
+    string? OriginalCorrelationId,
+    string? OriginalLineageId,
     long Version);
 
 public sealed record DeterministicGeneration(
@@ -80,6 +86,7 @@ public sealed record AttemptReserveResult(
 public sealed record TelemetryDispatchResult(
     TelemetryAttemptOutcome Outcome,
     ProductionFinalClassification FinalClassification,
+    bool? MeasurementPersisted,
     bool LatestAdvanced,
     string? ErrorCode,
     string? RejectionCode,
@@ -114,6 +121,35 @@ public sealed record CanonicalTelemetryIngestionResult(
     CanonicalTelemetryOriginalResult OriginalResult,
     string? ErrorCode,
     string CorrelationId);
+
+public static class CanonicalTelemetryOriginalResultValidator
+{
+    public const string InvalidCode = "CANONICAL_ORIGINAL_RESULT_INVALID";
+
+    public static void EnsureValid(CanonicalTelemetryOriginalResult original)
+    {
+        if (!Enum.IsDefined(original.FinalClassification))
+            throw new InvalidOperationException(InvalidCode);
+
+        var valid = original.FinalClassification switch
+        {
+            ProductionFinalClassification.Accepted =>
+                original.MeasurementPersisted &&
+                original.PersistedMeasurementId.HasValue &&
+                original.QualityCode is not null &&
+                original.LatestAdvanced.HasValue,
+            ProductionFinalClassification.Rejected =>
+                !original.MeasurementPersisted &&
+                original.PersistedMeasurementId is null &&
+                original.QualityCode is null &&
+                !original.LatestAdvanced.GetValueOrDefault() &&
+                !string.IsNullOrWhiteSpace(original.RejectionCode),
+            _ => false
+        };
+        if (!valid)
+            throw new InvalidOperationException(InvalidCode);
+    }
+}
 
 public static class TelemetryDispatchResultValidator
 {
@@ -191,15 +227,15 @@ public interface ITelemetryIngestionClient
             },
             new CanonicalTelemetryOriginalResult(
                 stable.FinalClassification,
-                stable.FinalClassification == ProductionFinalClassification.Accepted,
+                stable.MeasurementPersisted ?? stable.FinalClassification == ProductionFinalClassification.Accepted,
                 stable.PersistedMeasurementId,
                 stable.QualityCode,
                 stable.ReasonCode,
                 stable.RejectionCode,
                 stable.LatestAdvanced,
-                stable.CompletedAtUtc ?? payload.SourceTimestampUtc,
-                stable.OriginalCorrelationId ?? payload.CorrelationId,
-                stable.OriginalLineageId ?? payload.LineageId),
+                stable.CompletedAtUtc ?? throw new InvalidOperationException("TELEMETRY_COMPLETED_AT_REQUIRED"),
+                stable.OriginalCorrelationId ?? throw new InvalidOperationException("TELEMETRY_ORIGINAL_CORRELATION_REQUIRED"),
+                stable.OriginalLineageId ?? throw new InvalidOperationException("TELEMETRY_ORIGINAL_LINEAGE_REQUIRED")),
             stable.ErrorCode,
             payload.CorrelationId);
     }

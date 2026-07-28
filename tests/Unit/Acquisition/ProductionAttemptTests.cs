@@ -68,7 +68,7 @@ public static class ProductionAttemptTests
 
         TestCount++;
         var accepted = new TelemetryDispatchResult(
-            TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted, true, null, null);
+            TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted, true, true, null, null);
         var finalized = await service.FinalizeAsync(runId, Phase6Fixtures.PointId, 0, accepted);
         Check(finalized.FirstTransition && !finalized.Replay &&
               finalized.Attempt.Status == SimulatorProductionAttemptStatus.Completed,
@@ -91,7 +91,7 @@ public static class ProductionAttemptTests
         {
             await service.FinalizeAsync(runId, Phase6Fixtures.PointId, 0,
                 new TelemetryDispatchResult(TelemetryAttemptOutcome.Rejected,
-                    ProductionFinalClassification.Rejected, false, "REJECTED", "INVALID"));
+                    ProductionFinalClassification.Rejected, false, false, "REJECTED", "INVALID"));
         }
         catch (InvalidOperationException ex)
         {
@@ -113,19 +113,19 @@ public static class ProductionAttemptTests
         {
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Rejected,
-                false, null, "INVALID"),
+                false, false, null, "INVALID"),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Accepted,
-                false, null, null),
+                false, false, null, null),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-                true, null, "INVALID"),
+                false, true, null, "INVALID"),
             new TelemetryDispatchResult(
                 TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-                false, null, " "),
+                false, false, null, " "),
             new TelemetryDispatchResult(
                 (TelemetryAttemptOutcome)999, ProductionFinalClassification.Accepted,
-                false, null, null)
+                false, false, null, null)
         };
         foreach (var invalidResult in invalidResults)
         {
@@ -164,7 +164,7 @@ public static class ProductionAttemptTests
             new DeterministicGenerator(), new MeasurementIdentity(),
             new FakeUtcClock(Phase6Fixtures.Now));
         var duplicateResult = new TelemetryDispatchResult(
-            TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Accepted, false,
+            TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Accepted, true, false,
             "DUPLICATE", null);
         var duplicate = await duplicateService.FinalizeAsync(
             duplicateRunId, Phase6Fixtures.PointId, 0, duplicateResult);

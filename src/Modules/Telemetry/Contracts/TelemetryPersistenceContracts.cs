@@ -175,8 +175,12 @@ public sealed record TelemetryProviderSnapshot(
     bool SiteActive,
     bool AreaActive,
     bool AssetActive,
-    long OrganizationVersion,
+    long SiteVersion,
+    long AreaVersion,
+    long AssetVersion,
+    long PointVersion,
     Guid SourceId,
+    string SourceType,
     bool SourceExists,
     bool SourceActive,
     long SourceVersion,
@@ -195,6 +199,9 @@ public sealed record TelemetryProviderSnapshot(
     bool UnitCompatible,
     string UnitCode,
     long UnitVersion,
+    string CompatibilityIdentity,
+    long CompatibilityVersion,
+    string CompatibilityStatus,
     string TrustedSiteId,
     string? TrustedAreaId);
 

@@ -152,17 +152,18 @@ public static class TelemetryFinalizationTests
         return new SimulatorProductionAttempt(
             payload.RunId, payload.PointId, payload.SourceSequence, payload,
             SimulatorProductionAttemptStatus.Pending, null, null, null, null, null,
-            payload.SourceTimestampUtc, null, 1);
+            null, null, null, null, payload.SourceTimestampUtc, null, null, null, 1);
     }
 
     private static TelemetryDispatchResult Accepted() => new(
         TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted,
-        true, null, null, Guid.Parse("aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa"), "Good", null,
+        true, true, null, null,
+        Guid.Parse("aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa"), "Good", null,
         TelemetryTestData.Now, "original-correlation", "original-lineage");
 
     private static TelemetryDispatchResult Rejected() => new(
         TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-        false, "POINT_INACTIVE", "POINT_INACTIVE", null, null, null,
+        false, false, "POINT_INACTIVE", "POINT_INACTIVE", null, null, null,
         TelemetryTestData.Now, "original-correlation", "original-lineage");
 
     private static void Case(string name, List<string> failures, Action action)
@@ -194,7 +195,7 @@ public static class TelemetryFinalizationTests
                 },
                 new CanonicalTelemetryOriginalResult(
                     result.FinalClassification,
-                    result.FinalClassification == ProductionFinalClassification.Accepted,
+                    result.MeasurementPersisted ?? result.FinalClassification == ProductionFinalClassification.Accepted,
                     result.PersistedMeasurementId,
                     result.QualityCode,
                     result.ReasonCode,
@@ -241,7 +242,8 @@ public static class TelemetryFinalizationTests
             if (FailFinalize) throw new InvalidOperationException("FINALIZE_ROLLBACK");
             if (_terminal is not null)
             {
-                if (_terminal != result) throw new InvalidOperationException("TERMINAL_RESULT_CONFLICT");
+                if (!TerminalResultsEqual(_terminal, result))
+                    throw new InvalidOperationException("TERMINAL_RESULT_CONFLICT");
                 return Task.FromResult(new AttemptFinalizeResult(Current, false, true));
             }
             _terminal = result;
@@ -252,13 +254,33 @@ public static class TelemetryFinalizationTests
                 Status = SimulatorProductionAttemptStatus.Completed,
                 TelemetryOutcome = result.Outcome,
                 FinalClassification = result.FinalClassification,
+                MeasurementPersisted = result.MeasurementPersisted,
+                PersistedMeasurementId = result.PersistedMeasurementId,
+                QualityCode = result.QualityCode,
+                ReasonCode = result.ReasonCode,
                 LatestAdvanced = result.LatestAdvanced,
                 ErrorCode = result.ErrorCode,
                 RejectionCode = result.RejectionCode,
                 CompletedAtUtc = result.CompletedAtUtc ?? TelemetryTestData.Now,
+                OriginalCorrelationId = result.OriginalCorrelationId,
+                OriginalLineageId = result.OriginalLineageId,
                 Version = Current.Version + 1
             };
             return Task.FromResult(new AttemptFinalizeResult(Current, true, false));
         }
+
+        private static bool TerminalResultsEqual(TelemetryDispatchResult left, TelemetryDispatchResult right) =>
+            left.Outcome == right.Outcome &&
+            left.FinalClassification == right.FinalClassification &&
+            left.MeasurementPersisted == right.MeasurementPersisted &&
+            left.LatestAdvanced == right.LatestAdvanced &&
+            left.ErrorCode == right.ErrorCode &&
+            left.RejectionCode == right.RejectionCode &&
+            left.PersistedMeasurementId == right.PersistedMeasurementId &&
+            left.QualityCode == right.QualityCode &&
+            left.ReasonCode == right.ReasonCode &&
+            left.CompletedAtUtc == right.CompletedAtUtc &&
+            left.OriginalCorrelationId == right.OriginalCorrelationId &&
+            left.OriginalLineageId == right.OriginalLineageId;
     }
 }

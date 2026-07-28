@@ -34,14 +34,50 @@ public static class IngestionOrchestrationTests
                 Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, "invalid no registry", failures);
             }
         });
-        Case("nonfinite values create no terminal reservation", failures, () =>
+        Case("nonfinite values create stable Rejected terminal", failures, () =>
         {
             foreach (var value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
             {
                 var system = Create();
                 var result = Execute(system, TelemetryTestData.Request() with { NumericValue = value });
-                Check(result.ErrorCode == "NUMERIC_VALUE_NONFINITE", "nonfinite result", failures);
-                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, "nonfinite no registry", failures);
+                Check(result.Disposition == TelemetryDisposition.Rejected, "nonfinite rejected", failures);
+                Check(result.OriginalResult?.RejectionCode == "NUMERIC_VALUE_NONFINITE", "nonfinite code", failures);
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 1, "nonfinite registry created", failures);
+                Check(system.Store.ListCommittedRawAsync().Result.Count == 0, "nonfinite no raw", failures);
+                // Same ID + same nonfinite value = Duplicate
+                var dup = Execute(system, TelemetryTestData.Request() with { NumericValue = value });
+                Check(dup.Disposition == TelemetryDisposition.Duplicate, "nonfinite duplicate", failures);
+                // Same ID + different nonfinite value = IDEMPOTENCY_CONFLICT
+                var differentValue = double.IsNaN(value) ? double.PositiveInfinity : double.NaN;
+                var conflict = Execute(system, TelemetryTestData.Request() with
+                {
+                    NumericValue = differentValue,
+                    CorrelationId = "conflict-correlation"
+                });
+                Check(conflict.ErrorCode == "IDEMPOTENCY_CONFLICT", "nonfinite conflict", failures);
+            }
+        });
+        Case("null static string fields produce stable Rejected terminal", failures, () =>
+        {
+            foreach (var field in new[] { "AlgorithmId", "UnitCode", "CorrelationId", "LineageId" })
+            {
+                var request = field switch
+                {
+                    "AlgorithmId" => TelemetryTestData.Request() with { AlgorithmId = null! },
+                    "UnitCode" => TelemetryTestData.Request() with { UnitCode = null! },
+                    "CorrelationId" => TelemetryTestData.Request() with { CorrelationId = null! },
+                    "LineageId" => TelemetryTestData.Request() with { LineageId = null! },
+                    _ => TelemetryTestData.Request()
+                };
+                var system = Create();
+                var result = Execute(system, request);
+                Check(result.Disposition == TelemetryDisposition.Rejected, $"null {field} rejected", failures);
+                Check(result.OriginalResult?.RejectionCode == "PROVENANCE_INVALID", $"null {field} provenance code", failures);
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 1, $"null {field} registry", failures);
+                Check(system.Store.ListCommittedRawAsync().Result.Count == 0, $"null {field} no raw", failures);
+                // Same exact null+payload = Duplicate
+                var dup = Execute(system, request);
+                Check(dup.Disposition == TelemetryDisposition.Duplicate, $"null {field} duplicate", failures);
             }
         });
         Case("static payload failures become stable Rejected", failures, () =>
@@ -113,7 +149,17 @@ public static class IngestionOrchestrationTests
                 (baseline with { UnitActive = false }, "UNIT_INACTIVE"),
                 (baseline with { UnitCompatible = false }, "UNIT_INCOMPATIBLE"),
                 (baseline with { UnitCode = "KWH" }, "UNIT_MISMATCH"),
-                (baseline with { SourceVersion = 0 }, "PROVIDER_VERSION_INVALID")
+                (baseline with { SourceVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { SourceType = "Modbus" }, "SOURCE_TYPE_NOT_SIMULATOR"),
+                (baseline with { SiteVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { AreaVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { AssetVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { PointVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { MetricVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { UnitVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { CompatibilityVersion = 0 }, "PROVIDER_VERSION_INVALID"),
+                (baseline with { CompatibilityIdentity = "" }, "COMPATIBILITY_IDENTITY_MISSING"),
+                (baseline with { CompatibilityStatus = "Inactive" }, "COMPATIBILITY_STATUS_NOT_ACTIVE")
             };
             foreach (var item in variants)
             {

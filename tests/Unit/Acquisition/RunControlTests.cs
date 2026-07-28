@@ -570,5 +570,5 @@ public static class Phase6Fixtures
 
     public static SimulatorProductionAttempt Pending(Guid runId, long sequence = 0) =>
         new(runId, PointId, sequence, Payload(runId, sequence),
-            SimulatorProductionAttemptStatus.Pending, null, null, null, null, null, Now, null, 1);
+            SimulatorProductionAttemptStatus.Pending, null, null, null, null, null, null, null, null, null, Now, null, null, null, 1);
 }

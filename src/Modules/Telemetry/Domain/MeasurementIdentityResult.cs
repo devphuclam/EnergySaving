@@ -72,11 +72,10 @@ public static class MeasurementIdentityVerifier
 public static class TelemetryRequestFingerprintV1
 {
     private static readonly byte[] VersionMarker = Encoding.ASCII.GetBytes("IUMP:TELEMETRY:FINGERPRINT:V1");
+    private const int NullMarker = -1;
 
     public static byte[] Compute(TelemetryMeasurementRequest request)
     {
-        if (!double.IsFinite(request.NumericValue))
-            throw new ArgumentException("NUMERIC_VALUE_NONFINITE", nameof(request));
         using var stream = new MemoryStream();
         Write(stream, VersionMarker);
         Write(stream, Encoding.ASCII.GetBytes(request.MeasurementId));
@@ -86,18 +85,32 @@ public static class TelemetryRequestFingerprintV1
         WriteGuid(stream, request.MappingId);
         WriteInt64(stream, request.MappingVersion);
         WriteInt64(stream, request.SourceSequence);
-        Write(stream, Encoding.UTF8.GetBytes(request.AlgorithmId));
+        WriteNullableString(stream, request.AlgorithmId);
         WriteInt32(stream, request.AlgorithmVersion);
         WriteGuid(stream, request.SimulatorConfigurationId);
         WriteInt64(stream, request.ConfigurationVersion);
         WriteInt64(stream, request.SourceTimestampUtc.Ticks);
         WriteInt32(stream, (int)request.SourceTimestampUtc.Kind);
         WriteInt64(stream, BitConverter.DoubleToInt64Bits(request.NumericValue));
-        Write(stream, Encoding.UTF8.GetBytes(request.UnitCode));
-        Write(stream, Encoding.UTF8.GetBytes(request.ProducerIdentity));
-        Write(stream, Encoding.UTF8.GetBytes(request.CorrelationId));
-        Write(stream, Encoding.UTF8.GetBytes(request.LineageId));
+        WriteNullableString(stream, request.UnitCode);
+        WriteNullableString(stream, request.ProducerIdentity);
+        WriteNullableString(stream, request.CorrelationId);
+        WriteNullableString(stream, request.LineageId);
         return SHA256.HashData(stream.ToArray());
+    }
+
+    private static void WriteNullableString(Stream stream, string? value)
+    {
+        if (value is null)
+        {
+            Span<byte> nullLen = stackalloc byte[4];
+            BinaryPrimitives.WriteInt32BigEndian(nullLen, NullMarker);
+            stream.Write(nullLen);
+        }
+        else
+        {
+            Write(stream, Encoding.UTF8.GetBytes(value));
+        }
     }
 
     private static void WriteGuid(Stream stream, Guid value)
