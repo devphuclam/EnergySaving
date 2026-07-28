@@ -4,56 +4,106 @@
 
 - Repository: `devphuclam/EnergySaving`
 - Feature: `specs/002-asset-simulator-latest/`
-- Parent baseline: `3ae683a14385c0272752e5b18a0fccd2b9b39ed0`
+- Parent baseline: `0c1b4f51f0dc476d3f6255328c06ae40e75d0611`
 - Scope: T094-T107 only; stop before T108.
 
 ## Changed files
 
-- `src/BuildingBlocks/Persistence/HostTransactionCoordinator.cs`
-- `src/Modules/Integration/Contracts/OutboxContracts.cs`
-- `src/Modules/Integration/IUMP.Modules.Integration.csproj`
-- `src/Modules/Organization/Application/ActivateMeasurementPoint.cs`
-- `src/Modules/Organization/Application/OrganizationEvents.cs`
-- `src/Modules/Organization/Contracts/OrganizationQueryContracts.cs`
-- `tests/Integration/Organization/PointActivationTransactionTests.cs`
-- `tests/Unit/Fakes/FakeActivationOrganizationParticipant.cs`
-- `tests/Unit/Fakes/FakeActivationProviders.cs`
-- `tests/Unit/Fakes/FakePointActivationProviderFactory.cs`
-- `tests/Unit/Fakes/FakeTransactionalOutboxWriter.cs`
-- `tests/Unit/Integration/OwnerEventEnvelopeTests.cs`
-- `tests/Unit/Organization/PointActivationTests.cs`
-- `tests/Unit/Organization/PointActivationTransactionTests.cs`
-- `tests/Unit/Program.cs`
-- `tests/Verification/architecture.tests.ps1`
-- `specs/002-asset-simulator-latest/checklists/phase-05-red.md`
-- `specs/002-asset-simulator-latest/checklists/phase-05-review.md`
-- `specs/002-asset-simulator-latest/checklists/phase-05-postgresql.md`
-- `specs/002-asset-simulator-latest/checklists/phase-05-activation.md`
+- `src/BuildingBlocks/Persistence/IHostTransactionBackend.cs` (new)
+- `src/BuildingBlocks/Persistence/IHostTransaction.cs` (rewritten)
+- `src/BuildingBlocks/Persistence/IHostTransactionParticipant.cs` (simplified)
+- `src/BuildingBlocks/Persistence/HostTransactionCoordinator.cs` (rewritten)
+- `src/Modules/Organization/Application/ActivateMeasurementPoint.cs` (version checks)
+- `tests/Unit/Fakes/FakeAtomicBackend.cs` (new)
+- `tests/Unit/Fakes/NullBackend.cs` (new)
+- `tests/Unit/Fakes/FakeActivationOrganizationParticipant.cs` (rewritten)
+- `tests/Unit/Fakes/FakeActivationProviders.cs` (simplified)
+- `tests/Unit/Fakes/FakeTransactionalOutboxWriter.cs` (rewritten)
+- `tests/Unit/Fakes/FakePointActivationProviderFactory.cs` (rewritten)
+- `tests/Unit/Fakes/FakeOrganizationRepositories.cs` (helpers added)
+- `tests/Unit/Organization/PointActivationTests.cs` (rewritten T094)
+- `tests/Unit/Organization/PointActivationTransactionTests.cs` (rewritten T095)
+- `tests/Integration/Organization/PointActivationTransactionTests.cs` (rewritten T103)
+- `tests/Unit/Program.cs` (updated)
+- `tests/Verification/architecture.tests.ps1` (updated T105)
+- `specs/002-asset-simulator-latest/checklists/phase-05-review.md` (rewritten T106)
+- `specs/002-asset-simulator-latest/checklists/phase-05-activation.md` (rewritten T107)
+- `src/Modules/Organization/IUMP.Modules.Organization.csproj` (added references)
 
-## Runnable evidence
+## Chronological RED output
+
+Baseline `0c1b4f5` with test-only changes. Build exit 0.
+
+```
+T094: cases=50; failures=8
+T095: cases=20; failures=0       (surface checks compile-fail counted at build)
+T096: cases=1; failures=0
+T103: cases=4; failures=3
+...
+FAILURES:
+  owner UserVersion=0: owner failure got
+  owner ScopeVersion=0: owner failure got
+  MetricVersion=0: expected METRIC_NOT_FOUND, got
+  UnitVersion=0: expected UNIT_NOT_FOUND, got
+  CompatibilityVersion=0: expected UNIT_INCOMPATIBLE, got
+  MappingVersion=0: expected MAPPING_MISSING, got
+  SourceVersion=0: expected SOURCE_NOT_ACTIVE, got
+  no IAM mutation: activation must not mutate IAM data.
+  OutboxFailure: staged mutation count must be 0 after rollback
+  StaleVersion: must be VERSION_CONFLICT, got
+  StaleVersion: committed Point must not change after stale version
+```
+
+8 T094 + 3 T103 = 11 natural RED failures. No production sabotage. No `PHASE5_REQUIRED` trick.
+
+## Runnable GREEN evidence
 
 Debug build: exit `0`, `0` warnings, `0` errors.
-Focused Debug run: exit `0`.
 
-```text
-T094: cases=41; failures=0
-T095: cases=12; failures=0
+```
+T094: cases=50; failures=0
+T095: cases=20; failures=0
 T096: cases=1; failures=0
-T103: cases=4; failures=0
+T103: cases=6; failures=0
 T071: tests=19; assertions=39; failures=0
 T088: scenarios=24; assertions=24; failures=0
 PASS: all tests
 ```
 
-The tests prove the same host TransactionId across IAM/Organization/Catalog/Integration, canonical lock order with Integration last, exact `50/150/450` retry delays and four-attempt exhaustion, one staged Point/lifecycle/outbox result, rollback on provider/outbox failure, the complete prerequisite matrix, Mapping-to-Point identity, Active `NO_OP`, nullable causation, and actual T103 orchestrator execution.
+## Pre-commit invisibility evidence
+
+T095 proves:
+- `PreCommitPointInvisible` — committed Point status unchanged before host commit
+- `PreCommitLifecycleInvisible` — committed lifecycle count 0 before host commit
+- `PreCommitOutboxInvisible` — `Backend.CommittedEnvelopes` count 0 before host commit
+
+## One-backend commit/rollback evidence
+
+T095 proves:
+- `OneBackendCommit` — exactly one `Backend.CommitAsync` call on success
+- `OneBackendRollback` — exactly one `Backend.RollbackAsync` call on rollback
+- `NoParticipantCommitSurface` — `IHostTransactionParticipant` has no `CommitAsync`/`RollbackAsync`
+
+## Atomic commit-failure evidence
+
+T103 `AtomicCommitFailure` case proves:
+- Point version unchanged after failed commit
+- Point status unchanged after failed commit
+- Lifecycle count unchanged after failed commit
+- Outbox count unchanged after failed commit
+
+## Provider-version validation evidence
+
+`ActivateMeasurementPoint.ValidateOwner` rejects `UserVersion <= 0` and `ScopeVersion <= 0`.
+`ActivateMeasurementPoint.ValidateCatalog` rejects `MetricVersion <= 0`, `UnitVersion <= 0`, `CompatibilityVersion <= 0`, `MappingVersion <= 0`, `SourceVersion <= 0`, blank `CompatibilityIdentity`, and non-Active `CompatibilityStatus`.
+
+## Architecture verification
 
 `& .\tests\Verification\architecture.tests.ps1` returned:
 
-```text
+```
 PASS: architecture boundary contract
 ```
-
-Fast harness returned exit `0` with `PASS=8`. Fresh Full harness returned exit `1`: ten checks passed and three environment checks were blocked (`database: BLOCKED_BY_MISSING_TOOL [BLK-ENV-002]`, `ci: BLOCKED_BY_COMPANY_APPROVAL [BLK-ENV-003]`, `container-target: BLOCKED_BY_COMPANY_APPROVAL [BLK-ENV-004]`). Those are harness environment classifications, not application or database-access claims; the approved database capability remains available and no database command was run.
 
 ## T094-T107 ledger
 

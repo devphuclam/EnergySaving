@@ -20,25 +20,6 @@ public sealed class TransientDatabaseConflictException : InvalidOperationExcepti
     public TransientDatabaseConflictException(string message, Exception? inner = null) : base(message, inner) { }
 }
 
-public interface IHostTransaction : IAsyncDisposable
-{
-    Guid TransactionId { get; }
-    string IsolationIntent { get; }
-    ValueTask CommitAsync(CancellationToken ct = default);
-    ValueTask RollbackAsync(CancellationToken ct = default);
-    IReadOnlyList<LockRequest> LockTrace { get; }
-    bool IsCompleted { get; }
-}
-
-// Participants only acquire locks and prepare/discard staged work. The host owns the one commit.
-public interface IHostTransactionParticipant
-{
-    ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default);
-    ValueTask PrepareAsync(IHostTransaction transaction, CancellationToken ct = default);
-    ValueTask FinalizeAsync(IHostTransaction transaction, CancellationToken ct = default);
-    ValueTask DiscardAsync(IHostTransaction transaction, CancellationToken ct = default);
-}
-
 public interface IHostDelay
 {
     Task DelayAsync(int milliseconds, CancellationToken ct = default);
@@ -52,17 +33,24 @@ public sealed class RealHostDelay : IHostDelay
 public sealed class HostTransactionCoordinator : IHostTransaction
 {
     public static IReadOnlyList<LockTarget> RequiredTargets { get; } = Enum.GetValues<LockTarget>();
+
+    private readonly IHostTransactionBackend _backend;
     private readonly Dictionary<LockTarget, IHostTransactionParticipant> _participants = new();
     private readonly List<LockRequest> _lockTrace = new();
     private readonly IHostDelay _delay;
+    private IHostTransaction? _innerTx;
     private int _lastOrder;
     private bool _begun;
     private bool _completed;
     private bool _disposed;
 
-    public HostTransactionCoordinator(IHostDelay? delay = null) => _delay = delay ?? new RealHostDelay();
+    public HostTransactionCoordinator(IHostTransactionBackend backend, IHostDelay? delay = null)
+    {
+        _backend = backend ?? throw new ArgumentNullException(nameof(backend));
+        _delay = delay ?? new RealHostDelay();
+    }
 
-    public Guid TransactionId { get; } = Guid.NewGuid();
+    public Guid TransactionId => _innerTx?.TransactionId ?? Guid.Empty;
     public string IsolationIntent => "REPEATABLE READ";
     public TimeSpan LockTimeout => TimeSpan.FromSeconds(2);
     public IReadOnlyList<LockRequest> LockTrace => _lockTrace.AsReadOnly();
@@ -74,7 +62,7 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         _participants[target] = participant ?? throw new ArgumentNullException(nameof(participant));
     }
 
-    public ValueTask<IHostTransaction> BeginAsync(CancellationToken ct = default)
+    public async ValueTask<IHostTransaction> BeginAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         if (_disposed) throw new ObjectDisposedException(nameof(HostTransactionCoordinator));
@@ -82,7 +70,8 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         var missing = RequiredTargets.Where(target => !_participants.ContainsKey(target)).ToArray();
         if (missing.Length > 0) throw new InvalidOperationException($"MISSING_TRANSACTION_PARTICIPANT:{string.Join(',', missing)}");
         _begun = true;
-        return ValueTask.FromResult<IHostTransaction>(this);
+        _innerTx = await _backend.BeginAsync(ct);
+        return this;
     }
 
     public async ValueTask LockAsync(LockTarget target, string id, int expectedOrder, CancellationToken ct = default)
@@ -122,14 +111,12 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         if (_completed) return;
         try
         {
-            var participants = OrderedParticipants().ToArray();
-            foreach (var participant in participants) await participant.PrepareAsync(this, ct);
-            foreach (var participant in participants) await participant.FinalizeAsync(this, ct);
+            await _backend.CommitAsync(_innerTx!, ct);
             _completed = true;
         }
         catch
         {
-            await RollbackAsync(ct);
+            _completed = true;
             throw;
         }
     }
@@ -137,11 +124,14 @@ public sealed class HostTransactionCoordinator : IHostTransaction
     public async ValueTask RollbackAsync(CancellationToken ct = default)
     {
         if (_completed) return;
-        foreach (var participant in OrderedParticipants().Reverse())
+        try
         {
-            try { await participant.DiscardAsync(this, ct); } catch { /* best effort */ }
+            await _backend.RollbackAsync(_innerTx!, ct);
         }
-        _completed = true;
+        finally
+        {
+            _completed = true;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -149,6 +139,7 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         if (_disposed) return;
         if (!_completed && _begun) await RollbackAsync();
         _disposed = true;
+        if (_innerTx is not null) await _innerTx.DisposeAsync();
     }
 
     private void EnsureBegun()
@@ -158,6 +149,7 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         if (_completed) throw new InvalidOperationException("TRANSACTION_COMPLETED");
     }
 
-    private IEnumerable<IHostTransactionParticipant> OrderedParticipants() =>
-        _lockTrace.OrderBy(x => x.Order).Select(x => _participants[x.Target]).Distinct();
+    public IReadOnlyList<LockTarget> RegisteredTargets => _participants.Keys.OrderBy(x => (int)x).ToList();
+
+    public bool HasParticipant(LockTarget target) => _participants.ContainsKey(target);
 }

@@ -430,6 +430,16 @@ if ($isCanonicalModuleRoot) {
         $activation -notmatch 'outbox.EnqueueAsync' -or $activation -match 'OutboxTransactionParticipantAdapter|OUTBOX_PARTICIPANT_REQUIRED') {
         $issues += 'T105 FAIL: activation must require the typed outbox host-transaction participant.'
     }
+    if ($activation -notmatch 'UserVersion\s*<=\s*0|UserVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject UserVersion <= 0.' }
+    if ($activation -notmatch 'ScopeVersion\s*<=\s*0|ScopeVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject ScopeVersion <= 0.' }
+    if ($activation -notmatch 'MetricVersion\s*<=\s*0|MetricVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject MetricVersion <= 0.' }
+    if ($activation -notmatch 'UnitVersion\s*<=\s*0|UnitVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject UnitVersion <= 0.' }
+    if ($activation -notmatch 'CompatibilityVersion\s*<=\s*0|CompatibilityVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject CompatibilityVersion <= 0.' }
+    if ($activation -notmatch 'MappingVersion\s*<=\s*0|MappingVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject MappingVersion <= 0.' }
+    if ($activation -notmatch 'SourceVersion\s*<=\s*0|SourceVersion\s*<\s*=\s*0') { $issues += 'T105 FAIL: activation must reject SourceVersion <= 0.' }
+    if ($activation -notmatch 'CompatibilityIdentity') { $issues += 'T105 FAIL: activation must check CompatibilityIdentity nonblank.' }
+    if ($activation -notmatch 'CompatibilityStatus.*Active|CompatibilityStatus\s*!=\s*null') { $issues += 'T105 FAIL: activation must validate CompatibilityStatus exactly Active.' }
+
     $outboxPath = Join-Path $ModuleRoot 'Integration\Contracts\OutboxContracts.cs'
     $outbox = Get-Content -LiteralPath $outboxPath -Raw
     $writerContract = [regex]::Match($outbox, '(?s)interface\s+ITransactionalOutboxWriter.*?\}')
@@ -445,9 +455,31 @@ if ($isCanonicalModuleRoot) {
     # and all provider reads/rechecks/staging are transaction-aware.
     if ($hostTx -match 'NoOpParticipant|NoOp') { $issues += 'T105 FAIL: missing providers must not be replaced by NoOp participants.' }
     if ($hostTx -notmatch 'MISSING_TRANSACTION_PARTICIPANT' -or $hostTx -notmatch 'RequiredTargets') { $issues += 'T105 FAIL: BeginAsync must fail closed when any required participant is missing.' }
+
+    # IHostTransactionParticipant must have only AcquireLockAsync
+    $participantInterfacePath = Join-Path $repoRoot 'src\BuildingBlocks\Persistence\IHostTransactionParticipant.cs'
+    $participantInterface = Get-Content -LiteralPath $participantInterfacePath -Raw
+    if ($participantInterface -match 'PrepareAsync|FinalizeAsync|DiscardAsync') { $issues += 'T105 FAIL: IHostTransactionParticipant must not expose PrepareAsync/FinalizeAsync/DiscardAsync.' }
+    if ($participantInterface -notmatch 'AcquireLockAsync') { $issues += 'T105 FAIL: IHostTransactionParticipant must expose AcquireLockAsync.' }
+
+    # Only one backend owns CommitAsync/RollbackAsync — participants must not expose them
     $participantContract = [regex]::Match($hostTx, '(?s)interface\s+IHostTransactionParticipant.*?\}')
     if ($participantContract.Success -and $participantContract.Value -match 'CommitAsync|RollbackAsync') { $issues += 'T105 FAIL: participants must not own CommitAsync/RollbackAsync.' }
+    # IHostTransactionBackend must own CommitAsync/RollbackAsync
+    $backendInterfacePath = Join-Path $repoRoot 'src\BuildingBlocks\Persistence\IHostTransactionBackend.cs'
+    $backendInterface = Get-Content -LiteralPath $backendInterfacePath -Raw
+    if ($backendInterface -notmatch 'CommitAsync') { $issues += 'T105 FAIL: IHostTransactionBackend must expose CommitAsync.' }
+    if ($backendInterface -notmatch 'RollbackAsync') { $issues += 'T105 FAIL: IHostTransactionBackend must expose RollbackAsync.' }
+    # Count how many types expose CommitAsync - must be exactly 1
+    $commitOwners = @()
+    if ($hostTx -match 'CommitAsync') { $commitOwners += 'HostTransactionCoordinator' }
+    if ($participantContract.Success -and $participantContract.Value -match 'CommitAsync') { $commitOwners += 'IHostTransactionParticipant' }
+    if ($commitOwners.Count -gt 1) { $issues += 'T105 FAIL: more than one type owns CommitAsync/RollbackAsync.' }
+
     if ($activation -match 'BeginTransactionAsync|IOrganizationTransaction|new\s+AsyncTransaction') { $issues += 'T105 FAIL: activation must not open an independent Organization transaction.' }
+    # Organization staging must write to backend workspace, not directly to committed repo
+    if ($activation -match 'UpdatePointAsync|AddLifecycleEntryAsync') { $issues += 'T105 FAIL: activation must not directly write to committed repo — must stage through backend.' }
+
     $queryContracts = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Organization\Contracts\OrganizationQueryContracts.cs') -Raw
     foreach ($port in @('IActivationIdentityParticipant','IActivationOrganizationParticipant','IActivationCatalogParticipant')) {
         if ($queryContracts -notmatch "interface\s+$port[\s\S]*?IHostTransaction") { $issues += "T105 FAIL: $port must be typed to IHostTransaction." }
@@ -458,8 +490,25 @@ if ($isCanonicalModuleRoot) {
     if ($hostTx -notmatch 'new\[\]\s*\{\s*50,\s*150,\s*450\s*\}' -or $hostTx -notmatch 'attempt\s*<\s*4') { $issues += 'T105 FAIL: retry must include 50/150/450ms and four total attempts.' }
     if ($eventSource -match 'ctx\.CausationId\s*\?\?' -or $eventSource -notmatch 'ctx\.CausationId') { $issues += 'T105 FAIL: nullable CausationId must be preserved without correlation fallback.' }
     if ($integration -notmatch 'ActivateMeasurementPoint\.ExecuteAsync') { $issues += 'T105 FAIL: T103 must invoke the actual activation orchestrator.' }
+    # T103 must include StaleVersion and AtomicCommitFailure cases
+    if ($integration -notmatch 'StaleVersion|stale') { $issues += 'T105 FAIL: T103 must include a StaleVersion case.' }
+    if ($integration -notmatch 'AtomicCommitFailure|atomic') { $issues += 'T105 FAIL: T103 must include an AtomicCommitFailure case.' }
     $unitProgram = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Program.cs') -Raw
     if ($unitProgram -notmatch 'Unit\.Organization\.PointActivationTransactionTests\.Run') { $issues += 'T105 FAIL: T095 unit suite must be explicitly registered in Program.' }
+    # Check that Phase 5 RED evidence does not mention temporary defect/sabotage
+    $phase5RedPath = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-red.md'
+    if (Test-Path -LiteralPath $phase5RedPath) {
+        $redContent = Get-Content -LiteralPath $phase5RedPath -Raw
+        if ($redContent -match 'sabotage|temporary defect|PHASE5_REQUIRED') {
+            $issues += 'T105 FAIL: Phase 5 RED evidence must not rely on sabotage/temporary-defect/PHASE5_REQUIRED pattern.'
+        }
+    }
+    # Check that fake participant StageActivationAsync writes to backend workspace
+    $fakeOrgParticipant = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeActivationOrganizationParticipant.cs') -Raw
+    if ($fakeOrgParticipant -match 'UpdatePointAsync|_repo\.UpdatePoint|_repo\.AddLifecycleEntry|_repo\.ReplacePoint') { $issues += 'T105 FAIL: fake Organization participant must write to backend workspace, not directly to committed repo.' }
+    $fakeOutbox = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeTransactionalOutboxWriter.cs') -Raw
+    if ($fakeOutbox -match '_committed\.(Add|AddRange|Insert)') { $issues += 'T105 FAIL: fake outbox must write to backend workspace, not directly to committed store.' }
+
     $phase6Files = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Recurse -File |
         Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.FullName -match '[\\/]Phase6[\\/]|phase-06|TelemetryIngestion|SimulatorRun' }
     if ($phase6Files) { $issues += 'T105 FAIL: Phase 6 implementation/evidence files must not be introduced.' }

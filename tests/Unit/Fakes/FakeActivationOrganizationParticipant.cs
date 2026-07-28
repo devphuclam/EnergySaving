@@ -7,13 +7,16 @@ namespace IUMP.Tests.Unit.Fakes;
 public sealed class FakeActivationOrganizationParticipant : IActivationOrganizationParticipant
 {
     private readonly FakeOrganizationCommandRepository _repo;
-    private readonly Dictionary<Guid, FakeOrganizationSnapshot> _snapshots = new();
+    private readonly FakeAtomicBackend _backend;
     public List<Guid> TransactionIds { get; } = new();
-    public bool FailOnPrepare { get; set; }
     public ActivationOrganizationSnapshot? SnapshotOverride { get; set; }
     public int StageCount { get; private set; }
 
-    public FakeActivationOrganizationParticipant(FakeOrganizationCommandRepository repo) => _repo = repo;
+    public FakeActivationOrganizationParticipant(FakeOrganizationCommandRepository repo, FakeAtomicBackend backend)
+    {
+        _repo = repo;
+        _backend = backend;
+    }
 
     public async Task<ActivationOrganizationSnapshot?> ReadLockedSnapshotAsync(IHostTransaction transaction, PointId pointId, CancellationToken ct = default)
     {
@@ -29,32 +32,24 @@ public sealed class FakeActivationOrganizationParticipant : IActivationOrganizat
     public async Task<MeasurementPoint> StageActivationAsync(IHostTransaction transaction, ActivationOrganizationSnapshot snapshot, string actorUserId, string? actorUsername, string? correlationId, string? causationId, CancellationToken ct = default)
     {
         TransactionIds.Add(transaction.TransactionId);
-        _snapshots.TryAdd(transaction.TransactionId, _repo.CreateSnapshot());
+        var ws = _backend.GetWorkspace(transaction);
+        if (ws is null) throw new InvalidOperationException("UNKNOWN_TRANSACTION");
+
         var point = snapshot.Point;
         var oldStatus = point.Status;
         if (!(oldStatus == PointStatus.Draft ? point.TryActivate() : point.TryReactivate())) throw new InvalidOperationException("INVALID_STATE");
-        await _repo.UpdatePointAsync(point, ct);
-        await _repo.AddLifecycleEntryAsync(new PointLifecycleEntry(Guid.NewGuid().ToString(), point.Id.ToString(), point.Version,
+
+        ws.StagedPoint = point;
+        ws.StagedLifecycle.Add(new PointLifecycleEntry(Guid.NewGuid().ToString(), point.Id.ToString(), point.Version,
             oldStatus, PointStatus.Active, actorUserId, actorUsername, oldStatus == PointStatus.Draft ? "Activated" : "Reactivated",
-            DateTime.UtcNow, correlationId, causationId), ct);
+            DateTime.UtcNow, correlationId, causationId));
         StageCount++;
         return point;
     }
 
-    public ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default) { TransactionIds.Add(transaction.TransactionId); return ValueTask.CompletedTask; }
-    public ValueTask PrepareAsync(IHostTransaction transaction, CancellationToken ct = default)
+    public ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default)
     {
-        if (FailOnPrepare) throw new InvalidOperationException("ORGANIZATION_PREPARE_FAILED");
-        return ValueTask.CompletedTask;
-    }
-    public ValueTask FinalizeAsync(IHostTransaction transaction, CancellationToken ct = default)
-    {
-        // Keep the rollback snapshot until the host transaction is fully complete.
-        return ValueTask.CompletedTask;
-    }
-    public ValueTask DiscardAsync(IHostTransaction transaction, CancellationToken ct = default)
-    {
-        if (_snapshots.Remove(transaction.TransactionId, out var snapshot)) { _repo.RestoreSnapshot(snapshot); if (StageCount > 0) StageCount--; }
+        TransactionIds.Add(transaction.TransactionId);
         return ValueTask.CompletedTask;
     }
 }

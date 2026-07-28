@@ -234,6 +234,16 @@ public sealed class FakeOrganizationCommandRepository : IOrganizationCommandRepo
         return Task.CompletedTask;
     }
 
+    public void AddLifecycleEntryDirect(PointLifecycleEntry entry)
+    {
+        _lifecycle.Add(entry);
+    }
+
+    public void ReplacePointDirect(MeasurementPoint point)
+    {
+        _points[point.Id.Value] = point;
+    }
+
     public Task<IReadOnlyList<PointLifecycleEntry>> GetLifecycleForPointAsync(string pointId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<PointLifecycleEntry>>(_lifecycle.Where(e => e.PointId == pointId).ToList());
 

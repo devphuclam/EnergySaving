@@ -20,15 +20,13 @@ public sealed class FakeActivationIdentityQuery : IActivationIdentityQuery, IAct
         var result = Snapshot;
         return ChangeOnSecondRead && _reads > 1 ? result with { UserVersion = result.UserVersion + 1 } : result;
     }
+
     public ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default)
     {
         TransactionIds.Add(transaction.TransactionId);
         if (TransientFailures-- > 0) throw new TransientDatabaseConflictException("TRANSIENT_DATABASE_CONFLICT");
         return ValueTask.CompletedTask;
     }
-    public ValueTask PrepareAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
-    public ValueTask FinalizeAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
-    public ValueTask DiscardAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
 }
 
 public sealed class FakeActivationCatalogQuery : IActivationCatalogQuery, IActivationCatalogParticipant
@@ -47,8 +45,10 @@ public sealed class FakeActivationCatalogQuery : IActivationCatalogQuery, IActiv
         if (Snapshot is null) return null;
         return ChangeOnSecondRead && _reads > 1 ? Snapshot with { MappingVersion = Snapshot.MappingVersion + 1 } : Snapshot;
     }
-    public ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default) { TransactionIds.Add(transaction.TransactionId); return ValueTask.CompletedTask; }
-    public ValueTask PrepareAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
-    public ValueTask FinalizeAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
-    public ValueTask DiscardAsync(IHostTransaction transaction, CancellationToken ct = default) => ValueTask.CompletedTask;
+
+    public ValueTask AcquireLockAsync(IHostTransaction transaction, LockRequest request, CancellationToken ct = default)
+    {
+        TransactionIds.Add(transaction.TransactionId);
+        return ValueTask.CompletedTask;
+    }
 }

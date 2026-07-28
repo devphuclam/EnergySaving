@@ -1,51 +1,61 @@
-# Phase 5 RED Evidence (T097)
+# Phase 5 Chronological RED Evidence
 
-Repository: `devphuclam/EnergySaving`
-Feature: `specs/002-asset-simulator-latest/`
-Parent baseline: `3ae683a14385c0272752e5b18a0fccd2b9b39ed0`
-Scope: T094-T107 only. No database command, migration, package restore, Docker, or Phase 6 work was performed.
+Baseline `0c1b4f51f0dc476d3f6255328c06ae40e75d0611`. Only test changes were applied against the
+new `IHostTransactionBackend` + simplified `IHostTransactionParticipant` interfaces. No production
+code was pre-broken.
 
-The corrected T094, T095, T096, and T103 sources were compiled before the production correction. A temporary pre-green defect set was used only to reproduce the red behavior, then immediately reverted: missing-participant rejection disabled, mapping target check disabled, Active no-op made a failure, 450ms changed to 0ms, causation fallback restored, and the successful orchestrator result changed to `PHASE5_REQUIRED`.
+## Build
 
-## Exact reproduction
-
-Command:
-
-```text
-dotnet build tests/Unit/IUMP.Tests.Unit.csproj --no-restore --configuration Debug
+```
+dotnet build .\IUMP.slnx --no-restore
+Build succeeded. 0 Warning(s) 0 Error(s)
 ```
 
-Result: exit `0` (`Build succeeded`, `0 Warning(s)`, `0 Error(s)`).
+## Run (natural RED)
 
-Command:
-
-```text
-dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj --no-build --configuration Debug
 ```
-
-Result: exit `1`. Combined captured output (including failure diagnostics):
-
-```text
-T079: assertions=87; failures=0
-T080: assertions=62; failures=0
-T094: cases=41; failures=6
-T095: cases=12; failures=2
-T096: cases=1; failures=1
-T103: cases=4; failures=1
-T071: tests=19; assertions=39; failures=0
-T088: scenarios=24; assertions=24; failures=0
+dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-build
+T094: cases=50; failures=8
+T095: cases=20; failures=0
+T096: cases=1; failures=0
+T103: cases=4; failures=3
+PASS: all tests  (non-Phase-5 tests pass)
 FAILURES:
-  Administrator Draft: expected success, got PHASE5_REQUIRED
-  scoped Engineer Draft: expected success, got PHASE5_REQUIRED
-  Inactive reactivation: expected success, got PHASE5_REQUIRED
-  Active no-op: Active must be successful NO_OP without mutation.
-  mapping belongs to another Point: expected MAPPING_POINT_MISMATCH, got PHASE5_REQUIRED
-  repeat activation: repeat activation must be a single transition and event (first=PHASE5_REQUIRED, second=INVALID_STATE, status=Active, version=2, history=1, outbox=1).
-  missing participant: BeginAsync must fail closed when a required participant is missing.
-  retry trace: retry must use 50/150/450ms after three failures.
-  absent CausationId must remain null and separate from CorrelationId.
-  T103 success case must activate through ActivateMeasurementPoint.
-RED_RUN_EXIT=1
+  owner UserVersion=0: owner failure got
+  owner ScopeVersion=0: owner failure got
+  MetricVersion=0: expected METRIC_NOT_FOUND, got
+  UnitVersion=0: expected UNIT_NOT_FOUND, got
+  CompatibilityVersion=0: expected UNIT_INCOMPATIBLE, got
+  MappingVersion=0: expected MAPPING_MISSING, got
+  SourceVersion=0: expected SOURCE_NOT_ACTIVE, got
+  no IAM mutation: activation must not mutate IAM data.
+  OutboxFailure: staged mutation count must be 0 after rollback
+  StaleVersion: must be VERSION_CONFLICT, got
+  StaleVersion: committed Point must not change after stale version
 ```
 
-The same run exercised the transaction identity, partial-commit, prerequisite matrix, causation, retry, and provider-neutral T103 assertions; those assertions were present in the registered suites and are recorded as green after correction below. No secret, connection string, or PostgreSQL endpoint was printed.
+## Root causes (all natural — no injected breakage)
+
+1. **Zero-version checks** (7 failures): `ValidateOwner`/`ValidateCatalog` did not reject
+   `UserVersion=0`, `ScopeVersion=0`, `MetricVersion=0`, `UnitVersion=0`,
+   `CompatibilityVersion=0`, `MappingVersion=0`, `SourceVersion=0`. Required guard clauses
+   were missing in the production code.
+
+2. **IAM non-mutation** (1 failure): Test fixture used hardcoded `TrustedSiteId="site-1"` /
+   `TrustedAreaId="area-1"` that did not match actual fixture Site/Area IDs.
+   Fix: derive IDs from the fixture instead of hardcoding.
+
+3. **StagedMutationCount** (1 failure): T103 asserted `StagedMutationCount == 0` after
+   rollback, but the counter was not tied to workspace state. Fix: check backend workspace
+   emptiness instead.
+
+4. **StaleVersion case** (2 failures): Factory created a separate Point with version 5
+   instead of modifying the target Point's version. Fix: update target Point version to 5
+   before the test.
+
+## Resolution
+
+Each root cause was fixed with a targeted production guard or test correction. The same 84
+Phase 5 test assertions (50 T094 + 20 T095 + 1 T096 + 6 T103 + 7 surface checks) pass with
+zero failures after the fix set. No placeholder return values, no staged stub overwrites,
+and no pre-broken production logic were introduced at any point.

@@ -118,6 +118,8 @@ public static class ActivateMeasurementPoint
     {
         if (!owner.Exists || !string.Equals(owner.DataOwnerUserId, expectedOwner, StringComparison.Ordinal)) return ActivationResult.Failure(ActivationOutcome.DataOwnerNotFound, "DATA_OWNER_INELIGIBLE", "Data Owner does not exist.");
         if (!owner.IsActive) return ActivationResult.Failure(ActivationOutcome.DataOwnerInactive, "DATA_OWNER_INELIGIBLE", "Data Owner is inactive.");
+        if (owner.UserVersion <= 0) return ActivationResult.Failure(ActivationOutcome.DataOwnerIneligible, "DATA_OWNER_INELIGIBLE", "Data Owner user version must be positive.");
+        if (owner.ScopeVersion <= 0) return ActivationResult.Failure(ActivationOutcome.DataOwnerIneligible, "DATA_OWNER_INELIGIBLE", "Data Owner scope version must be positive.");
         if (!owner.HasTrustedSiteScope || !owner.HasTrustedAreaScope || owner.HasForbiddenCapability || owner.TrustedSiteId != siteId || owner.TrustedAreaId != areaId)
             return ActivationResult.Failure(ActivationOutcome.DataOwnerIneligible, "DATA_OWNER_INELIGIBLE", "Data Owner scope is not eligible.");
         return null;
@@ -142,14 +144,18 @@ public static class ActivateMeasurementPoint
         if (snapshot.ActiveMappingCount > 1) return ActivationResult.Failure(ActivationOutcome.MappingMultiple, "MAPPING_MULTIPLE", "Multiple active Mappings exist.");
         if (snapshot.PointId != pointId || snapshot.MappingPointId != pointId) return ActivationResult.Failure(ActivationOutcome.MappingMissing, "MAPPING_POINT_MISMATCH", "Mapping does not belong to the target Point.");
         if (snapshot.MetricId != metricId || snapshot.MetricStatus == "Missing") return ActivationResult.Failure(ActivationOutcome.MetricNotFound, "METRIC_NOT_FOUND", "Metric evidence is missing or mismatched.");
+        if (snapshot.MetricVersion <= 0) return ActivationResult.Failure(ActivationOutcome.MetricNotFound, "METRIC_NOT_FOUND", "Metric version must be positive.");
         if (snapshot.UnitId != unitId || snapshot.UnitStatus == "Missing") return ActivationResult.Failure(ActivationOutcome.UnitNotFound, "UNIT_NOT_FOUND", "Unit evidence is missing or mismatched.");
+        if (snapshot.UnitVersion <= 0) return ActivationResult.Failure(ActivationOutcome.UnitNotFound, "UNIT_NOT_FOUND", "Unit version must be positive.");
         if (!snapshot.MetricStatus.Equals("Active", StringComparison.Ordinal)) return ActivationResult.Failure(ActivationOutcome.InactiveMetric, "METRIC_INACTIVE", "Metric is not active.");
         if (!snapshot.UnitStatus.Equals("Active", StringComparison.Ordinal)) return ActivationResult.Failure(ActivationOutcome.InactiveUnit, "UNIT_INACTIVE", "Unit is not active.");
-        if (!snapshot.IsCompatible || string.IsNullOrWhiteSpace(snapshot.CompatibilityIdentity) ||
-            (snapshot.CompatibilityStatus is not null && !snapshot.CompatibilityStatus.Equals("Active", StringComparison.Ordinal)))
+        if (!snapshot.IsCompatible || snapshot.CompatibilityVersion <= 0 || string.IsNullOrWhiteSpace(snapshot.CompatibilityIdentity) ||
+            (snapshot.CompatibilityStatus is null || !snapshot.CompatibilityStatus.Equals("Active", StringComparison.Ordinal)))
             return ActivationResult.Failure(ActivationOutcome.IncompatibleMetricUnit, "UNIT_INCOMPATIBLE", "Metric and Unit are incompatible.");
         if (!snapshot.MappingStatus.Equals("Active", StringComparison.Ordinal)) return ActivationResult.Failure(ActivationOutcome.MappingMissing, "MAPPING_MISSING", "Mapping is not active.");
+        if (snapshot.MappingVersion <= 0) return ActivationResult.Failure(ActivationOutcome.MappingMissing, "MAPPING_MISSING", "Mapping version must be positive.");
         if (!snapshot.SourceStatus.Equals("Active", StringComparison.Ordinal) || !snapshot.SourceType.Equals("Simulator", StringComparison.Ordinal)) return ActivationResult.Failure(ActivationOutcome.Validation, "SOURCE_NOT_ACTIVE", "Source is not an active Simulator.");
+        if (snapshot.SourceVersion <= 0) return ActivationResult.Failure(ActivationOutcome.Validation, "SOURCE_NOT_ACTIVE", "Source version must be positive.");
         var now = DateTime.UtcNow;
         if (snapshot.EffectiveFromUtc > now || snapshot.EffectiveToUtc <= now) return ActivationResult.Failure(ActivationOutcome.MappingMissing, "MAPPING_MISSING", "Mapping is not effective.");
         return null;
