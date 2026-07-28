@@ -146,7 +146,7 @@ public sealed class SimulatorProductionCoordinator : ISimulatorProductionCoordin
     private readonly ISimulatorRunUnitOfWork _unitOfWork;
     private readonly ISimulatorRunOwnerEventWriter _events;
     private readonly IProductionAttemptService _attempts;
-    private readonly ITelemetryIngestionClient _telemetry;
+    private readonly FinalizeTelemetryAttempt _finalizer;
     private readonly ISimulatorProductionEligibility _eligibility;
     private readonly IUtcClock _clock;
     private readonly TimeSpan _leaseRenewalInterval;
@@ -165,7 +165,7 @@ public sealed class SimulatorProductionCoordinator : ISimulatorProductionCoordin
         _unitOfWork = unitOfWork;
         _events = events;
         _attempts = attempts;
-        _telemetry = telemetry;
+        _finalizer = new FinalizeTelemetryAttempt(attempts, telemetry);
         _eligibility = eligibility;
         _clock = clock;
         _leaseRenewalInterval = leaseRenewalInterval ?? TimeSpan.FromSeconds(10);
@@ -235,12 +235,10 @@ public sealed class SimulatorProductionCoordinator : ISimulatorProductionCoordin
                             run.RunId, point.PointId, run.CorrelationId,
                             $"{run.RunId:D}:{point.PointId:D}", ct);
                     }
-                    var result = await _telemetry.DispatchAsync(reservation.Attempt.Payload, ct);
+                    var result = await _finalizer.ExecuteAsync(reservation.Attempt, ct);
                     dispatched++;
                     if (leaseGuard.IsLost)
                         throw new InvalidOperationException("LEASE_LOST");
-                    await _attempts.FinalizeAsync(
-                        run.RunId, point.PointId, reservation.Attempt.SourceSequence, result, ct);
                     finalized++;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)

@@ -82,7 +82,38 @@ public sealed record TelemetryDispatchResult(
     ProductionFinalClassification FinalClassification,
     bool LatestAdvanced,
     string? ErrorCode,
-    string? RejectionCode);
+    string? RejectionCode,
+    Guid? PersistedMeasurementId = null,
+    string? QualityCode = null,
+    string? ReasonCode = null,
+    DateTime? CompletedAtUtc = null,
+    string? OriginalCorrelationId = null,
+    string? OriginalLineageId = null);
+
+public enum CanonicalTelemetryDisposition
+{
+    Accepted,
+    Rejected,
+    Duplicate
+}
+
+public sealed record CanonicalTelemetryOriginalResult(
+    ProductionFinalClassification FinalClassification,
+    bool MeasurementPersisted,
+    Guid? PersistedMeasurementId,
+    string? QualityCode,
+    string? ReasonCode,
+    string? RejectionCode,
+    bool? LatestAdvanced,
+    DateTime CompletedAtUtc,
+    string OriginalCorrelationId,
+    string OriginalLineageId);
+
+public sealed record CanonicalTelemetryIngestionResult(
+    CanonicalTelemetryDisposition Disposition,
+    CanonicalTelemetryOriginalResult OriginalResult,
+    string? ErrorCode,
+    string CorrelationId);
 
 public static class TelemetryDispatchResultValidator
 {
@@ -144,6 +175,34 @@ public interface ITelemetryIngestionClient
 {
     Task<TelemetryDispatchResult> DispatchAsync(SimulatorProductionPayload payload,
         CancellationToken ct = default);
+
+    async Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
+        SimulatorProductionPayload payload,
+        CancellationToken ct = default)
+    {
+        var stable = await DispatchAsync(payload, ct);
+        return new CanonicalTelemetryIngestionResult(
+            stable.Outcome switch
+            {
+                TelemetryAttemptOutcome.Accepted => CanonicalTelemetryDisposition.Accepted,
+                TelemetryAttemptOutcome.Rejected => CanonicalTelemetryDisposition.Rejected,
+                TelemetryAttemptOutcome.Duplicate => CanonicalTelemetryDisposition.Duplicate,
+                _ => throw new InvalidOperationException("TERMINAL_RESULT_INVALID")
+            },
+            new CanonicalTelemetryOriginalResult(
+                stable.FinalClassification,
+                stable.FinalClassification == ProductionFinalClassification.Accepted,
+                stable.PersistedMeasurementId,
+                stable.QualityCode,
+                stable.ReasonCode,
+                stable.RejectionCode,
+                stable.LatestAdvanced,
+                stable.CompletedAtUtc ?? payload.SourceTimestampUtc,
+                stable.OriginalCorrelationId ?? payload.CorrelationId,
+                stable.OriginalLineageId ?? payload.LineageId),
+            stable.ErrorCode,
+            payload.CorrelationId);
+    }
 }
 
 public interface ISimulatorProductionEligibility

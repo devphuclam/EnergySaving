@@ -12,6 +12,7 @@ using IUMP.Tests.Unit.Catalog;
 using IUMP.Tests.Unit.Integration;
 using IUMP.Tests.Integration.Acquisition;
 using IUMP.Tests.Unit.Worker;
+using IUMP.Tests.Unit.Telemetry;
 
 var failures = new List<string>();
 
@@ -76,6 +77,23 @@ var t113Failures = AcquisitionEventTests.Run();
 Console.WriteLine($"T113: cases={AcquisitionEventTests.TestCount}; checks={AcquisitionEventTests.CheckCount}; failures={t113Failures.Count}");
 failures.AddRange(t113Failures);
 
+// Phase 7 — canonical Telemetry ingestion
+var t131Failures = MeasurementIdentityRegistryTests.Run();
+Console.WriteLine($"T131: cases={MeasurementIdentityRegistryTests.TestCount}; checks={MeasurementIdentityRegistryTests.CheckCount}; failures={t131Failures.Count}");
+failures.AddRange(t131Failures);
+var t132Failures = IngestionOrchestrationTests.Run();
+Console.WriteLine($"T132: cases={IngestionOrchestrationTests.TestCount}; checks={IngestionOrchestrationTests.CheckCount}; failures={t132Failures.Count}");
+failures.AddRange(t132Failures);
+var t133Failures = IngestionPersistenceContractTests.Run();
+Console.WriteLine($"T133: cases={IngestionPersistenceContractTests.TestCount}; checks={IngestionPersistenceContractTests.CheckCount}; failures={t133Failures.Count}");
+failures.AddRange(t133Failures);
+var t134Failures = TelemetryFinalizationTests.Run();
+Console.WriteLine($"T134: cases={TelemetryFinalizationTests.TestCount}; checks={TelemetryFinalizationTests.CheckCount}; failures={t134Failures.Count}");
+failures.AddRange(t134Failures);
+var t135Failures = TelemetryEventTests.Run();
+Console.WriteLine($"T135: cases={TelemetryEventTests.TestCount}; checks={TelemetryEventTests.CheckCount}; failures={t135Failures.Count}");
+failures.AddRange(t135Failures);
+
 var catalogRunner = new CatalogRepositoryContractRunner(new FakeCatalogRepositoryTestProviderFactory());
 await catalogRunner.RunAllAsync();
 failures.AddRange(catalogRunner.Failures);
@@ -95,6 +113,11 @@ var runAttemptRunner = new RunAttemptRepositoryContractRunner(
 await runAttemptRunner.RunAllAsync();
 failures.AddRange(runAttemptRunner.Failures);
 Console.WriteLine($"T124: scenarios={runAttemptRunner.TestCount}; assertions={runAttemptRunner.AssertionCount}; failures={runAttemptRunner.Failures.Count}");
+
+var telemetryRunner = new IUMP.Tests.Integration.Telemetry.TelemetryIngestionRepositoryContractRunner();
+await telemetryRunner.RunAllAsync(new FakeTelemetryRepositoryTestProviderFactory());
+failures.AddRange(telemetryRunner.Failures);
+Console.WriteLine($"T145: scenarios={telemetryRunner.ScenarioCount}; assertions={telemetryRunner.AssertionCount}; failures={telemetryRunner.Failures.Count}");
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

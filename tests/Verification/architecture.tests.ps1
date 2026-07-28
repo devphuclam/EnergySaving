@@ -679,9 +679,13 @@ if ($isCanonicalModuleRoot) {
     $workerPath = Join-Path $repoRoot 'src\Worker\SimulatorProductionWorker.cs'
     $worker = Get-Content -LiteralPath $workerPath -Raw
     $reserveCall = $coordinator.IndexOf('_attempts.ReserveAsync', [StringComparison]::Ordinal)
-    $dispatchCall = $coordinator.IndexOf('_telemetry.DispatchAsync', [StringComparison]::Ordinal)
-    $finalizeCall = $coordinator.IndexOf('_attempts.FinalizeAsync', [StringComparison]::Ordinal)
-    if ($reserveCall -lt 0 -or $dispatchCall -le $reserveCall -or $finalizeCall -le $dispatchCall) {
+    $finalizerCall = $coordinator.IndexOf('_finalizer.ExecuteAsync', [StringComparison]::Ordinal)
+    $finalizerSource = Get-Content -LiteralPath (
+        Join-Path $ModuleRoot 'Acquisition\Application\FinalizeTelemetryAttempt.cs') -Raw
+    $dispatchCall = $finalizerSource.IndexOf('_telemetry.DispatchCanonicalAsync', [StringComparison]::Ordinal)
+    $finalizeCall = $finalizerSource.IndexOf('_attempts.FinalizeAsync', [StringComparison]::Ordinal)
+    if ($reserveCall -lt 0 -or $finalizerCall -le $reserveCall -or
+        $dispatchCall -lt 0 -or $finalizeCall -le $dispatchCall) {
         $issues += 'T128 FAIL: Acquisition coordinator must reserve, dispatch outside reservation, then finalize.'
     }
     if ($attemptService -notmatch 'ListRunningAsync' -or
@@ -889,23 +893,139 @@ if ($isCanonicalModuleRoot) {
         }
     }
 
-    $phase7Indicators = @(
-        'src\Modules\Telemetry\Application\CanonicalTelemetryIngestion.cs',
+    # --- T149 Phase 7 canonical Telemetry identity/ownership/atomicity checks ---
+    $telemetryContractsPath = Join-Path $ModuleRoot 'Telemetry\Contracts\TelemetryPersistenceContracts.cs'
+    $telemetryProjectionPath = Join-Path $ModuleRoot 'Telemetry\Contracts\TelemetryProjectionContracts.cs'
+    $telemetryDomainPath = Join-Path $ModuleRoot 'Telemetry\Domain\MeasurementIdentityResult.cs'
+    $telemetryIngestionPath = Join-Path $ModuleRoot 'Telemetry\Application\IngestMeasurement.cs'
+    $telemetryPersistencePath = Join-Path $ModuleRoot 'Telemetry\Application\TelemetryPersistenceService.cs'
+    $telemetryContracts = Get-Content -LiteralPath $telemetryContractsPath -Raw
+    $telemetryProjection = Get-Content -LiteralPath $telemetryProjectionPath -Raw
+    $telemetryDomain = Get-Content -LiteralPath $telemetryDomainPath -Raw
+    $telemetryIngestion = Get-Content -LiteralPath $telemetryIngestionPath -Raw
+    $telemetryPersistence = Get-Content -LiteralPath $telemetryPersistencePath -Raw
+
+    if ($telemetryDomain -notmatch '02e993bb-c767-5ff6-963f-530e1dfdff6b' -or
+        $telemetryDomain -notmatch 'SHA1\.HashData' -or
+        $telemetryDomain -notmatch '0x50' -or $telemetryDomain -notmatch '0x80' -or
+        $telemetryDomain -match 'Guid\.NewGuid') {
+        $issues += 'T149 FAIL: Telemetry must verify the exact UUIDv5 tuple without generating a replacement ID.'
+    }
+    if ($telemetryDomain -match 'JsonSerializer|CurrentCulture' -or
+        $telemetryDomain -match 'received_at|processing_at|retry|lease|transport|tracing') {
+        $issues += 'T149 FAIL: Telemetry fingerprint must use typed deterministic encoding and exclude retry/time metadata.'
+    }
+    if ($telemetryDomain -notmatch 'IUMP:TELEMETRY:FINGERPRINT:V1' -or
+        $telemetryDomain -notmatch 'SHA256\.HashData' -or
+        $telemetryDomain -match 'ICommandIdempotencyStore|inbox_message|production.attempt') {
+        $issues += 'T149 FAIL: Telemetry fingerprint must remain distinct from API/inbox/Acquisition identity.'
+    }
+    $trustIndex = $telemetryIngestion.IndexOf('!producer.IsTrusted', [StringComparison]::Ordinal)
+    $identityIndex = $telemetryIngestion.IndexOf('MeasurementIdentityVerifier.TryVerify', [StringComparison]::Ordinal)
+    $fingerprintIndex = $telemetryIngestion.IndexOf('TelemetryRequestFingerprintV1.Compute', [StringComparison]::Ordinal)
+    $registryIndex = $telemetryIngestion.IndexOf('_repository.GetTerminalAsync', [StringComparison]::Ordinal)
+    $providerIndex = $telemetryIngestion.IndexOf('_providers.GetAsync', [StringComparison]::Ordinal)
+    if ($trustIndex -lt 0 -or $identityIndex -le $trustIndex -or
+        $fingerprintIndex -le $identityIndex -or $registryIndex -le $fingerprintIndex -or
+        $providerIndex -le $registryIndex) {
+        $issues += 'T149 FAIL: trusted producer -> identity -> fingerprint -> registry -> provider order is not explicit.'
+    }
+    if ($telemetryContracts -match 'TelemetryFinalClassification[\s\S]{0,200}(Pending|InProgress)' -or
+        $telemetryContracts -notmatch 'ITelemetryIngestionRepository' -or
+        $telemetryContracts -match 'DbContext|IQueryable|Npgsql') {
+        $issues += 'T149 FAIL: terminal registry must be terminal-only and provider-neutral.'
+    }
+    foreach ($port in @(
+        'ILatestProjectionRepository','ISourceHealthRepository','ITelemetryQueryRepository'
+    )) {
+        if ($telemetryProjection -notmatch [regex]::Escape($port)) {
+            $issues += "T149 FAIL: missing provider-neutral Telemetry projection/query port $port."
+        }
+    }
+    if ($telemetryPersistence -notmatch 'quality\s*!=\s*MeasurementQuality\.Bad' -or
+        $telemetryPersistence -notmatch 'TelemetryDisposition\.Rejected' -or
+        $telemetryPersistence -match 'PersistRejectedAsync[\s\S]*StageRawAsync') {
+        $issues += 'T149 FAIL: Bad Latest bypass or Rejected registry-only persistence is absent.'
+    }
+    foreach ($target in @(
+        'OrganizationPoint','CatalogSourceMappingMetricUnit',
+        'TelemetryIdentityRawLatest','IntegrationOutbox'
+    )) {
+        if ($telemetryPersistence -notmatch [regex]::Escape($target)) {
+            $issues += "T149 FAIL: Telemetry flow is missing lock stage $target."
+        }
+    }
+    $organizationLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.OrganizationPoint', [StringComparison]::Ordinal)
+    $catalogLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.CatalogSourceMappingMetricUnit', [StringComparison]::Ordinal)
+    $telemetryLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.TelemetryIdentityRawLatest', [StringComparison]::Ordinal)
+    $integrationLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.IntegrationOutbox', [StringComparison]::Ordinal)
+    if ($organizationLock -lt 0 -or $catalogLock -le $organizationLock -or
+        $telemetryLock -le $catalogLock -or $integrationLock -lt 0) {
+        $issues += 'T149 FAIL: Telemetry lock order must be Organization -> Catalog -> Telemetry -> Integration.'
+    }
+    if ($telemetryPersistence -notmatch 'MeasurementAccepted\.v1' -or
+        $telemetryPersistence -match 'PointLatestAdvanced\.v1' -or
+        $telemetryPersistence -notmatch 'RequestFingerprint' -and
+        $telemetryPersistence -match '\["requestFingerprint"\]') {
+        $issues += 'T149 FAIL: Accepted event must be safe and Phase 7 must not emit PointLatestAdvanced.'
+    }
+    $telemetrySources = Get-ChildItem -LiteralPath (Join-Path $ModuleRoot 'Telemetry') -Recurse -File |
+        Where-Object { $_.Extension -eq '.cs' } |
+        ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }
+    if (($telemetrySources -join "`n") -match 'IUMP\.Modules\.Acquisition\.Application') {
+        $issues += 'T149 FAIL: Telemetry references Acquisition implementation internals.'
+    }
+    $workerSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Worker\Program.cs') -Raw
+    if ($workerSource -match 'measurement_identity|measurement_raw|ITelemetryIngestionRepository') {
+        $issues += 'T149 FAIL: Worker writes or registers Telemetry storage directly.'
+    }
+
+    $migration8Path = Join-Path $repoRoot 'database\migrations\0008_telemetry_measurement.sql'
+    $migration8 = Get-Content -LiteralPath $migration8Path -Raw
+    foreach ($required in @(
+        'telemetry.measurement_identity','telemetry.measurement_raw',
+        'octet_length(request_fingerprint) = 32',
+        'UNIQUE (simulator_run_id, point_id, source_sequence)',
+        'trg_measurement_identity_immutable','trg_measurement_raw_immutable',
+        'Accepted terminal result requires exactly one raw Measurement',
+        'Rejected terminal result cannot have a raw Measurement',
+        'Accepted terminal and raw Measurement provenance must match'
+    )) {
+        if ($migration8 -notmatch [regex]::Escape($required)) {
+            $issues += "T149 FAIL: migration 0008 is missing required invariant $required."
+        }
+    }
+    if ($migration8 -match '(?i)REFERENCES\s+(organization|catalog|acquisition|integration)\.' -or
+        $migration8 -match '(?i)CREATE\s+EXTENSION|point_latest|point_source_status') {
+        $issues += 'T149 FAIL: migration 0008 has a cross-schema FK, extension, or Phase 8 table.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Telemetry\Infrastructure\PostgresTelemetryRepositories.cs')) {
+        $issues += 'T149 FAIL: package-policy-blocked PostgreSQL Telemetry adapter must not falsely exist.'
+    }
+    foreach ($compositionRoot in @(
+        (Join-Path $repoRoot 'src\Api\Program.cs'),
+        (Join-Path $repoRoot 'src\Worker\Program.cs')
+    )) {
+        $composition = Get-Content -LiteralPath $compositionRoot -Raw
+        if ($composition -match 'PostgresTelemetryRepositories|IngestMeasurement|TelemetryPersistenceService') {
+            $issues += "T149 FAIL: blocked Phase 7 runtime registration detected in $compositionRoot."
+        }
+    }
+
+    $phase8Indicators = @(
         'src\Modules\Telemetry\Application\LatestProjection.cs',
+        'src\Modules\Telemetry\Application\SourceHealthEvaluator.cs',
         'src\Api\TelemetryEndpoints.cs',
         'src\Web\Telemetry',
-        'tests\Unit\Telemetry\MeasurementIdentityRegistryTests.cs',
-        'tests\Unit\Telemetry\IngestionOrchestrationTests.cs',
-        'tests\Unit\Telemetry\IngestionPersistenceContractTests.cs',
-        'tests\Unit\Acquisition\TelemetryFinalizationTests.cs',
-        'tests\Unit\Telemetry\TelemetryEventTests.cs',
-        'specs\002-asset-simulator-latest\checklists\phase-07-red.md',
-        'specs\002-asset-simulator-latest\checklists\phase-07-review.md',
-        'specs\002-asset-simulator-latest\checklists\phase-07-telemetry.md'
+        'tests\Unit\Telemetry\PointLatestTests.cs',
+        'tests\Unit\Telemetry\SourceHealthTests.cs',
+        'database\migrations\0009_telemetry_latest_status.sql',
+        'specs\002-asset-simulator-latest\checklists\phase-08-red.md',
+        'specs\002-asset-simulator-latest\checklists\phase-08-latest-health.md'
     )
-    foreach ($indicator in $phase7Indicators) {
+    foreach ($indicator in $phase8Indicators) {
         if (Test-Path -LiteralPath (Join-Path $repoRoot $indicator)) {
-            $issues += "T128 FAIL: Phase 7 implementation detected: $indicator."
+            $issues += "T149 FAIL: Phase 8 implementation detected: $indicator."
         }
     }
 }

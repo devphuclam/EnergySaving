@@ -174,3 +174,21 @@ Phase 6 task classifications:
 
 Provider-neutral work remains runnable and is not blocked by the package classification. Migration
 source review and fake-backed Run/attempt transaction tests do not claim PostgreSQL execution.
+
+## Phase 7 Telemetry capability evidence — 2026-07-28
+
+The approved PostgreSQL runtime target remains `AVAILABLE` at `127.0.0.1:5433/iump_dev`.
+Phase 7 did not connect to either local cluster, did not run `psql`, and did not execute migration
+`0008_telemetry_measurement.sql`. The ignored local `.env` remained untracked and no secret value
+was read into evidence, printed, serialized, copied, or committed.
+
+- T146: `BLOCKED_BY_PACKAGE_POLICY`; the PostgreSQL Telemetry adapter and required approved package
+  dependencies are unavailable, so `PostgresTelemetryRepositories.cs` was not created.
+- T147: `BLOCKED_BY_PACKAGE_POLICY`; runtime registration depends on T146, so API/Worker
+  composition roots were not modified.
+- T148: `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`; migration execution and PostgreSQL Telemetry
+  transaction/concurrency tests depend on T146/T147. PostgreSQL capability itself is available.
+- `psql`: `BLOCKED_BY_MISSING_TOOL`, a separate tool capability.
+- Database-access blocker count: `0`.
+- Database mutation: `NOT_RUN`.
+- Prohibited cluster `127.0.0.1:5432`: not contacted.
