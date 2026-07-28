@@ -34,12 +34,12 @@ public interface IPointActivationProviderFactorySet
 public sealed class PointActivationTransactionTests
 {
     public int TestCount;
-    public int AssertionCount;
+    public int CompositeCheckCount;
 
     public List<string> Run(IPointActivationProviderFactorySet factorySet)
     {
         TestCount = 0;
-        AssertionCount = 0;
+        CompositeCheckCount = 0;
         var failures = new List<string>();
         foreach (var factory in factorySet.Cases)
         {
@@ -63,7 +63,7 @@ public sealed class PointActivationTransactionTests
             switch (factory.Outcome)
             {
                 case ActivationCaseOutcome.Success:
-                    AssertionCount += 7;
+                    CompositeCheckCount += 7;
                     if (!result.IsSuccess || result.Outcome != ActivationOutcome.Allowed)
                         failures.Add($"{factory.Outcome}: must succeed, got {result.ErrorCode}");
                     if (factory.HostTransaction.LockTrace.Count != 9 || factory.HostTransaction.LockTrace[^1].Target != LockTarget.IntegrationOutbox)
@@ -82,7 +82,7 @@ public sealed class PointActivationTransactionTests
 
                 case ActivationCaseOutcome.OutboxFailure:
                 case ActivationCaseOutcome.ProviderDrift:
-                    AssertionCount += 5;
+                    CompositeCheckCount += 5;
                     if (result.IsSuccess) failures.Add($"{factory.Outcome}: must fail, not succeed");
                     if (afterPoint is not null && afterPoint.Version != (beforePoint?.Version ?? 0))
                         failures.Add($"{factory.Outcome}: committed Point must not change after failure");
@@ -95,7 +95,7 @@ public sealed class PointActivationTransactionTests
                     break;
 
                 case ActivationCaseOutcome.RetryExhaustion:
-                    AssertionCount += 3;
+                    CompositeCheckCount += 3;
                     if (result.ErrorCode != "TRANSIENT_DATABASE_CONFLICT")
                         failures.Add($"{factory.Outcome}: must classify as TRANSIENT_DATABASE_CONFLICT, got {result.ErrorCode}");
                     if (afterPoint is not null && afterPoint.Version != (beforePoint?.Version ?? 0))
@@ -105,7 +105,7 @@ public sealed class PointActivationTransactionTests
                     break;
 
                 case ActivationCaseOutcome.StaleVersion:
-                    AssertionCount += 2;
+                    CompositeCheckCount += 2;
                     if (result.ErrorCode != "VERSION_CONFLICT")
                         failures.Add($"{factory.Outcome}: must be VERSION_CONFLICT, got {result.ErrorCode}");
                     if (afterPoint is not null && afterPoint.Version != (beforePoint?.Version ?? 0))
@@ -113,7 +113,7 @@ public sealed class PointActivationTransactionTests
                     break;
 
                 case ActivationCaseOutcome.AtomicCommitFailure:
-                    AssertionCount += 8;
+                    CompositeCheckCount += 8;
                     if (result.IsSuccess) failures.Add($"{factory.Outcome}: must fail on commit");
                     if (afterPoint is not null && afterPoint.Status == PointStatus.Active)
                         failures.Add($"{factory.Outcome}: Point must not be Active after failed commit");

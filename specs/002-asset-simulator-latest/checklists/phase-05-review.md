@@ -18,6 +18,8 @@ Parent baseline: `50c4c311ebe874e4b9ae42161666a9dd6bddb7e9`.
 | F10 | CancellationRollback does not exercise cancellation | Low | `coord.RollbackAsync()` with no token | Pass cancelled CancellationToken to CommitAsync | CLOSED |
 | F11 | T097 provenance unclear | Medium | No compilation evidence | Documented in checkpoint | CLOSED |
 | F12 | T106/T107 contain unsupported counts and atomic cleanup claims | Medium | T106/T107 v1 had stale numbers | Rewritten with actual runtime evidence | CLOSED |
+| F13 | LockAsync validates only `expectedOrder > _lastOrder`, not canonical target order | High | LockAsync source: `if (expectedOrder > _lastOrder)` passes Point-first, skip targets, out-of-order | Validates `canonicalIndex = (int)target + 1`, checks sequence and duplicate targets | CLOSED |
+| F14 | BeginAsync sets `_begun=true` before backend `BeginAsync` succeeds | High | BeginAsync source: `_begun=true` before `await _backend.BeginAsync(ct)`; backend crash leaves inconsistent state (begun=true, innerTx=null) | Defers `_begun=true` and `_innerTx` assignment to after backend succeeds | CLOSED |
 
 ## Review result
 

@@ -55,6 +55,7 @@ public sealed class HostTransactionCoordinator : IHostTransaction
     public TimeSpan LockTimeout => TimeSpan.FromSeconds(2);
     public IReadOnlyList<LockRequest> LockTrace => _lockTrace.AsReadOnly();
     public bool IsCompleted => _completed;
+    public bool IsBegun => _begun;
 
     public void RegisterParticipant(LockTarget target, IHostTransactionParticipant participant)
     {
@@ -69,8 +70,9 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         if (_begun) throw new InvalidOperationException("TRANSACTION_ALREADY_BEGUN");
         var missing = RequiredTargets.Where(target => !_participants.ContainsKey(target)).ToArray();
         if (missing.Length > 0) throw new InvalidOperationException($"MISSING_TRANSACTION_PARTICIPANT:{string.Join(',', missing)}");
+        var tx = await _backend.BeginAsync(ct);
+        _innerTx = tx;
         _begun = true;
-        _innerTx = await _backend.BeginAsync(ct);
         return this;
     }
 
@@ -78,7 +80,10 @@ public sealed class HostTransactionCoordinator : IHostTransaction
     {
         EnsureBegun();
         ct.ThrowIfCancellationRequested();
-        if (expectedOrder <= _lastOrder) throw new InvalidOperationException("LOCK_ORDER_VIOLATION");
+        var canonicalIndex = (int)target + 1;
+        if (canonicalIndex != expectedOrder) throw new InvalidOperationException("LOCK_ORDER_VIOLATION");
+        if (canonicalIndex != _lastOrder + 1) throw new InvalidOperationException("LOCK_ORDER_VIOLATION");
+        if (_lockTrace.Any(l => l.Target == target)) throw new InvalidOperationException("LOCK_ORDER_VIOLATION");
         var participant = _participants[target];
         var request = new LockRequest(target, id, expectedOrder);
         await participant.AcquireLockAsync(this, request, ct);
@@ -116,7 +121,7 @@ public sealed class HostTransactionCoordinator : IHostTransaction
         }
         catch
         {
-            try { await _backend.RollbackAsync(_innerTx!, ct); }
+            try { await _backend.RollbackAsync(_innerTx!, CancellationToken.None); }
             catch { /* swallow rollback failure — preserve original commit exception */ }
             _completed = true;
             throw;

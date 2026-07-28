@@ -482,10 +482,18 @@ if ($isCanonicalModuleRoot) {
 
     # CommitAsync catch must not set _completed before backend rollback (Defect A)
     if ($hostTx -match '(?s)catch\s*\{\s*_completed\s*=\s*true') { $issues += 'T105 FAIL: CommitAsync catch must rollback backend before setting _completed.' }
+    if ($hostTx -notmatch 'RollbackAsync\(_innerTx!,\s*CancellationToken\.None\)') { $issues += 'T105 FAIL: CommitAsync catch must pass CancellationToken.None (not caller ct) to rollback.' }
+    if ($hostTx -notmatch 'canonicalIndex\s*=\s*\(int\)target\s*\+\s*1') { $issues += 'T105 FAIL: LockAsync must derive canonicalIndex = (int)target + 1.' }
+    if ($hostTx -notmatch '_lockTrace\.Any\(l => l\.Target == target\)') { $issues += 'T105 FAIL: LockAsync must reject duplicate targets.' }
+    if ($hostTx -match '_begun\s*=\s*true;\s*_innerTx\s*=\s*await') { $issues += 'T105 FAIL: BeginAsync must set _begun after backend succeeds, not before.' }
 
     $t095Path = Join-Path $repoRoot 'tests\Unit\Organization\PointActivationTransactionTests.cs'
     $t095Source = Get-Content -LiteralPath $t095Path -Raw
     if ($t095Source -match 'commit-fail.*RollbackCount.*!=\s*0') { $issues += 'T105 FAIL: T095 must expect RollbackCount=1 after commit failure, not 0.' }
+    if ($t095Source -notmatch 'BeginFailureSafety') { $issues += 'T105 FAIL: T095 must include BeginFailureSafety test for begin-inconsistent defect.' }
+    if ($t095Source -notmatch 'IsBegun') { $issues += 'T105 FAIL: T095 must assert IsBegun on coordinator after begin failure.' }
+    if ($t095Source -notmatch 'GetWorkspace\(coord\) is not null') { $issues += 'T105 FAIL: T095 CancellationRollback must verify workspace cleanup with GetWorkspace.' }
+    if ($t095Source -match 'AssertionCount') { $issues += 'T105 FAIL: T095 must use CompositeCheckCount not AssertionCount.' }
     if ($t095Source -notmatch 'GetWorkspace\(coord\) is not null') { $issues += 'T105 FAIL: T095 AtomicCommitFailure must verify workspace cleanup.' }
     if ($t095Source -match 'public const int CaseCount') { $issues += 'T105 FAIL: T095 must use runtime TestCount, not constant CaseCount.' }
     if ($t095Source -notmatch '50,\s*150,\s*450') { $issues += 'T105 FAIL: T095 RetryDelays must assert exact [50,150,450] trace.' }
@@ -501,6 +509,7 @@ if ($isCanonicalModuleRoot) {
     $t094Path = Join-Path $repoRoot 'tests\Unit\Organization\PointActivationTests.cs'
     $t094Source = Get-Content -LiteralPath $t094Path -Raw
     if ($t094Source -match 'public const int CaseCount') { $issues += 'T105 FAIL: T094 must use runtime TestCount, not constant CaseCount.' }
+    if ($t094Source -match 'AssertionCount') { $issues += 'T105 FAIL: T094 must use CompositeCheckCount not AssertionCount.' }
 
     $queryContracts = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Organization\Contracts\OrganizationQueryContracts.cs') -Raw
     foreach ($port in @('IActivationIdentityParticipant','IActivationOrganizationParticipant','IActivationCatalogParticipant')) {
@@ -515,6 +524,7 @@ if ($isCanonicalModuleRoot) {
     # T103 must include StaleVersion and AtomicCommitFailure cases
     if ($integration -notmatch 'StaleVersion|stale') { $issues += 'T105 FAIL: T103 must include a StaleVersion case.' }
     if ($integration -notmatch 'AtomicCommitFailure|atomic') { $issues += 'T105 FAIL: T103 must include an AtomicCommitFailure case.' }
+    if ($integration -match 'AssertionCount') { $issues += 'T105 FAIL: T103 must use CompositeCheckCount not AssertionCount.' }
     $unitProgram = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Program.cs') -Raw
     if ($unitProgram -notmatch 'Unit\.Organization\.PointActivationTransactionTests\.Run') { $issues += 'T105 FAIL: T095 unit suite must be explicitly registered in Program.' }
     # Check that Phase 5 RED evidence does not describe intentional breakage induction
@@ -526,6 +536,10 @@ if ($isCanonicalModuleRoot) {
         if ($redContent -match '(?i)was (injected|sabotaged|intentionally (broken|defected))|PHASE5_REQUIRED was returned|changed production code to fail') {
             $issues += 'T105 FAIL: Phase 5 RED evidence must not rely on intentional defect injection.'
         }
+        if ($redContent -notmatch 'dotnet build.*--no-restore') { $issues += 'T105 FAIL: RED evidence must include exact build command.' }
+        if ($redContent -notmatch 'Exit code: \*\*0\*\*') { $issues += 'T105 FAIL: RED evidence must report build exit code 0.' }
+        if ($redContent -notmatch 'dotnet run.*--no-build') { $issues += 'T105 FAIL: RED evidence must include exact run command.' }
+        if ($redContent -notmatch 'Exit code: \*\*1\*\*') { $issues += 'T105 FAIL: RED evidence must report run exit code 1 (non-zero).' }
     }
     # Check that fake participant StageActivationAsync writes to backend workspace
     $fakeOrgParticipant = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeActivationOrganizationParticipant.cs') -Raw
@@ -536,6 +550,18 @@ if ($isCanonicalModuleRoot) {
     $phase6Files = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Recurse -File |
         Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.FullName -match '[\\/]Phase6[\\/]|phase-06|TelemetryIngestion|SimulatorRun' }
     if ($phase6Files) { $issues += 'T105 FAIL: Phase 6 implementation/evidence files must not be introduced.' }
+
+    # Check that T106 and T107 are rewritten with correct findings (Defect H)
+    $t106Path = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-review.md'
+    $t106Content = Get-Content -LiteralPath $t106Path -Raw
+    if ($t106Content -notmatch 'CommitAsync.*sets.*_completed.*true.*before.*backend.*rollback') {
+        $issues += 'T105 FAIL: T106 must include CommitAsync catch ordering finding (F01).'
+    }
+    if ($t106Content -notmatch 'Critical=0') { $issues += 'T105 FAIL: T106 must report Critical=0 for PASS.' }
+    if ($t106Content -notmatch 'High=0') { $issues += 'T105 FAIL: T106 must report High=0 for PASS.' }
+    $t107Path = Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-05-activation.md'
+    $t107Content = Get-Content -LiteralPath $t107Path -Raw
+    if ($t107Content -notmatch 'PASS 13, BLOCKED 1, FAIL 0') { $issues += 'T105 FAIL: T107 must report final PASS 13, BLOCKED 1, FAIL 0 ledger.' }
 }
 
 if ($issues.Count -gt 0) {

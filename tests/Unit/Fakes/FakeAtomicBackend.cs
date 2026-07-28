@@ -45,6 +45,8 @@ public sealed class FakeAtomicBackend : IHostTransactionBackend
     public int CommitCount { get; private set; }
     public int RollbackCount { get; private set; }
     public bool FailOnCommit { get; set; }
+    public bool FailOnRollback { get; set; }
+    public bool FailOnBegin { get; set; }
 
     public FakeAtomicBackend(FakeOrganizationCommandRepository orgRepo)
     {
@@ -60,6 +62,7 @@ public sealed class FakeAtomicBackend : IHostTransactionBackend
     public ValueTask<IHostTransaction> BeginAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        if (FailOnBegin) throw new InvalidOperationException("BEGIN_FAILED");
         var tx = new FakeHostTransaction(Guid.NewGuid());
         _workspaces[tx.TransactionId] = new TransactionWorkspace();
         return ValueTask.FromResult<IHostTransaction>(tx);
@@ -88,8 +91,10 @@ public sealed class FakeAtomicBackend : IHostTransactionBackend
 
     public ValueTask RollbackAsync(IHostTransaction transaction, CancellationToken ct = default)
     {
-        _workspaces.Remove(transaction.TransactionId);
+        ct.ThrowIfCancellationRequested();
         RollbackCount++;
+        if (FailOnRollback) throw new InvalidOperationException("ROLLBACK_FAILED");
+        _workspaces.Remove(transaction.TransactionId);
         return ValueTask.CompletedTask;
     }
 }
