@@ -57,11 +57,18 @@ public static class SimulatorEndpoints
     {
         if (!request.Headers.TryGetValue("Idempotency-Key", out var key) || string.IsNullOrWhiteSpace(key))
             return Results.Problem("Idempotency-Key is required.", statusCode: StatusCodes.Status400BadRequest);
+        var requiresExpectedVersion = operation != CommandOperationCodes.StartSimulator;
+        long expectedVersion = 0;
+        if (requiresExpectedVersion && (!request.Headers.TryGetValue("If-Match", out var ifMatch) ||
+            ifMatch.Count != 1 || !long.TryParse(ifMatch[0]?.Trim().Trim('"'), out expectedVersion) ||
+            expectedVersion <= 0))
+            return Results.Problem("A valid If-Match is required.", statusCode: StatusCodes.Status400BadRequest);
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
         var identity = new CommandIdentity(principal.UserId, operation, key!);
         var fields = new[] { CommandFingerprintField.Uuid("targetId", target) };
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
-            operation, principal.UserId, "SimulatorRun", target, "SimulatorRun", target, null, fields));
+            operation, principal.UserId, "SimulatorRun", target, "SimulatorRun", target,
+            requiresExpectedVersion ? expectedVersion : null, fields));
         var response = await executor.ExecuteTransactionalAsync(identity, fingerprint, transactionFactory,
             (transaction, token) => commands.ExecuteAsync(operation, target, principal, transaction, token), ct);
         return new IdempotentHttpResult(response);

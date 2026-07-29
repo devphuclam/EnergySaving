@@ -1,4 +1,4 @@
-export type GatewayState = 'loading' | 'ready' | 'forbidden' | 'expired' | 'no-data' | 'error'
+export type GatewayState = 'loading' | 'submitting' | 'ready' | 'invalid-credentials' | 'forbidden' | 'expired' | 'no-data' | 'error'
 
 export type AuthSession = {
   state: GatewayState
@@ -12,6 +12,11 @@ export type ConfigurationSummary = {
   siteCount: number
   areaCount: number
   pointCount: number
+  metricCount: number
+  unitCount: number
+  sourceCount: number
+  mappingCount: number
+  configurationCount: number
   hierarchy: string
   catalog: string
   sources: string
@@ -27,6 +32,7 @@ export type SimulatorSnapshot = {
   rejected: number
   sourceId?: string
   runId?: string
+  version?: number
   errorCode?: string
   isReplay?: boolean
 }
@@ -56,7 +62,7 @@ export type AuditSnapshot = {
 
 export type AuthGateway = {
   getSession: () => Promise<AuthSession>
-  signIn: (credentials?: { username: string; password: string }) => Promise<AuthSession>
+  signIn: (credentials: { username: string; password: string }) => Promise<AuthSession>
   signOut: () => Promise<void>
 }
 
@@ -109,24 +115,30 @@ export const webGateways: WebGateways = {
         return { state: 'ready', username: me.username, scopeLabel: me.scopes?.join(', ') ?? 'Authorized scope', isAdministrator: me.roles?.includes('Administrator') }
       } catch (error) { return { state: stateFromError(error) } }
     },
-    signIn: async (credentials = { username: '', password: '' }) => {
+    signIn: async (credentials) => {
+      if (!credentials.username.trim() || !credentials.password) return { state: 'invalid-credentials' }
       try {
         const token = await antiforgeryToken()
         await request('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': token }, body: JSON.stringify(credentials) })
         return await webGateways.auth.getSession()
-      } catch (error) { return { state: stateFromError(error) } }
+      } catch (error) {
+        return { state: error instanceof Error && error.message === 'expired' ? 'invalid-credentials' : stateFromError(error) }
+      }
     },
     signOut: async () => { const token = await antiforgeryToken(); await request('/api/v1/auth/logout', { method: 'POST', headers: { 'X-XSRF-TOKEN': token } }) },
   },
   configuration: {
     getSummary: async () => {
       try {
-        const [sites, areas, assets, points] = await Promise.all([
+        const [sites, areas, assets, points, metrics, units, sources, mappings, configurations] = await Promise.all([
           request<unknown[]>('/api/v1/sites'), request<unknown[]>('/api/v1/areas'),
-          request<unknown[]>('/api/v1/assets'), request<unknown[]>('/api/v1/points')
+          request<unknown[]>('/api/v1/assets'), request<unknown[]>('/api/v1/points'),
+          request<unknown[]>('/api/v1/metrics'), request<unknown[]>('/api/v1/units'),
+          request<unknown[]>('/api/v1/data-sources'), request<unknown[]>('/api/v1/source-point-mappings'),
+          request<unknown[]>('/api/v1/simulator-configurations')
         ])
-        return { state: 'ready', siteCount: sites.length, areaCount: areas.length, pointCount: assets.length + points.length, hierarchy: `${sites.length} Sites / ${areas.length} Areas / ${assets.length} Assets / ${points.length} Points`, catalog: 'Catalog gateway ready', sources: 'Source gateway ready', mappings: 'Mapping gateway ready', activation: 'Activation state supplied by server' }
-      } catch (error) { return { state: stateFromError(error), siteCount: 0, areaCount: 0, pointCount: 0, hierarchy: 'Unavailable', catalog: 'Unavailable', sources: 'Unavailable', mappings: 'Unavailable', activation: 'Unavailable' } }
+        return { state: 'ready', siteCount: sites.length, areaCount: areas.length, pointCount: assets.length + points.length, metricCount: metrics.length, unitCount: units.length, sourceCount: sources.length, mappingCount: mappings.length, configurationCount: configurations.length, hierarchy: `${sites.length} Sites / ${areas.length} Areas / ${assets.length} Assets / ${points.length} Points`, catalog: `${metrics.length} metrics / ${units.length} units`, sources: `${sources.length} sources`, mappings: `${mappings.length} mappings`, activation: `${configurations.length} simulator configurations` }
+      } catch (error) { return { state: stateFromError(error), siteCount: 0, areaCount: 0, pointCount: 0, metricCount: 0, unitCount: 0, sourceCount: 0, mappingCount: 0, configurationCount: 0, hierarchy: 'Unavailable', catalog: 'Unavailable', sources: 'Unavailable', mappings: 'Unavailable', activation: 'Unavailable' } }
     },
     validate: async () => {
       try { await request('/api/v1/simulator-configurations/validate', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } }); return 'ready' } catch (error) { return stateFromError(error) }
@@ -147,7 +159,10 @@ export const webGateways: WebGateways = {
         const current = await webGateways.simulator.getSnapshot()
         const id = operation === 'start' ? current.sourceId : current.runId
         if (!id) return { ...current, state: 'no-data' }
-        return await request<SimulatorSnapshot>(`/api/v1/simulators/${id}/${operation}`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } })
+        if (operation !== 'start' && !current.version) return { ...current, state: 'error', errorCode: 'EXPECTED_VERSION_REQUIRED' }
+        const headers: Record<string, string> = { 'Idempotency-Key': crypto.randomUUID() }
+        if (operation !== 'start') headers['If-Match'] = `"${current.version}"`
+        return await request<SimulatorSnapshot>(`/api/v1/simulators/${id}/${operation}`, { method: 'POST', headers })
       } catch (error) { return { state: stateFromError(error), status: 'Stopped', generated: 0, accepted: 0, rejected: 0 } }
     },
   },

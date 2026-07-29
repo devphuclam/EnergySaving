@@ -6,7 +6,10 @@ namespace IUMP.Tests.Unit.Fakes;
 public sealed class FakeAuditAppendRepository : IAuditAppendRepository, IAuditQueryRepository, IAuditConflictRepository, ITransactionalAuditAppendRepository
 {
     private readonly Dictionary<Guid, AuditEventRecord> _bySource = new();
+    private readonly Dictionary<Guid, Dictionary<Guid, AuditEventRecord>> _staged = new();
     public IReadOnlyList<AuditEventRecord> Rows => _bySource.Values.ToArray();
+    public int CommitCount { get; private set; }
+    public int RollbackCount { get; private set; }
 
     public Task<AuditEventRecord?> AppendIfAbsentAsync(AuditEventRecord record, CancellationToken ct = default)
     {
@@ -21,7 +24,35 @@ public sealed class FakeAuditAppendRepository : IAuditAppendRepository, IAuditQu
     }
 
     public Task<AuditEventRecord?> AppendIfAbsentAsync(AuditEventRecord record, IHostTransaction transaction,
-        CancellationToken ct = default) => AppendIfAbsentAsync(record, ct);
+        CancellationToken ct = default)
+    {
+        if (_bySource.TryGetValue(record.SourceEventId, out var existing)) return Task.FromResult<AuditEventRecord?>(existing);
+        if (!_staged.TryGetValue(transaction.TransactionId, out var rows))
+            _staged[transaction.TransactionId] = rows = new();
+        if (rows.TryGetValue(record.SourceEventId, out existing)) return Task.FromResult<AuditEventRecord?>(existing);
+        rows[record.SourceEventId] = record;
+        if (transaction is not FakeHostTransaction fakeTx)
+            throw new InvalidOperationException("FAKE_TRANSACTION_ENLISTMENT_REQUIRED");
+        if (rows.Count == 1)
+            fakeTx.Enlist(() => CommitTransactionAsync(transaction.TransactionId),
+                () => RollbackTransactionAsync(transaction.TransactionId));
+        return Task.FromResult<AuditEventRecord?>(record);
+    }
+
+    public Task CommitTransactionAsync(Guid transactionId)
+    {
+        if (_staged.Remove(transactionId, out var rows))
+            foreach (var kv in rows) _bySource[kv.Key] = kv.Value;
+        CommitCount++;
+        return Task.CompletedTask;
+    }
+
+    public Task RollbackTransactionAsync(Guid transactionId)
+    {
+        _staged.Remove(transactionId);
+        RollbackCount++;
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<AuditEventRecord>> QueryAsync(AuditQueryRequest request, CancellationToken ct = default)
     {

@@ -15,16 +15,23 @@ public sealed record CommandExecutionResult(int StatusCode, string Body, string?
 public sealed record IdempotentCommandResponse(int StatusCode, string Body, string Code, bool IsReplay,
     string? ResourceReference = null, string? Location = null, string? ETag = null, string? CorrelationId = null);
 
-public sealed class IdempotentHttpResult(IdempotentCommandResponse response) : IResult
+public sealed class IdempotentHttpResult : IResult
 {
+    public IdempotentCommandResponse Response { get; }
+
+    public IdempotentHttpResult(IdempotentCommandResponse response)
+    {
+        Response = response;
+    }
+
     public async Task ExecuteAsync(HttpContext httpContext)
     {
-        httpContext.Response.StatusCode = response.StatusCode;
+        httpContext.Response.StatusCode = Response.StatusCode;
         httpContext.Response.ContentType = "application/json";
-        if (!string.IsNullOrWhiteSpace(response.Location)) httpContext.Response.Headers["Location"] = response.Location;
-        if (!string.IsNullOrWhiteSpace(response.ETag)) httpContext.Response.Headers["ETag"] = response.ETag;
-        if (!string.IsNullOrWhiteSpace(response.CorrelationId)) httpContext.Response.Headers["X-Correlation-Id"] = response.CorrelationId;
-        await httpContext.Response.WriteAsync(response.Body);
+        if (!string.IsNullOrWhiteSpace(Response.Location)) httpContext.Response.Headers["Location"] = Response.Location;
+        if (!string.IsNullOrWhiteSpace(Response.ETag)) httpContext.Response.Headers["ETag"] = Response.ETag;
+        if (!string.IsNullOrWhiteSpace(Response.CorrelationId)) httpContext.Response.Headers["X-Correlation-Id"] = Response.CorrelationId;
+        await httpContext.Response.WriteAsync(Response.Body);
     }
 }
 

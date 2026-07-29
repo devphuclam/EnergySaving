@@ -6,12 +6,16 @@ namespace IUMP.Tests.Unit.Fakes;
 
 public sealed class FakeHostTransaction : IHostTransaction, IHostTransactionController
 {
+    private readonly List<Func<Task>> _commitActions = new();
+    private readonly List<Func<Task>> _rollbackActions = new();
     public Guid TransactionId { get; }
     public string IsolationIntent => "REPEATABLE READ";
     public bool IsCompleted { get; internal set; }
     public bool IsDisposed { get; private set; }
     public int CommitCount { get; private set; }
     public int RollbackCount { get; private set; }
+
+    public bool FailOnCommit { get; set; }
 
     public FakeHostTransaction(Guid transactionId)
     {
@@ -27,6 +31,9 @@ public sealed class FakeHostTransaction : IHostTransaction, IHostTransactionCont
     public ValueTask CommitAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        if (FailOnCommit)
+            throw new InvalidOperationException("FAKE_COMMIT_FAILED");
+        foreach (var action in _commitActions) action().GetAwaiter().GetResult();
         CommitCount++;
         IsCompleted = true;
         return ValueTask.CompletedTask;
@@ -35,9 +42,16 @@ public sealed class FakeHostTransaction : IHostTransaction, IHostTransactionCont
     public ValueTask RollbackAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        foreach (var action in _rollbackActions) action().GetAwaiter().GetResult();
         RollbackCount++;
         IsCompleted = true;
         return ValueTask.CompletedTask;
+    }
+
+    public void Enlist(Func<Task> commit, Func<Task> rollback)
+    {
+        _commitActions.Add(commit);
+        _rollbackActions.Add(rollback);
     }
 }
 

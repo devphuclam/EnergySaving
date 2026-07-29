@@ -36,13 +36,19 @@ CREATE TABLE IF NOT EXISTS integration.command_idempotency (
     CONSTRAINT ck_command_idempotency_status CHECK (status IN ('Pending', 'Completed')),
     CONSTRAINT ck_command_idempotency_pending_shape CHECK (
         (status = 'Pending'
+            AND length(btrim(pending_owner)) > 0 AND pending_until IS NOT NULL
             AND original_http_status IS NULL AND original_result_payload IS NULL AND stable_result_reference IS NULL
-            AND original_location IS NULL AND original_etag IS NULL AND completed_at IS NULL)
+            AND original_location IS NULL AND original_etag IS NULL
+            AND resource_id IS NULL AND resource_version IS NULL AND error_code IS NULL
+            AND completed_at IS NULL)
         OR (status = 'Completed' AND pending_owner IS NULL AND pending_until IS NULL
             AND original_http_status BETWEEN 100 AND 599 AND original_result_payload IS NOT NULL
             AND completed_at IS NOT NULL)
     ),
-    CONSTRAINT ck_command_idempotency_attempts CHECK (attempt_count >= 0 AND version > 0)
+    CONSTRAINT ck_command_idempotency_attempts CHECK (attempt_count >= 0 AND version > 0),
+    CONSTRAINT ck_command_idempotency_pending_lease CHECK (
+        status != 'Pending' OR (pending_until IS NOT NULL AND pending_until <= created_at + INTERVAL '24 hours')
+    )
 );
 
 CREATE INDEX IF NOT EXISTS ix_command_idempotency_pending_recovery
@@ -118,12 +124,20 @@ BEGIN
     END IF;
     ALTER TABLE integration.command_idempotency ADD CONSTRAINT ck_command_idempotency_pending_shape CHECK (
         (status = 'Pending'
+            AND length(btrim(pending_owner)) > 0 AND pending_until IS NOT NULL
             AND original_http_status IS NULL AND original_result_payload IS NULL AND stable_result_reference IS NULL
-            AND original_location IS NULL AND original_etag IS NULL AND completed_at IS NULL)
+            AND original_location IS NULL AND original_etag IS NULL
+            AND resource_id IS NULL AND resource_version IS NULL AND error_code IS NULL
+            AND completed_at IS NULL)
         OR (status = 'Completed' AND pending_owner IS NULL AND pending_until IS NULL
             AND original_http_status BETWEEN 100 AND 599 AND original_result_payload IS NOT NULL
             AND completed_at IS NOT NULL)
     );
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_command_idempotency_pending_lease') THEN
+        ALTER TABLE integration.command_idempotency ADD CONSTRAINT ck_command_idempotency_pending_lease CHECK (
+            status != 'Pending' OR (pending_until IS NOT NULL AND pending_until <= created_at + INTERVAL '24 hours')
+        );
+    END IF;
 END $$;
 
 CREATE OR REPLACE FUNCTION integration.prevent_completed_command_mutation() RETURNS trigger

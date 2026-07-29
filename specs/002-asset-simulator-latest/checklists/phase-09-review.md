@@ -1,7 +1,7 @@
 # Phase 9 Standards / Spec review
 
-Review boundary is T170–T223 only. Parent baseline is
-`2ba23ca10dce6a051ac6cfe1e9806258023d1826`; Phase 10 and T224+ are out of scope.
+Review boundary is T170–T223 only. Frozen corrective baseline is
+`bd513d25f07c1034398419b068fae88ad0136b0e`; Phase 10 and T224+ are out of scope.
 
 ## Finding register
 
@@ -11,6 +11,7 @@ Review boundary is T170–T223 only. Parent baseline is
 | P9-002 | High | P-021 / SC-006 | RED probe and T172–T177 exposed incomplete lease, delivery and audit atomicity contracts | Live/expired/failed inbox handling, required-consumer gating, host transaction and canonical audit hash | Resolved |
 | P9-003 | Medium | DOC-08 / T211–T216 | Web gateway used placeholder routes and local-only state | Backend-aligned auth/configuration/Simulator/Telemetry/Audit gateways and executable fake state transitions | Resolved |
 | P9-004 | Medium | T221–T223 | Static checks and checkpoint did not enforce final contract details | Architecture checks now detect duplicate code, plain executor, route drift, constants-only tests, hash/keyset/migration drift and measured evidence | Resolved |
+| P9-005 | High | P-018/P-020/P-021, DOC-08 | Frozen closure found malformed concurrency acceptance, lost route targets, non-atomic fake proof, incomplete auth/data UI evidence and an incomplete Pending lease shape | Exact handler matrices, transaction-enlisted Audit/inbox fakes, shared AppShell state contract, backend-aligned gateways, safe Before/After rendering and exact migration checks now pass | Resolved |
 
 No Critical or High findings remain. **Standards/Spec result: PASS.**
 

@@ -1,6 +1,6 @@
 # Phase 9 checkpoint — final contract alignment
 
-Parent baseline SHA: `2ba23ca10dce6a051ac6cfe1e9806258023d1826`.
+Frozen corrective baseline SHA: `bd513d25f07c1034398419b068fae88ad0136b0e`.
 Stop boundary: **T223 complete; T224+ not executed.**
 
 ## Task ledger
@@ -25,13 +25,13 @@ opened or modified.
 | T172 | 8 | 8 | 0 |
 | T173 | 7 | 7 | 0 |
 | T174 | 7 | 7 | 0 |
-| T175 | 6 | 6 | 0 |
+| T175 | 6 | 8 | 0 |
 | T176 | 4 | 3 | 0 |
 | T177 | 6 | 7 | 0 |
-| T178 | 6 | 6 | 0 |
-| T179 | 4 | 4 | 0 |
-| T180 | 5 | 4 | 0 |
-| T181 | 4 | 4 | 0 |
+| T178 | 35 | 35 | 0 |
+| T179 | 11 | 11 | 0 |
+| T180 | 9 | 9 | 0 |
+| T181 | 8 | 8 | 0 |
 
 The counts are assigned from executed scenario/assertion paths, not declared constants. T172
 executes live/expired Pending, concurrent same-key ownership, crash-after-registration,
@@ -56,7 +56,6 @@ endpoint delegates with fake ports and server principals.
 
 | Command | Exit | Result |
 |---|---:|---|
-| Temporary RED probe at baseline `2ba23ca10dce6a051ac6cfe1e9806258023d1826` | 1 | Expected RED: 5 contract-alignment failures; worktree removed. |
 | `dotnet build .\IUMP.slnx --no-restore --configuration Debug` | 0 | PASS |
 | Debug unit runner | 0 | PASS; all T170–T181 failures 0. |
 | `dotnet build .\IUMP.slnx --no-restore --configuration Release` | 0 | PASS |
@@ -66,7 +65,7 @@ endpoint delegates with fake ports and server principals.
 | Web `npm run lint` | 0 | PASS (existing oxlint warning only) |
 | Web `npm run build` | 0 | PASS |
 | Fast harness | 0 | PASS=8 |
-| Full harness | 1 | **Non-passing by policy**: PASS=10, BLOCKED_BY_MISSING_TOOL=1 (`psql`), BLOCKED_BY_COMPANY_APPROVAL=2 (CI/container target). |
+| `& .\scripts\harness.ps1 -Mode Full -Feature 002-asset-simulator-latest` | 20 | **Non-passing by policy**: PASS=10, BLOCKED_BY_MISSING_TOOL=1 (`psql`), BLOCKED_BY_COMPANY_APPROVAL=2 (CI/container target). |
 
 ## Capability and progression
 
@@ -74,7 +73,7 @@ endpoint delegates with fake ports and server principals.
 |---|---|
 | Browser source/build ready | YES |
 | Ready for Phase 10 | YES — runnable Phase 9 contracts pass; Phase 10 remains a separate task phase |
-| Live API/Worker runtime | NO |
+| Live registered API/Worker runtime | NO |
 | PostgreSQL E2E/migrations | NO — approved target is `127.0.0.1:5433/iump_dev`; execution `NOT_RUN` |
 | Release | NO |
 

@@ -40,7 +40,7 @@ public sealed class AuditDeliveryHandler(
         {
             if (hostTransaction is IHostTransactionController controller)
                 await controller.RollbackAsync(CancellationToken.None);
-            await delivery.MarkFailedAsync(inbox, "AUDIT_DELIVERY_FAILED", DateTime.UtcNow, ct);
+            await delivery.RescheduleAsync(inbox, DateTime.UtcNow.AddSeconds(5), "AUDIT_DELIVERY_RETRY", ct);
             return false;
         }
         finally

@@ -12,6 +12,11 @@ public static class ConfigurationEndpointPolicy
     public static bool RequiresIdempotency(string method) => method is "POST" or "PUT" or "PATCH" or "DELETE";
     public static bool RequiresIfMatch(string method) => method is "PUT" or "PATCH" or "DELETE";
     public static bool IsQuery(string method) => method is "GET";
+
+    public static bool IsLifecyclePost(string method, string operationCode) => method is "POST" &&
+        (operationCode.Contains("Activate") || operationCode.Contains("Deactivate") ||
+         operationCode.Contains("Supersede") || operationCode.Contains("Suspend") ||
+         operationCode.Contains("Decommission") || operationCode.Contains("Inactivate"));
 }
 
 /// Public HTTP composition seam. Domain mutations are delegated to the configuration port;
@@ -37,6 +42,8 @@ public static class ConfigurationEndpoints
             ListAsync("data-sources", query, principal, ct));
         group.MapGet("/source-point-mappings", (IConfigurationQueryPort query, IServerPrincipalAccessor principal, CancellationToken ct) =>
             ListAsync("source-point-mappings", query, principal, ct));
+        group.MapGet("/simulator-configurations", (IConfigurationQueryPort query, IServerPrincipalAccessor principal, CancellationToken ct) =>
+            ListAsync("simulator-configurations", query, principal, ct));
         group.MapGet("/sites/{siteId:guid}/areas", (Guid siteId, IConfigurationQueryPort query, IServerPrincipalAccessor principal, CancellationToken ct) =>
             ListAsync($"areas:{siteId:D}", query, principal, ct));
         group.MapGet("/areas/{areaId:guid}/assets", (Guid areaId, IConfigurationQueryPort query, IServerPrincipalAccessor principal, CancellationToken ct) =>
@@ -99,57 +106,51 @@ public static class ConfigurationEndpoints
         group.MapMethods(route, methods, (HttpRequest request, IConfigurationCommandPort commands,
             IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
             IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-            ExecuteGenericAsync(operationCode, FindRouteTarget(request), request, commands, executor, principalAccessor, transactionFactory, ct));
+            ExecuteGenericAsync(operationCode, ResolveRouteTarget(request), request, commands, executor, principalAccessor, transactionFactory, ct));
     }
 
-    private static Guid? FindRouteTarget(HttpRequest request)
+    public static Guid? ResolveRouteTarget(HttpRequest request)
     {
         foreach (var key in new[] { "siteId", "areaId", "assetId", "pointId", "metricId", "unitId", "sourceId", "mappingId", "configurationId" })
             if (request.RouteValues.TryGetValue(key, out var value) && Guid.TryParse(value?.ToString(), out var id)) return id;
         return null;
     }
 
+    private static bool HasTargetRoute(HttpRequest request) =>
+        new[] { "siteId", "areaId", "assetId", "pointId", "metricId", "unitId", "sourceId", "mappingId", "configurationId" }
+            .Any(request.RouteValues.ContainsKey);
+
+    private static bool TryReadExpectedVersion(HttpRequest request, out long expectedVersion)
+    {
+        expectedVersion = default;
+        if (!request.Headers.TryGetValue("If-Match", out var values) || values.Count != 1) return false;
+        var raw = values[0]?.Trim();
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        if (raw.Length >= 2 && raw[0] == '"' && raw[^1] == '"') raw = raw[1..^1];
+        return long.TryParse(raw, out expectedVersion) && expectedVersion > 0;
+    }
+
     private static void MapMutation(RouteGroupBuilder group, string route, string operationCode)
     {
-        if (route.Contains("{pointId", StringComparison.Ordinal))
+        foreach (var (pattern, idNames) in new[] {
+            ("{sourceId", new[] { "sourceId" }),
+            ("{mappingId", new[] { "mappingId" }),
+            ("{configurationId", new[] { "configurationId" }),
+            ("{pointId", new[] { "pointId" }),
+            ("{siteId", new[] { "siteId" }),
+            ("{areaId", new[] { "areaId" }),
+            ("{assetId", new[] { "assetId" }),
+            ("{metricId", new[] { "metricId" }),
+        })
         {
-            group.MapPost(route, (Guid pointId, HttpRequest request, IConfigurationCommandPort commands,
-                IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
-                IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-                ExecuteGenericAsync(operationCode, pointId, request, commands, executor, principalAccessor, transactionFactory, ct));
-            return;
-        }
-        if (route.Contains("{siteId", StringComparison.Ordinal))
-        {
-            group.MapPost(route, (Guid siteId, HttpRequest request, IConfigurationCommandPort commands,
-                IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
-                IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-                ExecuteGenericAsync(operationCode, siteId, request, commands, executor, principalAccessor, transactionFactory, ct));
-            return;
-        }
-        if (route.Contains("{areaId", StringComparison.Ordinal))
-        {
-            group.MapPost(route, (Guid areaId, HttpRequest request, IConfigurationCommandPort commands,
-                IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
-                IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-                ExecuteGenericAsync(operationCode, areaId, request, commands, executor, principalAccessor, transactionFactory, ct));
-            return;
-        }
-        if (route.Contains("{assetId", StringComparison.Ordinal))
-        {
-            group.MapPost(route, (Guid assetId, HttpRequest request, IConfigurationCommandPort commands,
-                IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
-                IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-                ExecuteGenericAsync(operationCode, assetId, request, commands, executor, principalAccessor, transactionFactory, ct));
-            return;
-        }
-        if (route.Contains("{metricId", StringComparison.Ordinal))
-        {
-            group.MapPost(route, (Guid metricId, HttpRequest request, IConfigurationCommandPort commands,
-                IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
-                IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-                ExecuteGenericAsync(operationCode, metricId, request, commands, executor, principalAccessor, transactionFactory, ct));
-            return;
+            if (route.Contains(pattern, StringComparison.Ordinal))
+            {
+                group.MapPost(route, (HttpRequest request, IConfigurationCommandPort commands,
+                    IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
+                    IHostTransactionFactory transactionFactory, CancellationToken ct) =>
+                    ExecuteGenericAsync(operationCode, ResolveRouteTarget(request), request, commands, executor, principalAccessor, transactionFactory, ct));
+                return;
+            }
         }
         group.MapPost(route, (HttpRequest request, IConfigurationCommandPort commands,
             IdempotentCommandExecutor executor, IServerPrincipalAccessor principalAccessor,
@@ -157,7 +158,7 @@ public static class ConfigurationEndpoints
             ExecuteGenericAsync(operationCode, null, request, commands, executor, principalAccessor, transactionFactory, ct));
     }
 
-    private static async Task<IResult> ListAsync(string resource, IConfigurationQueryPort query,
+    public static async Task<IResult> ListAsync(string resource, IConfigurationQueryPort query,
         IServerPrincipalAccessor principalAccessor, CancellationToken ct)
     {
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
@@ -185,11 +186,11 @@ public static class ConfigurationEndpoints
         IConfigurationCommandPort commands, IdempotentCommandExecutor executor,
         IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct)
     {
-        if (!request.Headers.TryGetValue("Idempotency-Key", out var key) || !request.Headers.ContainsKey("If-Match"))
+        if (!request.Headers.TryGetValue("Idempotency-Key", out var key) || string.IsNullOrWhiteSpace(key) ||
+            !TryReadExpectedVersion(request, out var expectedVersion))
             return Results.Problem("Idempotency-Key and If-Match are required.", statusCode: StatusCodes.Status400BadRequest);
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
         var name = request.Query["name"].FirstOrDefault() ?? string.Empty;
-        var expectedVersion = long.TryParse(request.Headers["If-Match"].FirstOrDefault()?.Trim('"'), out var version) ? version : 0;
         var fields = new[] { CommandFingerprintField.Uuid("siteId", siteId), CommandFingerprintField.String("name", name) };
         var identity = new CommandIdentity(principal.UserId, CommandOperationCodes.UpdateSite, key!);
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
@@ -202,21 +203,43 @@ public static class ConfigurationEndpoints
     private static IResult ToResult(IdempotentCommandResponse response)
         => new IdempotentHttpResult(response);
 
+    private static bool RequiresIfMatch(string method, string operationCode) =>
+        ConfigurationEndpointPolicy.RequiresIfMatch(method) || ConfigurationEndpointPolicy.IsLifecyclePost(method, operationCode);
+
     public static async Task<IResult> ExecuteGenericAsync(string operationCode, Guid? targetId,
         HttpRequest request, IConfigurationCommandPort commands, IdempotentCommandExecutor executor,
         IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct)
     {
         if (!request.Headers.TryGetValue("Idempotency-Key", out var key) || string.IsNullOrWhiteSpace(key))
             return Results.Problem("Idempotency-Key is required.", statusCode: StatusCodes.Status400BadRequest);
+        if (HasTargetRoute(request) && targetId is null)
+            return Results.Problem("A valid route target is required.", statusCode: StatusCodes.Status400BadRequest);
+        var requiresExpectedVersion = RequiresIfMatch(request.Method, operationCode);
+        long parsedExpectedVersion = 0;
+        if (requiresExpectedVersion && !TryReadExpectedVersion(request, out parsedExpectedVersion))
+            return Results.Problem("A valid If-Match is required.", statusCode: StatusCodes.Status400BadRequest);
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+        var expectedVersion = requiresExpectedVersion ? parsedExpectedVersion : (long?)null;
         var name = request.Query["name"].FirstOrDefault() ?? string.Empty;
-        var fields = new[] { CommandFingerprintField.String("name", name) };
+        var fields = targetId.HasValue
+            ? new[] { CommandFingerprintField.Uuid("targetId", targetId.Value), CommandFingerprintField.String("name", name) }
+            : new[] { CommandFingerprintField.String("name", name) };
         var identity = new CommandIdentity(principal.UserId, operationCode, key!);
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
-            operationCode, principal.UserId, "Configuration", null, "Configuration", targetId, null, fields));
+            operationCode, principal.UserId, "Configuration", null, "Configuration", targetId, expectedVersion, fields));
+        return await ExecuteWithTransactionAsync(operationCode, targetId, expectedVersion, name, identity, fingerprint,
+            commands, executor, principal, transactionFactory, ct);
+    }
+
+    private static async Task<IResult> ExecuteWithTransactionAsync(string operationCode, Guid? targetId,
+        long? expectedVersion, string name, CommandIdentity identity, byte[] fingerprint,
+        IConfigurationCommandPort commands, IdempotentCommandExecutor executor,
+        ServerPrincipal principal, IHostTransactionFactory transactionFactory, CancellationToken ct)
+    {
         var response = await executor.ExecuteTransactionalAsync(identity, fingerprint, transactionFactory,
             (transaction, token) => commands.ExecuteAsync(operationCode,
-                new ConfigurationCommandRequest(targetId, name, null, fields), principal, transaction, token), ct);
+                new ConfigurationCommandRequest(targetId, name, expectedVersion,
+                    new[] { CommandFingerprintField.String("name", name) }), principal, transaction, token), ct);
         return ToResult(response);
     }
 }

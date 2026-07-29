@@ -261,13 +261,10 @@ recorded here.
 
 ## Phase 9 final contract-alignment closure evidence - 2026-07-29
 
-Parent baseline: `2ba23ca10dce6a051ac6cfe1e9806258023d1826`. A temporary native worktree ran the
-contract-alignment RED probe at that exact baseline and returned exit `1` with five executable
-failures (duplicate fingerprint, non-transactional mutation paths, non-delegating endpoint test,
-and placeholder Web routes). The worktree was removed after capture.
+Frozen corrective baseline: `bd513d25f07c1034398419b068fae88ad0136b0e`.
 
 Green provider-neutral evidence: Debug and Release build/unit exit `0`; architecture verification
-exit `0`; Web lint/build exit `0`; Fast harness exit `0` (`PASS=8`); Full harness exit `1` with
+exit `0`; Web lint/build exit `0`; Fast harness exit `0` (`PASS=8`); Full harness exit `20` with
 `PASS=10`, `BLOCKED_BY_MISSING_TOOL=1` (`psql`) and `BLOCKED_BY_COMPANY_APPROVAL=2` (CI/container
 target). The Full result is explicitly non-passing because its blockers are real and are not
 promoted to PASS.

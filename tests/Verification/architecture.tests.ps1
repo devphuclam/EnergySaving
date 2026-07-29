@@ -1332,7 +1332,7 @@ if ($isCanonicalModuleRoot) {
             $issues += 'T167 FAIL: existing R0 operations.job source review is incomplete.'
         }
     }
-    # --- T221 Phase 9 API/Audit/Web seam and ownership checks ---
+# --- T221 Phase 9 API/Audit/Web seam and ownership checks ---
     $phase9Required = @(
         (Join-Path $ModuleRoot 'Integration\Domain\CommandIdempotency.cs'),
         (Join-Path $ModuleRoot 'Integration\Contracts\CommandFingerprintContracts.cs'),
@@ -1499,9 +1499,54 @@ if ($isCanonicalModuleRoot) {
     if ($webGateway -match "state:\s*'ready'[^}]*?(?:areaCount|pointCount|siteCount):\s*0") {
         $issues += 'T221 FAIL: configuration summary may not hardcode zero counts.'
     }
-    if ($webTestSource -notmatch 'createFakeWebGateways' -or $webTestSource -notmatch 'transition' -or
+    if ($webTestSource -notmatch 'createFakeWebGateways' -or $webTestSource -notmatch 'transitionAppShell' -or
         $webTestSource -notmatch 'runAppShellBehaviorScenarios') {
         $issues += 'T211 FAIL: web behavior evidence must execute fake gateway state transitions.'
+    }
+
+    # Phase 9 closure: detect remaining placeholder patterns
+    $appShellSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\app\AppShell.tsx') -Raw
+    if ($appShellSource -notmatch 'type="text"' -or $appShellSource -notmatch 'type="password"' -or
+        $appShellSource -notmatch 'auth\.signIn\(\{\s*username,\s*password\s*\}\)' -or
+        $webGateway -match "signIn:\s*async\s*\(credentials\s*=\s*\{\s*username:\s*''") {
+        $issues += 'T221 FAIL: AppShell signIn must accept username/password credentials.'
+    }
+    if ($configurationEndpoint -notmatch 'RequiresIfMatch\(request\.Method,\s*operationCode\)' -or
+        $configurationEndpoint -notmatch 'TryReadExpectedVersion' -or
+        $configurationEndpoint -notmatch 'A valid If-Match is required') {
+        $issues += 'T221 FAIL: generic configuration update/delete handlers must reject missing or malformed If-Match.'
+    }
+    foreach ($routeTarget in @('sourceId','mappingId','configurationId')) {
+        if ($configurationEndpoint -notmatch [regex]::Escape("`"$routeTarget`"") -or
+            $configurationEndpoint -notmatch 'ResolveRouteTarget\(request\)') {
+            $issues += "T221 FAIL: configuration route target $routeTarget may be lost before command execution."
+        }
+    }
+    $configRoutes = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\features\configuration\ConfigurationRoutes.tsx') -Raw
+    if ($configRoutes -match 'Catalog gateway ready|Source gateway ready|Mapping gateway ready|Activation state supplied by server') {
+        $issues += 'T221 FAIL: ConfigurationRoutes must not contain fixed placeholder strings.'
+    }
+    $auditRoute = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\features\audit\AuditRoute.tsx') -Raw
+    if ($auditRoute -notmatch 'record\.before' -or $auditRoute -notmatch 'record\.after') {
+        $issues += 'T221 FAIL: AuditRoute must display Before/After fields.'
+    }
+    $fakeAuditRepos = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeAuditRepositories.cs') -Raw
+    if ($fakeAuditRepos -match '=> AppendIfAbsentAsync\(record, ct\)') {
+        $issues += 'T221 FAIL: FakeAuditAppendRepository transactional overload must use staging not immediate write.'
+    }
+    $fakeInboxRepos = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeIntegrationDeliveryRepositories.cs') -Raw
+    if ($fakeInboxRepos -match '=> CompleteAsync\(record, ct\)') {
+        $issues += 'T221 FAIL: FakeIntegrationDeliveryRepositories transactional overload must use staging not immediate write.'
+    }
+    if ($webTestSource -notmatch "from\s+'../app/AppShell'" -or $webTestSource -notmatch '\bAppShell\b') {
+        $issues += 'T221 FAIL: T211 app-shell test must import AppShell for scenario coverage.'
+    }
+    $migration11Path = Join-Path $repoRoot 'database\migrations\0011_r1_infrastructure_expand.sql'
+    $migration11 = Get-Content -LiteralPath $migration11Path -Raw
+    if ($migration11 -notmatch "length\(btrim\(pending_owner\)\)\s*>\s*0" -or
+        $migration11 -notmatch "pending_until\s+IS\s+NOT\s+NULL" -or
+        $migration11 -notmatch "pending_until\s*<=\s*created_at\s*\+\s*INTERVAL\s+'24 hours'") {
+        $issues += 'T221 FAIL: 0011 command Pending lease must require a nonblank owner and a bounded nonnull pending_until.'
     }
 }
 
