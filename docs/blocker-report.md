@@ -192,3 +192,25 @@ was read into evidence, printed, serialized, copied, or committed.
 - Database-access blocker count: `0`.
 - Database mutation: `NOT_RUN`.
 - Prohibited cluster `127.0.0.1:5432`: not contacted.
+
+## Phase 8 Latest/Source Health capability evidence — 2026-07-29
+
+Phase 8 provider-neutral Latest, Source Health, and Operations contract work
+did not connect to PostgreSQL, run `psql`, execute migration `0009`, or mutate
+database data. The approved runtime target remains available at
+`127.0.0.1:5433/iump_dev`; credentials remain in the ignored local `.env` and
+are not recorded here.
+
+- T164: `BLOCKED_BY_PACKAGE_POLICY`; the PostgreSQL Operations adapter and its
+  approved package dependencies are unavailable. `PostgresJobRepositories.cs`
+  was not created.
+- T165: `BLOCKED_BY_PACKAGE_POLICY`; Worker registration depends on T164 and
+  `src/Worker/Program.cs` was not modified.
+- T166: `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`; it depends on T164/T165 and the
+  blocked T146 adapter path. PostgreSQL itself is available, so this is not a
+  database-access classification.
+- `psql`: `BLOCKED_BY_MISSING_TOOL`, a separate capability; no installation or
+  download was attempted.
+- Database-access blocker count for this invocation: `0`.
+- Database mutation/migration execution: `NOT_RUN`.
+- Prohibited cluster `127.0.0.1:5432`: not contacted.

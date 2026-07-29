@@ -1234,20 +1234,102 @@ if ($isCanonicalModuleRoot) {
         }
     }
 
-    $phase8Indicators = @(
-        'src\Modules\Telemetry\Application\LatestProjection.cs',
-        'src\Modules\Telemetry\Application\SourceHealthEvaluator.cs',
-        'src\Api\TelemetryEndpoints.cs',
-        'src\Web\Telemetry',
-        'tests\Unit\Telemetry\PointLatestTests.cs',
-        'tests\Unit\Telemetry\SourceHealthTests.cs',
-        'database\migrations\0009_telemetry_latest_status.sql',
-        'specs\002-asset-simulator-latest\checklists\phase-08-red.md',
-        'specs\002-asset-simulator-latest\checklists\phase-08-latest-health.md'
-    )
-    foreach ($indicator in $phase8Indicators) {
-        if (Test-Path -LiteralPath (Join-Path $repoRoot $indicator)) {
-            $issues += "T149 FAIL: Phase 8 implementation detected: $indicator."
+    # --- T167 Phase 8 Latest/Source Health/Operations boundary checks ---
+    $latestServicePath = Join-Path $ModuleRoot 'Telemetry\Application\PointLatestService.cs'
+    $healthServicePath = Join-Path $ModuleRoot 'Telemetry\Application\SourceHealthService.cs'
+    $healthJobsPath = Join-Path $ModuleRoot 'Operations\Application\SourceHealthJobs.cs'
+    $projectionPath = Join-Path $ModuleRoot 'Telemetry\Contracts\TelemetryProjectionContracts.cs'
+    $durableJobContractsPath = Join-Path $ModuleRoot 'Operations\Contracts\DurableJobContracts.cs'
+    $jobClaimContractsPath = Join-Path $ModuleRoot 'Operations\Contracts\JobClaimContracts.cs'
+    $migration9Path = Join-Path $repoRoot 'database\migrations\0009_telemetry_latest_status.sql'
+    foreach ($requiredPath in @($latestServicePath, $healthServicePath, $healthJobsPath,
+        $projectionPath, $durableJobContractsPath, $jobClaimContractsPath, $migration9Path)) {
+        if (-not (Test-Path -LiteralPath $requiredPath)) {
+            $issues += "T167 FAIL: missing Phase 8 artifact $requiredPath."
+        }
+    }
+    if (Test-Path -LiteralPath $latestServicePath) {
+        $latest = Get-Content -LiteralPath $latestServicePath -Raw
+        if ($latest -notmatch 'MeasurementQuality' -or $latest -notmatch 'IsEligible' -or
+            $latest -notmatch 'LatestOrdering\.Compare' -or
+            $latest -notmatch 'IPointLatestProjectionRepository' -or
+            $latest -notmatch 'StageAdvancedEventAsync') {
+            $issues += 'T167 FAIL: Latest service is missing eligibility, ordering, CAS, or event seam.'
+        }
+        if ($latest -match 'BeginRepeatableRead|BeginAsync\(') {
+            $issues += 'T167 FAIL: Latest service must not open an independent transaction.'
+        }
+    }
+    if (Test-Path -LiteralPath $healthServicePath) {
+        $health = Get-Content -LiteralPath $healthServicePath -Raw
+        if ($health -notmatch 'ExpectedIntervalSeconds' -or
+            $health -notmatch 'NoDataAfterSeconds' -or
+            $health -notmatch 'Decommissioned' -or
+            $health -notmatch 'Suspended' -or
+            $health -notmatch 'StageChangedEventAsync') {
+            $issues += 'T167 FAIL: Source Health thresholds/precedence/event seam is incomplete.'
+        }
+    }
+    if (Test-Path -LiteralPath $healthJobsPath) {
+        $jobs = Get-Content -LiteralPath $healthJobsPath -Raw
+        if ($jobs -notmatch 'source-health' -or $jobs -notmatch 'ClaimDueAsync' -or
+            $jobs -notmatch 'AddSeconds\(30\)' -or $jobs -notmatch 'ListExpiredAsync') {
+            $issues += 'T167 FAIL: health job scheduling/claim/lease/reconciliation is incomplete.'
+        }
+    }
+    if (Test-Path -LiteralPath $durableJobContractsPath) {
+        $jobContracts = Get-Content -LiteralPath $durableJobContractsPath -Raw
+        if ($jobContracts -notmatch 'IDurableJobScheduler' -or
+            $jobContracts -notmatch 'JobType' -or $jobContracts -notmatch 'IdempotencyKey' -or
+            $jobContracts -match 'DbContext|IQueryable|Npgsql|ConnectionString') {
+            $issues += 'T167 FAIL: durable scheduler port is not provider-neutral or identity-safe.'
+        }
+    }
+    if (Test-Path -LiteralPath $jobClaimContractsPath) {
+        $claimContracts = Get-Content -LiteralPath $jobClaimContractsPath -Raw
+        if ($claimContracts -notmatch 'IJobClaimRepository' -or
+            $claimContracts -notmatch 'RenewAsync' -or $claimContracts -notmatch 'RescheduleAsync' -or
+            $claimContracts -notmatch 'FailAsync' -or
+            $claimContracts -match 'DbContext|IQueryable|Npgsql') {
+            $issues += 'T167 FAIL: job claim port is incomplete or provider-specific.'
+        }
+    }
+    if (Test-Path -LiteralPath $migration9Path) {
+        $migration9 = Get-Content -LiteralPath $migration9Path -Raw
+        if ($migration9 -notmatch 'telemetry\.point_latest' -or
+            $migration9 -notmatch 'telemetry\.point_source_status' -or
+            $migration9 -match '(?i)REFERENCES\s+(organization|catalog|acquisition|operations|integration|audit)\.' -or
+            $migration9 -match '(?i)CREATE\s+TABLE\s+.*(measurement_raw|measurement_identity|job|audit_event)' -or
+            $migration9 -match '(?i)NoData.*numeric|numeric.*NoData') {
+            $issues += 'T167 FAIL: migration 0009 violates Telemetry ownership or NoData constraints.'
+        }
+        foreach ($constraint in @('quality_code IN (''Good'', ''Uncertain'')',
+            'expected_interval_seconds > 0',
+            'no_data_after_seconds > expected_interval_seconds',
+            'source_sequence IS NULL OR source_sequence >= 0')) {
+            if ($migration9 -notmatch [regex]::Escape($constraint)) {
+                $issues += "T167 FAIL: migration 0009 missing static constraint $constraint."
+            }
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Operations\Infrastructure\PostgresJobRepositories.cs')) {
+        $issues += 'T167 FAIL: package-policy-blocked PostgreSQL Operations adapter must remain absent.'
+    }
+    foreach ($compositionRoot in @(
+        (Join-Path $repoRoot 'src\Api\Program.cs'),
+        (Join-Path $repoRoot 'src\Worker\Program.cs')
+    )) {
+        $composition = Get-Content -LiteralPath $compositionRoot -Raw
+        if ($composition -match 'SourceHealthJobs|PostgresJobRepositories|PointLatestService') {
+            $issues += "T167 FAIL: Phase 8 runtime registration detected in $compositionRoot."
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $repoRoot 'database\migrations\0001_r0_foundation.sql')) {
+        $migration1 = Get-Content -LiteralPath (Join-Path $repoRoot 'database\migrations\0001_r0_foundation.sql') -Raw
+        if ($migration1 -notmatch 'operations\.job' -or $migration1 -notmatch 'idempotency_key' -or
+            ($migration1 -notmatch 'lease_until' -and $migration1 -notmatch 'lease_expires_at') -or
+            $migration1 -notmatch 'attempt_count' -or $migration1 -notmatch 'payload_json') {
+            $issues += 'T167 FAIL: existing R0 operations.job source review is incomplete.'
         }
     }
 }
