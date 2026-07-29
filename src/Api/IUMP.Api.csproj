@@ -2,5 +2,6 @@
   <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
     <ProjectReference Include="..\Modules\IAM\IUMP.Modules.IAM.csproj" />
+    <ProjectReference Include="..\Modules\Integration\IUMP.Modules.Integration.csproj" />
   </ItemGroup>
 </Project>

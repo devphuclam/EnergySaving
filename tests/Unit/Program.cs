@@ -15,6 +15,7 @@ using IUMP.Tests.Unit.Worker;
 using IUMP.Tests.Unit.Telemetry;
 using IUMP.Tests.Unit.Operations;
 using IUMP.Tests.Integration.Operations;
+using IUMP.Tests.Unit.Audit;
 
 var failures = new List<string>();
 
@@ -150,6 +151,44 @@ var operationsRunner = new OperationsJobRepositoryContractRunner();
 await operationsRunner.RunAllAsync(new FakeOperationsJobRepositoryTestProviderFactory());
 failures.AddRange(operationsRunner.Failures);
 Console.WriteLine($"T163: scenarios={operationsRunner.TestCount}; assertions={operationsRunner.AssertionCount}; failures={operationsRunner.Failures.Count}");
+
+// Phase 9 — API, Integration delivery, Audit and endpoint seams
+var t170Failures = CommandFingerprintTests.Run();
+Console.WriteLine($"T170: failures={t170Failures.Count}");
+failures.AddRange(t170Failures);
+var t171Failures = CommandIdempotencyDomainTests.Run();
+Console.WriteLine($"T171: failures={t171Failures.Count}");
+failures.AddRange(t171Failures);
+var t172Failures = await IdempotentCommandExecutorTests.Run();
+Console.WriteLine($"T172: failures={t172Failures.Count}");
+failures.AddRange(t172Failures);
+var t173Failures = await DeliveryRepositoryContractTests.Run();
+Console.WriteLine($"T173: failures={t173Failures.Count}");
+failures.AddRange(t173Failures);
+var t174Failures = await OutboxDispatcherTests.Run();
+Console.WriteLine($"T174: failures={t174Failures.Count}");
+failures.AddRange(t174Failures);
+var t175Failures = await AuditConsumerTests.Run();
+Console.WriteLine($"T175: failures={t175Failures.Count}");
+failures.AddRange(t175Failures);
+var t176Failures = await AuditQueryTests.Run();
+Console.WriteLine($"T176: failures={t176Failures.Count}");
+failures.AddRange(t176Failures);
+var t177Failures = await AuditDeliveryJobsTests.Run();
+Console.WriteLine($"T177: failures={t177Failures.Count}");
+failures.AddRange(t177Failures);
+var t178Failures = ConfigurationEndpointTests.Run();
+Console.WriteLine($"T178: failures={t178Failures.Count}");
+failures.AddRange(t178Failures);
+var t179Failures = SimulatorEndpointTests.Run();
+Console.WriteLine($"T179: failures={t179Failures.Count}");
+failures.AddRange(t179Failures);
+var t180Failures = TelemetryQueryEndpointTests.Run();
+Console.WriteLine($"T180: failures={t180Failures.Count}");
+failures.AddRange(t180Failures);
+var t181Failures = AuditEndpointTests.Run();
+Console.WriteLine($"T181: failures={t181Failures.Count}");
+failures.AddRange(t181Failures);
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

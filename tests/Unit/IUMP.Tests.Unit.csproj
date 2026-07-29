@@ -12,6 +12,7 @@
     <ProjectReference Include="..\..\src\Modules\Telemetry\IUMP.Modules.Telemetry.csproj" />
     <ProjectReference Include="..\..\src\Modules\Operations\IUMP.Modules.Operations.csproj" />
     <ProjectReference Include="..\..\src\Modules\Integration\IUMP.Modules.Integration.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\IUMP.Modules.Audit.csproj" />
     <ProjectReference Include="..\..\src\Worker\IUMP.Worker.csproj" />
   </ItemGroup>
   <ItemGroup>
@@ -23,5 +24,7 @@
     <Compile Include="..\Integration\Acquisition\RunAttemptRepositoryTests.cs" Link="Acquisition\RunAttemptRepositoryTests.cs" />
     <Compile Include="..\Integration\Telemetry\TelemetryIngestionRepositoryTests.cs" Link="Telemetry\TelemetryIngestionRepositoryTests.cs" />
     <Compile Include="..\Integration\Operations\OperationsJobRepositoryTests.cs" Link="Operations\OperationsJobRepositoryTests.cs" />
+    <Compile Include="..\Integration\Integration\IntegrationRepositoryTests.cs" Link="Integration\IntegrationRepositoryTests.cs" />
+    <Compile Include="..\Integration\Audit\AuditRepositoryTests.cs" Link="Audit\AuditRepositoryTests.cs" />
   </ItemGroup>
 </Project>

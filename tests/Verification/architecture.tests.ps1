@@ -1332,6 +1332,65 @@ if ($isCanonicalModuleRoot) {
             $issues += 'T167 FAIL: existing R0 operations.job source review is incomplete.'
         }
     }
+    # --- T221 Phase 9 API/Audit/Web seam and ownership checks ---
+    $phase9Required = @(
+        (Join-Path $ModuleRoot 'Integration\Domain\CommandIdempotency.cs'),
+        (Join-Path $ModuleRoot 'Integration\Application\CommandFingerprintV1.cs'),
+        (Join-Path $ModuleRoot 'Integration\Contracts\CommandIdempotencyContracts.cs'),
+        (Join-Path $ModuleRoot 'Integration\Contracts\DeliveryPersistenceContracts.cs'),
+        (Join-Path $repoRoot 'src\Api\Infrastructure\IdempotentCommandExecutor.cs'),
+        (Join-Path $repoRoot 'src\Worker\Integration\OutboxDispatcherWorker.cs'),
+        (Join-Path $ModuleRoot 'Audit\Application\AuditEventConsumer.cs'),
+        (Join-Path $ModuleRoot 'Audit\Application\AuditQueryService.cs'),
+        (Join-Path $repoRoot 'src\Worker\Integration\AuditDeliveryHandler.cs'),
+        (Join-Path $repoRoot 'src\Api\ConfigurationEndpoints.cs'),
+        (Join-Path $repoRoot 'src\Api\SimulatorEndpoints.cs'),
+        (Join-Path $repoRoot 'src\Api\TelemetryQueryEndpoints.cs'),
+        (Join-Path $repoRoot 'src\Api\AuditEndpoints.cs'),
+        (Join-Path $repoRoot 'database\migrations\0010_audit_event.sql'),
+        (Join-Path $repoRoot 'database\migrations\0011_r1_infrastructure_expand.sql'),
+        (Join-Path $repoRoot 'src\Web\src\app\AppShell.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\features\configuration\ConfigurationRoutes.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\features\simulator\SimulatorRoute.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\features\telemetry\PointCurrentRoute.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\features\audit\AuditRoute.tsx'))
+    foreach ($requiredPath in $phase9Required) {
+        if (-not (Test-Path -LiteralPath $requiredPath)) { $issues += "T221 FAIL: missing Phase 9 seam $requiredPath." }
+    }
+    foreach ($blockedAdapter in @(
+        (Join-Path $ModuleRoot 'Integration\Infrastructure\PostgresIntegrationRepositories.cs'),
+        (Join-Path $ModuleRoot 'Audit\Infrastructure\PostgresAuditRepositories.cs'))) {
+        if (Test-Path -LiteralPath $blockedAdapter) { $issues += "T221 FAIL: package-policy-blocked adapter must remain absent: $blockedAdapter." }
+    }
+    $phase9Ports = @(
+        (Join-Path $ModuleRoot 'Integration\Contracts\CommandIdempotencyContracts.cs'),
+        (Join-Path $ModuleRoot 'Integration\Contracts\DeliveryPersistenceContracts.cs'),
+        (Join-Path $ModuleRoot 'Audit\Contracts\AuditContracts.cs')) | ForEach-Object { Get-Content -LiteralPath $_ -Raw }
+    if (($phase9Ports -join "`n") -match '(?i)Npgsql|DbContext|IQueryable|ConnectionString') {
+        $issues += 'T221 FAIL: Phase 9 public ports expose provider-specific persistence types.'
+    }
+    foreach ($compositionRoot in @(
+        (Join-Path $repoRoot 'src\Api\Program.cs'),
+        (Join-Path $repoRoot 'src\Worker\Program.cs'))) {
+        $composition = Get-Content -LiteralPath $compositionRoot -Raw
+        if ($composition -match 'PostgresIntegration|PostgresAudit|IdempotentCommandExecutor|AuditDeliveryHandler') {
+            $issues += "T221 FAIL: blocked Phase 9 composition registration detected in $compositionRoot."
+        }
+    }
+    $migration10 = Get-Content -LiteralPath (Join-Path $repoRoot 'database\migrations\0010_audit_event.sql') -Raw
+    if ($migration10 -notmatch 'source_event_id.*UNIQUE' -or $migration10 -match '(?i)REFERENCES\s+(organization|catalog|acquisition|integration)\.') {
+        $issues += 'T221 FAIL: Audit migration must be unique by source event and cross-schema-FK free.'
+    }
+    $migration11 = Get-Content -LiteralPath (Join-Path $repoRoot 'database\migrations\0011_r1_infrastructure_expand.sql') -Raw
+    if ($migration11 -notmatch 'integration\.command_idempotency' -or $migration11 -notmatch 'ALTER TABLE integration\.inbox_message' -or
+        $migration11 -match '(?i)CREATE\s+TABLE\s+.*(outbox_event|inbox_message|job)') {
+        $issues += 'T221 FAIL: 0011 must be additive and must not recreate R0 delivery/job tables.'
+    }
+    $webApp = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\App.tsx') -Raw
+    $webCss = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\App.css') -Raw
+    if ($webApp -notmatch 'AppShell' -or $webCss -notmatch 'focus-visible' -or $webCss -notmatch 'prefers-reduced-motion') {
+        $issues += 'T221 FAIL: Web shell/accessibility seam is incomplete.'
+    }
 }
 
 if ($issues.Count -gt 0) {

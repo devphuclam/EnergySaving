@@ -214,3 +214,24 @@ are not recorded here.
 - Database-access blocker count for this invocation: `0`.
 - Database mutation/migration execution: `NOT_RUN`.
 - Prohibited cluster `127.0.0.1:5432`: not contacted.
+
+## Phase 9 API/Audit/Web capability evidence — 2026-07-29
+
+Phase 9 completed provider-neutral API, Integration, Worker, Audit and Web seams only. The approved
+PostgreSQL target remains `AVAILABLE` at `127.0.0.1:5433/iump_dev`; Phase 9 did not connect, run
+`psql`, execute migrations `0010`/`0011`, or mutate database data. The ignored local `.env` stayed
+untracked and no secret value was read into evidence, printed, serialized, copied, or committed.
+
+- T192, T193, T202, T205: `BLOCKED_BY_PACKAGE_POLICY`; approved locked PostgreSQL adapter packages
+  are unavailable, so adapter source and composition-root registration remain absent.
+- T206, T219, T220: `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`; each depends on the blocked adapter and
+  registration chain. PostgreSQL capability itself is available; this is not database-access
+  blocking.
+- T218: `BLOCKED_BY_PACKAGE_POLICY`; the locked Web package has no approved behavior-test runner
+  command. `npm run lint` and `npm run build` were run from the existing cache without install or
+  download.
+- `psql`: `BLOCKED_BY_MISSING_TOOL`, a separate tool capability; no installation or download was
+  attempted.
+- Database-access blocker count for this invocation: `0`.
+- Database mutation/migration execution: `NOT_RUN`.
+- Prohibited cluster `127.0.0.1:5432`: not contacted.
