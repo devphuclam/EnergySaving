@@ -46,6 +46,7 @@ public sealed class FakeTelemetryRepositories :
     public bool LatestAdvanceResult { get; set; } = true;
     public TelemetryRaceWinnerFixture? RaceWinnerFixtureOnStage { get; set; }
     public IReadOnlyList<TelemetryFlowLock> LastLockTrace { get; private set; } = [];
+    public int BeginCount { get; private set; }
 
     public TelemetryCommittedState CommittedState
     {
@@ -54,9 +55,9 @@ public sealed class FakeTelemetryRepositories :
             lock (_committedGate)
             {
                 return new TelemetryCommittedState(
-                    new Dictionary<Guid, TelemetryTerminalResult>(_committedState.Terminals),
-                    new Dictionary<Guid, RawMeasurement>(_committedState.Raw),
-                    new Dictionary<Guid, LatestProjectionCandidate>(_committedState.Latest),
+                    _committedState.Terminals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Copy()),
+                    _committedState.Raw.ToDictionary(kvp => kvp.Key, kvp => kvp.Value with { }),
+                    _committedState.Latest.ToDictionary(kvp => kvp.Key, kvp => kvp.Value with { }),
                     _committedState.Events.Select(e => e with
                     {
                         Before = new Dictionary<string, object?>(e.Before, StringComparer.Ordinal),
@@ -70,8 +71,11 @@ public sealed class FakeTelemetryRepositories :
         RaceWinnerFixtureOnStage = fixture;
 
     public ValueTask<ITelemetryFlowTransaction> BeginRepeatableReadAsync(
-        CancellationToken ct = default) =>
-        ValueTask.FromResult<ITelemetryFlowTransaction>(new Transaction(this));
+        CancellationToken ct = default)
+    {
+        BeginCount++;
+        return ValueTask.FromResult<ITelemetryFlowTransaction>(new Transaction(this));
+    }
 
     public Task<TelemetryTerminalResult?> GetTerminalAsync(
         Guid measurementId, CancellationToken ct = default) =>
@@ -250,9 +254,11 @@ public sealed class FakeTelemetryRepositories :
 
                 if (winner.FinalClassification != TelemetryFinalClassification.Rejected)
                 {
-                    if (fixture.Raw is null || !current.Raw.TryGetValue(winner.MeasurementId, out var storedRaw) ||
+                    if (fixture.Raw is null ||
+                        !current.Raw.TryGetValue(winner.MeasurementId, out var storedRaw) ||
                         !storedRaw.Equals(fixture.Raw))
                         throw new InvalidOperationException("RACE_WINNER_FIXTURE_CONFLICT");
+
                     if (winner.LatestAdvanced == true)
                     {
                         if (fixture.Latest is null ||
@@ -260,8 +266,13 @@ public sealed class FakeTelemetryRepositories :
                             !storedLatest.Equals(fixture.Latest))
                             throw new InvalidOperationException("RACE_WINNER_FIXTURE_CONFLICT");
                     }
+                    else if (fixture.Latest is not null)
+                    {
+                        throw new InvalidOperationException("RACE_WINNER_FIXTURE_CONFLICT");
+                    }
+
                     if (fixture.Event is null ||
-                        !current.Events.Any(e => e.EventId == fixture.Event.EventId))
+                        !current.Events.Any(storedEvent => EventEqualsComplete(storedEvent, fixture.Event)))
                         throw new InvalidOperationException("RACE_WINNER_FIXTURE_CONFLICT");
                 }
                 return;
@@ -298,6 +309,17 @@ public sealed class FakeTelemetryRepositories :
                 nextTerminals, nextRaw, nextLatest, nextEvents);
         }
     }
+
+    private static bool EventEqualsComplete(TelemetryOwnerEvent left, TelemetryOwnerEvent right) =>
+        left.EventId == right.EventId && left.EventType == right.EventType &&
+        left.SchemaVersion == right.SchemaVersion && left.Producer == right.Producer &&
+        left.AggregateType == right.AggregateType && left.AggregateId == right.AggregateId &&
+        left.AggregateVersion == right.AggregateVersion && left.ActorId == right.ActorId &&
+        left.ActorUsername == right.ActorUsername && left.Action == right.Action &&
+        left.Summary == right.Summary && left.OccurredAtUtc == right.OccurredAtUtc &&
+        left.CorrelationId == right.CorrelationId && left.CausationId == right.CausationId &&
+        left.SiteId == right.SiteId && left.AreaId == right.AreaId &&
+        left.Before.SequenceEqual(right.Before) && left.After.SequenceEqual(right.After);
 
     private static void ValidateRaceWinnerFixture(
         TelemetryRaceWinnerFixture fixture, TelemetryTerminalResult winner)
@@ -418,17 +440,6 @@ public sealed class FakeTelemetryRepositories :
                 var current = _owner._committedState;
                 foreach (var terminal in Terminals)
                 {
-                    var rawCount = Raw.Count(item => item.MeasurementId == terminal.MeasurementId) +
-                        (current.Raw.ContainsKey(terminal.MeasurementId) ? 1 : 0);
-                    if (terminal.FinalClassification == TelemetryFinalClassification.Accepted &&
-                        rawCount != 1)
-                        throw new InvalidOperationException("ACCEPTED_REQUIRES_RAW");
-                    if (terminal.FinalClassification == TelemetryFinalClassification.Rejected &&
-                        rawCount != 0)
-                        throw new InvalidOperationException("REJECTED_FORBIDS_RAW");
-                }
-                foreach (var terminal in Terminals)
-                {
                     if (current.Terminals.ContainsKey(terminal.MeasurementId))
                         throw new TelemetryUniqueRaceException();
                     if (current.Terminals.Values.Any(t =>
@@ -437,6 +448,17 @@ public sealed class FakeTelemetryRepositories :
                         t.SourceSequence == terminal.SourceSequence &&
                         t.MeasurementId != terminal.MeasurementId))
                         throw new TelemetryUniqueRaceException();
+                }
+                foreach (var terminal in Terminals)
+                {
+                    var rawCount = Raw.Count(item => item.MeasurementId == terminal.MeasurementId) +
+                        (current.Raw.ContainsKey(terminal.MeasurementId) ? 1 : 0);
+                    if (terminal.FinalClassification == TelemetryFinalClassification.Accepted &&
+                        rawCount != 1)
+                        throw new InvalidOperationException("ACCEPTED_REQUIRES_RAW");
+                    if (terminal.FinalClassification == TelemetryFinalClassification.Rejected &&
+                        rawCount != 0)
+                        throw new InvalidOperationException("REJECTED_FORBIDS_RAW");
                 }
                 var nextTerminals = new Dictionary<Guid, TelemetryTerminalResult>(current.Terminals);
                 var nextRaw = new Dictionary<Guid, RawMeasurement>(current.Raw);

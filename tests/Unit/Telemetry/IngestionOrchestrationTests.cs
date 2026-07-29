@@ -149,8 +149,8 @@ public static class IngestionOrchestrationTests
                 (baseline with { UnitActive = false }, "UNIT_INACTIVE"),
                 (baseline with { UnitCompatible = false }, "UNIT_INCOMPATIBLE"),
                 (baseline with { UnitCode = "KWH" }, "UNIT_MISMATCH"),
-                (baseline with { SiteId = "" }, "PROVIDER_ID_MISSING"),
-                (baseline with { AreaId = "" }, "PROVIDER_ID_MISSING"),
+                (baseline with { SiteId = "" }, "PROVIDER_SCOPE_MISMATCH"),
+                (baseline with { AreaId = "" }, "PROVIDER_SCOPE_MISMATCH"),
                 (baseline with { AssetId = "" }, "PROVIDER_ID_MISSING"),
                 (baseline with { MetricId = "" }, "PROVIDER_ID_MISSING"),
                 (baseline with { UnitId = "" }, "PROVIDER_ID_MISSING"),
@@ -181,8 +181,35 @@ public static class IngestionOrchestrationTests
                 var system = Create();
                 system.Providers.Snapshot = item.Snapshot;
                 var result = Execute(system, TelemetryTestData.Request());
-                Check(result.OriginalResult?.RejectionCode == item.Code, item.Code, failures);
+                Check(result.OriginalResult?.RejectionCode == item.Code || result.ErrorCode == item.Code, item.Code, failures);
                 Check(system.Store.ListCommittedRawAsync().Result.Count == 0, "provider rejection no raw", failures);
+            }
+        });
+        Case("scope mismatch no-transaction evidence", failures, () =>
+        {
+            var baseline = TelemetryTestData.Provider();
+            var variants = new (TelemetryProviderSnapshot Snapshot, string Label)[]
+            {
+                (baseline with { TrustedSiteId = "" }, "TrustedSiteId blank"),
+                (baseline with { TrustedAreaId = "" }, "TrustedAreaId blank"),
+                (baseline with { SiteId = "other-site" }, "Site mismatch"),
+                (baseline with { AreaId = "other-area" }, "Area mismatch"),
+                (baseline with { SiteId = "other-site", PointActive = false }, "mismatch + Point inactive"),
+                (baseline with { SiteId = "other-site", SourceActive = false }, "mismatch + Source inactive"),
+                (baseline with { SiteId = "other-site", PointVersion = 0 }, "mismatch + invalid version")
+            };
+            foreach (var item in variants)
+            {
+                var system = IngestionOrchestrationTests.Create();
+                system.Providers.Snapshot = item.Snapshot;
+                var result = Execute(system, TelemetryTestData.Request(), Trusted());
+                Check(result.ErrorCode == "PROVIDER_SCOPE_MISMATCH", $"{item.Label}: scope code", failures);
+                Check(system.Store.BeginCount == 0, $"{item.Label}: BeginCount=0", failures);
+                Check(system.Providers.Rechecks == 0, $"{item.Label}: Rechecks=0", failures);
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, $"{item.Label}: terminals=0", failures);
+                Check(system.Store.ListCommittedRawAsync().Result.Count == 0, $"{item.Label}: raw=0", failures);
+                Check(system.Store.LatestCount == 0, $"{item.Label}: Latest=0", failures);
+                Check(system.Store.ListCommittedAsync().Result.Count == 0, $"{item.Label}: events=0", failures);
             }
         });
         Case("provider recheck compares each exact tuple fact", failures, () =>

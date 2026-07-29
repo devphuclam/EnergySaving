@@ -1057,7 +1057,7 @@ if ($isCanonicalModuleRoot) {
         (Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-07-telemetry.md')
     )) {
         $checkpointText = Get-Content -LiteralPath $checkpoint -Raw
-        if ($checkpointText -notmatch 'f8521159802fd39732c4cfa24605aed912c18419' -or
+        if ($checkpointText -notmatch '0710ba158e9616262a94120a3800988884a8d7c7' -or
             $checkpointText -notmatch 'T151') {
             $issues += "T149 FAIL: Phase 7 checkpoint is missing the f852/T151 corrective baseline in $checkpoint."
         }
@@ -1145,7 +1145,7 @@ if ($isCanonicalModuleRoot) {
     if ($publishBody -notmatch 'storedLatest.*Equals.*fixture\.Latest') {
         $issues += 'T149 FAIL: PublishRaceWinner no-op does not verify Latest equality.'
     }
-    if ($publishBody -notmatch 'EventId.*fixture\.Event\.EventId') {
+    if ($publishBody -notmatch 'EventEqualsComplete') {
         $issues += 'T149 FAIL: PublishRaceWinner no-op does not verify event equality.'
     }
     $committedStateGetter = [regex]::Match($telemetryFake, '(?s)public TelemetryCommittedState CommittedState[\s\S]*?}').Value
