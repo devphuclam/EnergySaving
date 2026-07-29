@@ -1,6 +1,7 @@
-# Phase 9 Checkpoint — API, Audit and Web
+# Phase 9 checkpoint — API, Audit and Web
 
-Baseline SHA: `dc90503639f1fc89af5b2edec8ecd10b0803257e`
+Parent baseline SHA: `6e7ff79942188517c644eb43ae541d6eddc23d06`.
+Stop boundary: **T223 complete; T224+ not executed.**
 
 ## Task ledger
 
@@ -10,29 +11,59 @@ Baseline SHA: `dc90503639f1fc89af5b2edec8ecd10b0803257e`
 | BLOCKED_BY_PACKAGE_POLICY | 5 | T192, T193, T202, T205, T218 |
 | BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE | 3 | T206, T219, T220 |
 | FAIL | 0 | — |
-| NOT_RUN | 0 | — |
+| Runnable NOT_RUN | 0 | — |
 
-## Evidence
+## Changed files
 
-- Debug and Release no-restore backend builds: PASS.
-- Debug and Release no-restore unit suites, including focused T170–T181: PASS.
-- Web `npm run lint`: PASS; locked Web `npm run build`: PASS. No install/restore was run.
-- Skill inventory: `BLOCKED_BY_MISSING_APPROVED_SKILL` for a separate React/TypeScript/component/state/
-  accessibility skill bundle under the already available project-local skills; no skill was
-  downloaded or installed.
-  The Web work follows the repository's existing TypeScript/React conventions and the DOC-08
-  requirements.
-- Fast harness, architecture boundary, repository-policy and `git diff --check`: PASS.
-- Migration 0010/0011 and adapter sources: static/provider-neutral review only; no PostgreSQL
-  connection, migration, psql invocation, or database mutation was performed in Phase 9.
-- Approved package-backed PostgreSQL adapters and composition-root registration are unavailable
-  under package policy. The existing frontend package has no approved behavior-test script/package,
-  so T218 is blocked; no package was downloaded.
-- T206/T219/T220 are transitively blocked by the upstream package-policy adapters/registration.
+- `src/Api/Infrastructure/ApplicationPorts.cs`
+- `src/Api/Infrastructure/IdempotentCommandExecutor.cs`
+- `src/Api/ConfigurationEndpoints.cs`, `SimulatorEndpoints.cs`, `TelemetryQueryEndpoints.cs`, `AuditEndpoints.cs`
+- `src/Worker/Integration/RequiredConsumerRegistry.cs`, `OutboxDispatcherWorker.cs`, `AuditDeliveryHandler.cs`
+- `src/Modules/Integration/Application/CommandFingerprintV1.cs` and Contracts canonical fingerprint port
+- `src/Modules/Audit/Contracts/AuditContracts.cs`, Audit consumer/query service
+- `src/BuildingBlocks/Persistence/IHostTransactionFactory.cs`, `HostTransactionCoordinator.cs`
+- `database/migrations/0010_audit_event.sql`, `0011_r1_infrastructure_expand.sql`
+- T170–T181 unit sources, unit runner counters, `tests/Verification/architecture.tests.ps1`
+- Typed Web gateway/context, AppShell and configuration/simulator/latest/audit routes, Web behavior matrix source
+- This RED, review and checkpoint evidence plus `docs/blocker-report.md`
 
-## Progression
+## Commands and exact results
 
-Phase 9 runnable implementation and review are accepted. Runtime PostgreSQL/API integration,
-frontend behavior-runner evidence, browser/timed journeys, release evidence and Phase 10 remain
-blocked or out of scope. **Ready for Phase 10: NO** until the package-policy blockers are resolved.
-**Release: NO.** Stop after T223; do not execute T224+ in this invocation.
+| Command | Exit | Result |
+|---|---:|---|
+| Temporary RED Debug build | 0 | PASS; baseline compiled before corrective probe. |
+| Temporary RED focused runner | 1 | Expected natural RED: 15 cases / 15 failures; Phase 0–8 suites green; no crash. |
+| `dotnet build .\IUMP.slnx --no-restore --configuration Debug` | 0 | PASS |
+| `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore --configuration Debug` | 0 | PASS; T170–T181 expose cases/assertions/failures; all failures 0. |
+| `dotnet build .\IUMP.slnx --no-restore --configuration Release` | 0 | PASS |
+| Release focused unit runner | 0 | PASS |
+| `tests/Verification/architecture.tests.ps1` | 0 | PASS; T221 result PASS |
+| `git diff --check` | 0 | PASS |
+| Web `npm run lint` | 0 | PASS (existing oxlint warning only) |
+| Web `npm run build` | 0 | PASS |
+| Fast harness | 0 | PASS |
+| Full harness | 20 | **Non-passing**: PASS=10, BLOCKED_BY_MISSING_TOOL=1 (`psql`), BLOCKED_BY_COMPANY_APPROVAL=2 (CI/container). |
+
+## Functional evidence
+
+- T170: UUID/int/decimal/timestamp normalization, deterministic order, If-Match and exclusion rules.
+- T172: live/expired Pending, exact replay metadata, typed transient handling, and transaction seam.
+- T173/T174: hash conflict, leases, retry, per-consumer inbox and restart deduplication.
+- T175/T176: schema/hash/redaction, immutable source identity, scope-before-paging/keyset.
+- T177: 250ms/1s/2s/5s/30s-capped retry, exhaustion and reconciliation/replay seam.
+- T178–T181: public endpoints delegate to typed command/query ports; no static response arrays.
+- Web: typed gateways outside components; AppShell and routes expose loading, forbidden, expired and No Data states.
+- Crash/replay: the RED probe proved no crash and the green tests prove exact replay; PostgreSQL crash/E2E execution is blocked, not claimed.
+
+## Capability and progression
+
+| Capability | State |
+|---|---|
+| Browser source/build ready | YES |
+| Ready for Phase 10 | YES (source-level Phase 9 closure; Phase 10 remains a separate task phase) |
+| Live API/Worker runtime | NO |
+| PostgreSQL E2E/migrations | NO — DB capability available at 127.0.0.1:5433/iump_dev, execution NOT_RUN |
+| Release | NO |
+
+Blocked ledger is explicit: T192/T193/T202/T205/T218 are `BLOCKED_BY_PACKAGE_POLICY`; T206/T219/T220
+are `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`. None counts as PASS. No Phase 10 task was executed.

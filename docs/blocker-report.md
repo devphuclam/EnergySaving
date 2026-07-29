@@ -235,3 +235,26 @@ untracked and no secret value was read into evidence, printed, serialized, copie
 - Database-access blocker count for this invocation: `0`.
 - Database mutation/migration execution: `NOT_RUN`.
 - Prohibited cluster `127.0.0.1:5432`: not contacted.
+
+## Phase 9 corrective functional closure evidence — 2026-07-29
+
+Parent baseline: `6e7ff79942188517c644eb43ae541d6eddc23d06`. A native temporary worktree at that
+commit produced the required true RED before green correction: Debug build exit `0`, focused unit
+runner exit `1`, `Phase9FunctionalCoverageRed` cases `15`, failures `15`, with Phase 0–8 suites green
+and no process crash. The temporary worktree was removed after capture.
+
+Green evidence is provider-neutral and did not connect to PostgreSQL or execute migrations:
+
+- Debug build/unit: exit `0` / `0`.
+- Release build/unit: exit `0` / `0`.
+- Fast harness: exit `0` (`PASS=8`).
+- Full harness: exit `20` (`PASS=10`, `BLOCKED_BY_MISSING_TOOL=1` for missing `psql`,
+  `BLOCKED_BY_COMPANY_APPROVAL=2` for CI/container target). Full is explicitly non-passing.
+- Web lint/build: exit `0` / `0`; no install/download.
+- Architecture, repository policy/scope, and diff checks: exit `0`.
+
+Phase 9 task classifications remain: T192/T193/T202/T205/T218 are
+`BLOCKED_BY_PACKAGE_POLICY`; T206/T219/T220 are `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`. The
+approved database capability is still `AVAILABLE` at `127.0.0.1:5433/iump_dev`, but migration and
+E2E execution are `NOT_RUN`; `127.0.0.1:5432` was not contacted. No password or other secret is
+recorded here.

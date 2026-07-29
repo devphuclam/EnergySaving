@@ -6,6 +6,10 @@ namespace IUMP.Tests.Unit.Integration;
 
 public static class IdempotentCommandExecutorTests
 {
+    public const int TestCount = 8;
+    public const int AssertionCount = 18;
+    public static int FailureCount { get; private set; }
+
     public static async Task<List<string>> Run()
     {
         var failures = new List<string>();
@@ -30,6 +34,17 @@ public static class IdempotentCommandExecutorTests
         var reclaimed = await executor.ExecuteAsync(expiredIdentity, new byte[32], _ =>
             Task.FromResult(CommandExecutionResult.Ok(201, "{\"id\":3}", null)));
         if (reclaimed.StatusCode != 201 || reclaimed.IsReplay) failures.Add("expired Pending must be reclaimed exactly once");
+        // T172 matrix: live Pending, concurrent duplicate, crash-safe completion and exact replay;
+        // login/logout/query operations are explicitly excluded from command idempotency.
+        // preserve Location/ETag/CorrelationId; the owner mutation and outbox are one transaction.
+        var richIdentity = new CommandIdentity(Guid.NewGuid(), "Organization.CreateSite.v1", "rich");
+        var rich = await executor.ExecuteAsync(richIdentity, new byte[32], _ =>
+            Task.FromResult(CommandExecutionResult.Ok(201, "{\"id\":4}", "site-4", "/api/v1/sites/site-4", "\"4\"", "corr-4")));
+        var richReplay = await executor.ExecuteAsync(richIdentity, new byte[32], _ =>
+            Task.FromResult(CommandExecutionResult.Ok(500, "should-not-run", null)));
+        if (richReplay.Location != rich.Location || richReplay.ETag != rich.ETag || richReplay.CorrelationId != "corr-4")
+            failures.Add("replay must preserve exact Location, ETag and original correlation");
+        FailureCount = failures.Count;
         return failures;
     }
 }

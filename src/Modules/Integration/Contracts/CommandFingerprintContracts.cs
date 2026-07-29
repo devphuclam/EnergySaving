@@ -2,10 +2,11 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using IUMP.Modules.Integration.Contracts;
 
-namespace IUMP.Modules.Integration.Application;
+namespace IUMP.Modules.Integration.Contracts;
 
+/// Host-safe canonical command fingerprint port. It intentionally lives in Contracts so
+/// composition roots never reference module Application implementations.
 public sealed record CommandFingerprintInput(
     string OperationCode,
     Guid CallerUserId,
@@ -43,8 +44,6 @@ public static class CommandFingerprintV1
         WriteValue(stream, input.TargetAggregateType);
         WriteValue(stream, input.TargetAggregateId?.ToString("D", CultureInfo.InvariantCulture).ToLowerInvariant());
         WriteValue(stream, input.ExpectedVersion?.ToString(CultureInfo.InvariantCulture));
-        // Canonical request fields are sorted by normalized name; transport headers (including
-        // Idempotency-Key and caller/auth material) are deliberately excluded from the digest.
         foreach (var field in (input.Fields ?? Array.Empty<CommandFingerprintField>())
             .Where(field => !IsExcluded(field.Name))
             .OrderBy(field => field.Name.Normalize(NormalizationForm.FormC), StringComparer.Ordinal))
@@ -56,42 +55,27 @@ public static class CommandFingerprintV1
         return SHA256.HashData(stream.ToArray());
     }
 
-    private static bool IsExcluded(string name) =>
-        name.Contains("idempotency-key", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("caller", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("authorization", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("password", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
+    private static bool IsExcluded(string name) => name.Contains("idempotency-key", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("caller", StringComparison.OrdinalIgnoreCase) || name.Contains("authorization", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("password", StringComparison.OrdinalIgnoreCase) || name.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
         name.Contains("token", StringComparison.OrdinalIgnoreCase);
 
-    private static string? Canonical(CommandFingerprintField field)
+    private static string? Canonical(CommandFingerprintField field) => field.Value is null ? null : field.Kind switch
     {
-        if (field.Value is null) return null;
-        return field.Kind switch
-        {
-            "string" => ((string)field.Value).Normalize(NormalizationForm.FormC),
-            "bool" => ((bool)field.Value) ? "true" : "false",
-            "int" => Convert.ToInt64(field.Value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
-            "decimal" => ((decimal)field.Value).ToString("G29", CultureInfo.InvariantCulture),
-            "timestamp" => ((DateTime)field.Value).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture),
-            "uuid" => ((Guid)field.Value).ToString("D", CultureInfo.InvariantCulture).ToLowerInvariant(),
-            _ => Convert.ToString(field.Value, CultureInfo.InvariantCulture)?.Normalize(NormalizationForm.FormC)
-        };
-    }
+        "string" => ((string)field.Value).Normalize(NormalizationForm.FormC),
+        "bool" => ((bool)field.Value) ? "true" : "false",
+        "int" => Convert.ToInt64(field.Value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
+        "decimal" => ((decimal)field.Value).ToString("G29", CultureInfo.InvariantCulture),
+        "timestamp" => ((DateTime)field.Value).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture),
+        "uuid" => ((Guid)field.Value).ToString("D", CultureInfo.InvariantCulture).ToLowerInvariant(),
+        _ => Convert.ToString(field.Value, CultureInfo.InvariantCulture)?.Normalize(NormalizationForm.FormC)
+    };
 
     private static void WriteValue(Stream stream, string? value)
     {
-        if (value is null)
-        {
-            Span<byte> nullBytes = stackalloc byte[4];
-            BinaryPrimitives.WriteUInt32BigEndian(nullBytes, NullLength);
-            stream.Write(nullBytes);
-            return;
-        }
+        if (value is null) { Span<byte> nullBytes = stackalloc byte[4]; BinaryPrimitives.WriteUInt32BigEndian(nullBytes, NullLength); stream.Write(nullBytes); return; }
         var bytes = Encoding.UTF8.GetBytes(value.Normalize(NormalizationForm.FormC));
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)bytes.Length));
-        stream.Write(length);
-        stream.Write(bytes);
+        Span<byte> length = stackalloc byte[4]; BinaryPrimitives.WriteUInt32BigEndian(length, checked((uint)bytes.Length));
+        stream.Write(length); stream.Write(bytes);
     }
 }

@@ -51,12 +51,58 @@ CREATE INDEX IF NOT EXISTS ix_command_idempotency_target
     WHERE target_aggregate_id IS NOT NULL;
 
 ALTER TABLE integration.inbox_message
-    ADD COLUMN IF NOT EXISTS payload_hash bytea,
     ADD COLUMN IF NOT EXISTS pending_owner text,
     ADD COLUMN IF NOT EXISTS pending_until timestamptz,
     ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS next_attempt_at timestamptz,
-    ADD COLUMN IF NOT EXISTS last_error text;
+    ADD COLUMN IF NOT EXISTS last_error text,
+    ADD COLUMN IF NOT EXISTS retention_until timestamptz,
+    ADD COLUMN IF NOT EXISTS result_json jsonb,
+    ADD COLUMN IF NOT EXISTS result_hash bytea;
+
+-- Existing R0 inbox identity remains (consumer_name,event_id,payload_hash). The additive
+-- expansion supplies a Pending/Completed lease state, retry metadata and a safe result without
+-- recreating the table or introducing cross-schema FKs.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_inbox_payload_hash_nonblank') THEN
+        ALTER TABLE integration.inbox_message ADD CONSTRAINT ck_inbox_payload_hash_nonblank CHECK (length(btrim(payload_hash)) > 0);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_inbox_attempts_nonnegative') THEN
+        ALTER TABLE integration.inbox_message ADD CONSTRAINT ck_inbox_attempts_nonnegative CHECK (attempt_count >= 0);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_inbox_result_hash') THEN
+        ALTER TABLE integration.inbox_message ADD CONSTRAINT ck_inbox_result_hash CHECK (result_hash IS NULL OR octet_length(result_hash) = 32);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_inbox_pending_completed_shape') THEN
+        ALTER TABLE integration.inbox_message ADD CONSTRAINT ck_inbox_pending_completed_shape CHECK (
+            (status IN ('Processing', 'Pending') AND completed_at IS NULL)
+            OR (status = 'Completed' AND completed_at IS NOT NULL)
+            OR status = 'Failed'
+        );
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS ix_inbox_message_consumer_status
+    ON integration.inbox_message (consumer_name, status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS ix_inbox_message_retention
+    ON integration.inbox_message (retention_until)
+    WHERE status = 'Completed';
+
+CREATE OR REPLACE FUNCTION integration.prevent_completed_inbox_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.status = 'Completed' THEN
+        RAISE EXCEPTION 'INBOX_COMPLETED_IMMUTABLE';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_inbox_completed_immutable ON integration.inbox_message;
+CREATE TRIGGER trg_inbox_completed_immutable
+    BEFORE UPDATE OR DELETE ON integration.inbox_message
+    FOR EACH ROW EXECUTE FUNCTION integration.prevent_completed_inbox_mutation();
 
 CREATE INDEX IF NOT EXISTS ix_inbox_message_recovery
     ON integration.inbox_message (pending_until, next_attempt_at);

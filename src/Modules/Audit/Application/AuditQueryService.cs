@@ -21,11 +21,19 @@ public sealed class AuditQueryService(IAuditQueryRepository repository, AuditAut
     public async Task<AuditQueryResult> QueryAsync(AuditQueryRequest request, AuditCaller caller, CancellationToken ct = default)
     {
         if (!authorization.CanQuery(caller)) return new(Array.Empty<AuditEventRecord>(), "FORBIDDEN", 0);
-        var rows = await repository.QueryAsync(request, ct);
+        // Scope is applied before paging/keyset so an unauthorized row can never consume a page slot.
+        var scopedRequest = request with { ScopeSiteIds = caller.SiteIds, ScopeAreaIds = caller.AreaIds };
+        var rows = await repository.QueryAsync(scopedRequest, ct);
         var visible = rows.Where(row => authorization.CanQuery(caller, row))
             .OrderByDescending(row => row.OccurredAtUtc).ThenByDescending(row => row.AuditEventId)
-            .Skip(Math.Max(0, request.Page - 1) * Math.Clamp(request.PageSize, 1, 100))
+            .Where(row => IsAfterCursor(row, request.KeysetCursor))
             .Take(Math.Clamp(request.PageSize, 1, 100)).ToArray();
         return new(visible, null, visible.Length);
+    }
+
+    private static bool IsAfterCursor(AuditEventRecord row, string? keysetCursor)
+    {
+        if (string.IsNullOrWhiteSpace(keysetCursor)) return true;
+        return !string.Equals(row.AuditEventId.ToString("D"), keysetCursor, StringComparison.OrdinalIgnoreCase);
     }
 }

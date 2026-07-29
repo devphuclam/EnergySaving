@@ -30,7 +30,7 @@ public sealed class RealHostDelay : IHostDelay
     public Task DelayAsync(int milliseconds, CancellationToken ct = default) => Task.Delay(milliseconds, ct);
 }
 
-public sealed class HostTransactionCoordinator : IHostTransaction
+public sealed class HostTransactionCoordinator : IHostTransaction, IHostTransactionController
 {
     public static IReadOnlyList<LockTarget> RequiredTargets { get; } = Enum.GetValues<LockTarget>();
 

@@ -1,7 +1,9 @@
 namespace IUMP.Api;
 
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using IUMP.Api.Infrastructure;
 
 public sealed record LatestQueryResult(Guid PointId, double? NumericValue, string? UnitCode, string Status, bool IsNoData,
     string? ReasonCode = null);
@@ -13,9 +15,24 @@ public static class TelemetryQueryEndpoints
     public static LatestQueryResult NoData(Guid pointId) => new(pointId, null, null, "No Data", true, "NO_DATA");
     public static IEndpointRouteBuilder MapTelemetryQueryEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/v1/points/{pointId:guid}/latest", (Guid pointId) => Results.Ok(NoData(pointId)));
-        endpoints.MapGet("/api/v1/points/{pointId:guid}/source-health", (Guid pointId) => Results.Ok(new { pointId, status = "NoData" }));
-        endpoints.MapGet("/api/v1/sites/{siteId:guid}/points/current", (Guid siteId) => Results.Ok(Array.Empty<LatestQueryResult>()));
+        endpoints.MapGet("/api/v1/points/{pointId:guid}/latest", async (Guid pointId,
+            ITelemetryQueryPort query, IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
+        {
+            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+            return Results.Ok(await query.GetLatestAsync(pointId, principal, ct));
+        });
+        endpoints.MapGet("/api/v1/points/{pointId:guid}/source-health", async (Guid pointId,
+            ITelemetryQueryPort query, IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
+        {
+            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+            return Results.Ok(await query.GetSourceHealthAsync(pointId, principal, ct));
+        });
+        endpoints.MapGet("/api/v1/sites/{siteId:guid}/points/current", async (Guid siteId,
+            ITelemetryQueryPort query, IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
+        {
+            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+            return Results.Ok(await query.GetCurrentAsync(siteId, principal, ct));
+        });
         return endpoints;
     }
 }

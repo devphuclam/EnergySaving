@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace IUMP.Modules.Audit.Contracts;
 
 public sealed record AuditEventEnvelope(
@@ -17,6 +20,11 @@ public sealed record AuditEventEnvelope(
     string? AreaId = null,
     string? CausationId = null)
 {
+    public int SchemaVersion => 1;
+    public string SourceProducer => "IUMP";
+    public string PayloadHash => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+        $"{SourceEventId:D}|{EventType}|{ObjectType}|{ObjectId}|{Action}|{Summary}|{CorrelationId}"))).ToLowerInvariant();
+
     public static AuditEventEnvelope Create(Guid sourceEventId, string eventType, string objectType, string objectId,
         string action, string summary, DateTime occurredAtUtc, string correlationId) =>
         new(sourceEventId, eventType, objectType, objectId, action, summary, occurredAtUtc.ToUniversalTime(), correlationId);
@@ -39,7 +47,12 @@ public sealed record AuditEventRecord(
     IReadOnlyDictionary<string, object?> After,
     string? SiteId,
     string? AreaId,
-    string? CausationId);
+    string? CausationId)
+{
+    public int SchemaVersion { get; init; } = 1;
+    public string SourceProducer { get; init; } = "IUMP";
+    public string PayloadHash { get; init; } = string.Empty;
+}
 
 public interface IAuditEventConsumer
 {
@@ -51,13 +64,23 @@ public interface IAuditAppendRepository
     Task<AuditEventRecord?> AppendIfAbsentAsync(AuditEventRecord record, CancellationToken ct = default);
 }
 
+public interface IAuditConflictRepository
+{
+    Task<bool> IsSourceHashConflictAsync(Guid sourceEventId, string payloadHash, CancellationToken ct = default);
+}
+
 public interface IAuditQueryRepository
 {
     Task<IReadOnlyList<AuditEventRecord>> QueryAsync(AuditQueryRequest request, CancellationToken ct = default);
 }
 
 public sealed record AuditQueryRequest(string? ObjectType, string? Action, string? ActorId, string? CorrelationId,
-    DateTime? FromUtc, int Page, int PageSize);
+    DateTime? FromUtc, int Page, int PageSize)
+{
+    public IReadOnlySet<string> ScopeSiteIds { get; init; } = new HashSet<string>();
+    public IReadOnlySet<string> ScopeAreaIds { get; init; } = new HashSet<string>();
+    public string? KeysetCursor { get; init; }
+}
 
 public sealed record AuditQueryResult(IReadOnlyList<AuditEventRecord> Items, string? ErrorCode = null,
     int TotalCount = 0);

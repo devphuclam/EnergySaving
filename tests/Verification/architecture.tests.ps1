@@ -1391,6 +1391,43 @@ if ($isCanonicalModuleRoot) {
     if ($webApp -notmatch 'AppShell' -or $webCss -notmatch 'focus-visible' -or $webCss -notmatch 'prefers-reduced-motion') {
         $issues += 'T221 FAIL: Web shell/accessibility seam is incomplete.'
     }
+
+    # Phase 9 functional closure: these checks intentionally detect the previous placeholder
+    # implementation even when its source still compiled.
+    $configurationEndpoint = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Api\ConfigurationEndpoints.cs') -Raw
+    $simulatorEndpoint = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Api\SimulatorEndpoints.cs') -Raw
+    $executorSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Api\Infrastructure\IdempotentCommandExecutor.cs') -Raw
+    if ($configurationEndpoint -match 'X-Caller-Id' -or $simulatorEndpoint -match 'X-Caller-Id') {
+        $issues += 'T221 FAIL: API trusts X-Caller-Id instead of the server principal.'
+    }
+    if ($executorSource -match 'Encoding\.UTF8\.GetBytes\(key' -or $configurationEndpoint -match 'SHA256\.HashData.*key') {
+        $issues += 'T221 FAIL: API fingerprints Idempotency-Key instead of the canonical business request.'
+    }
+    $dispatcherSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Worker\Integration\OutboxDispatcherWorker.cs') -Raw
+    if ($dispatcherSource -match 'AddMilliseconds\(250\)' -and $dispatcherSource -notmatch 'RetrySchedule') {
+        $issues += 'T221 FAIL: dispatcher uses a fixed 250ms retry rather than the 250ms/1s/2s/5s/30s schedule.'
+    }
+    # Published is allowed only after every required inbox is Completed.
+    if ($dispatcherSource -notmatch 'RequiredConsumersFor' -or $dispatcherSource -notmatch 'inbox' -or $dispatcherSource -notmatch 'MarkPublishedAsync' -or $dispatcherSource -notmatch 'Published') {
+        $issues += 'T221 FAIL: dispatcher does not claim per-consumer inbox rows and publish only after completion.'
+    }
+    $auditDelivery = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Worker\Integration\AuditDeliveryHandler.cs') -Raw
+    if ($auditDelivery -notmatch 'IHostTransaction' -or $auditDelivery -notmatch 'CommitAsync' -or $auditDelivery -notmatch 'RollbackAsync') {
+        $issues += 'T221 FAIL: Audit append and inbox completion lack one host transaction.'
+    }
+    $webSources = @(
+        (Join-Path $repoRoot 'src\Web\src\app\AppShell.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\features\configuration\ConfigurationRoutes.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\features\simulator\SimulatorRoute.tsx'),
+        (Join-Path $repoRoot 'src\Web\src\gateways\webGateways.ts')) | ForEach-Object { Get-Content -LiteralPath $_ -Raw }
+    if (($webSources -join "`n") -match 'POC Site scope|GeneratedCount|setAuthenticated' -or
+        ($webSources -join "`n") -notmatch 'GatewayState|useWebGateways|loading|forbidden|expired') {
+        $issues += 'T221 FAIL: Web screens use component-local hardcoded data or lack gateway behavior states.'
+    }
+    $webTestSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\test\app-shell.test.tsx') -Raw
+    if ($webTestSource -notmatch 'loading' -or $webTestSource -notmatch 'forbidden' -or $webTestSource -notmatch 'expired') {
+        $issues += 'T211 FAIL: web behavior matrix does not cover loading/forbidden/expired.'
+    }
 }
 
 if ($issues.Count -gt 0) {

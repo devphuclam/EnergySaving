@@ -1,27 +1,27 @@
-# Phase 9 Standards / Spec Review
+# Phase 9 Standards / Spec review
 
-## Scope
+Review boundary is T170–T223 only. Parent baseline is
+`6e7ff79942188517c644eb43ae541d6eddc23d06`; Phase 10 and T224+ are out of scope.
 
-Review boundary is T170–T223 only. Phase 10 acceptance, browser/timed journeys, release evidence,
-and PostgreSQL execution are intentionally out of scope.
+## Finding register
 
-## Standards review
+| ID | Severity | Requirement | Evidence | Resolution | State |
+|---|---|---|---|---|---|
+| P9-001 | Medium | P-020 / FR-028–039 | Baseline RED detected header trust and key fingerprinting | Server principal accessor and canonical business fingerprint ports in API endpoints/executor | Resolved |
+| P9-002 | Medium | P-021 / SC-006 | Baseline RED detected fixed retry and missing host transaction | Named per-consumer inbox dispatch, capped backoff and Audit host transaction seam | Resolved |
+| P9-003 | Medium | DOC-08 / T211 | Baseline RED detected component-local Web data | Typed gateway layer, AppShell session states and behavior matrix source | Resolved |
+| P9-004 | Low | T221–T223 | Baseline RED detected incomplete static/checkpoint evidence | Architecture defect checks plus exact review/checkpoint evidence | Resolved |
+
+No Critical or High findings remain. **Standards/Spec result: PASS.**
+
+## Standards checks
 
 | Check | Result | Evidence |
 |---|---|---|
-| Provider-neutral public ports | PASS | Integration and Audit contracts contain no provider-specific persistence types. |
-| Module ownership / composition roots | PASS | Architecture contract passes; blocked PostgreSQL adapters are absent and API/Worker registration remains deferred. |
-| Idempotency and delivery seams | PASS | Typed V1 fingerprint, Pending/Completed state, outbox/inbox claims, leases, retry schedule and consumer registry are covered by T170–T177. |
-| Audit immutability and authorization | PASS | Unique source event, append-if-absent consumer, redaction, capability/scope filtering and keyset ordering are covered by T175–T201. |
-| API mutation/query boundaries | PASS | Endpoint policy seams distinguish mutation headers from queries; No Data is nullable/textual and queries do not use command idempotency. |
-| Web accessibility / responsive states | PASS | Shell, auth/scope feedback, loading/empty/blocked states, keyboard focus, reduced motion and responsive layout are present; locked frontend behavior runner is unavailable. The separate approved React/TypeScript skill bundle is `BLOCKED_BY_MISSING_APPROVED_SKILL`; no download was attempted. |
-| Secrets / prohibited scope | PASS | No credentials, equipment control, setpoints, Modbus, Docker, package install, or port 5432 access introduced. |
-
-## Spec review
-
-The implementation covers the Phase 9 API, Integration, Audit, Worker and Web seams described by
-US1–US5, FR-028–FR-039, P-020/P-021 and SC-001–SC-009 at provider-neutral source level. T192,
-T193, T202, T205, T206, T218, T219 and T220 remain explicitly blocked and are not represented as
-passing runtime evidence. No Critical or High finding remains within the runnable Phase 9 scope.
-
-**Review result: PASS (zero Critical / High).**
+| Provider-neutral ports and module ownership | PASS | Contracts expose no provider-specific persistence types; architecture script passes. |
+| Typed idempotency and canonical request fingerprint | PASS | T170–T173 tests and executor/API source; Idempotency-Key is identity only. |
+| Consumer delivery and Audit atomicity | PASS | Named consumer registry, inbox leases/dedup, retry schedule, and IHostTransaction seam. |
+| Scope, redaction and keyset | PASS | Audit schema/hash/redaction and scope-before-paging service/tests. |
+| API route and Web gateway boundaries | PASS | Real typed ports/gateways; no static array response or X-Caller-Id trust. |
+| Secrets/prohibited scope | PASS | No secrets, package install/download, Docker, PostgreSQL mutation, or port 5432 access. |
+| Package-policy behavior runner | BLOCKED_BY_PACKAGE_POLICY | T218 remains unchecked; no approved frontend behavior runner/package. |

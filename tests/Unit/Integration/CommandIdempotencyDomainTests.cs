@@ -4,6 +4,10 @@ namespace IUMP.Tests.Unit.Integration;
 
 public static class CommandIdempotencyDomainTests
 {
+    public const int TestCount = 5;
+    public const int AssertionCount = 9;
+    public static int FailureCount { get; private set; }
+
     public static List<string> Run()
     {
         var failures = new List<string>();
@@ -15,6 +19,7 @@ public static class CommandIdempotencyDomainTests
             failures.Add("completion must preserve the original response");
         if (!completed.IsExpired(DateTime.UtcNow.AddHours(25))) failures.Add("retention must expire");
         if (!pending.IsLeaseLive(DateTime.UtcNow)) failures.Add("live Pending lease must be detected");
+        FailureCount = failures.Count;
         return failures;
     }
 }

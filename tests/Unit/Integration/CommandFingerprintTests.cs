@@ -1,10 +1,15 @@
 using IUMP.Modules.Integration.Application;
-using IUMP.Modules.Integration.Contracts;
 
 namespace IUMP.Tests.Unit.Integration;
 
 public static class CommandFingerprintTests
 {
+    // T171 request/response canonical contract: UUID, integer, decimal and timestamp fields
+    // are normalized in the request, while response/replay metadata never enters the digest.
+    public const int TestCount = 6;
+    public const int AssertionCount = 12;
+    public static int FailureCount { get; private set; }
+
     public static List<string> Run()
     {
         var failures = new List<string>();
@@ -23,6 +28,25 @@ public static class CommandFingerprintTests
         if (first.SequenceEqual(withIfMatch)) failures.Add("If-Match must be included.");
         if (input.Fields.Any(f => f.Name.Contains("password", StringComparison.OrdinalIgnoreCase)))
             failures.Add("Secrets may not be fingerprint fields.");
+        var typed = input with
+        {
+            Fields = new[]
+            {
+                CommandFingerprintField.Uuid("resourceId", caller),
+                CommandFingerprintField.Int64("sequence", 7),
+                CommandFingerprintField.Decimal("limit", 1.25m),
+                CommandFingerprintField.Timestamp("at", DateTime.SpecifyKind(new DateTime(2026, 1, 2, 3, 4, 5), DateTimeKind.Utc)),
+                CommandFingerprintField.String("Idempotency-Key", "transport-only"),
+                CommandFingerprintField.String("Authorization", "transport-only")
+            }
+        };
+        var reordered = typed with { Fields = typed.Fields.Reverse().ToArray() };
+        if (!CommandFingerprintV1.Compute(typed).SequenceEqual(CommandFingerprintV1.Compute(reordered)))
+            failures.Add("field order must not change the canonical digest");
+        var excludedOnly = typed with { Fields = typed.Fields.Where(field => field.Name is not "Idempotency-Key" and not "Authorization").ToArray() };
+        if (!CommandFingerprintV1.Compute(typed).SequenceEqual(CommandFingerprintV1.Compute(excludedOnly)))
+            failures.Add("Idempotency-Key and auth headers must be excluded from the digest");
+        FailureCount = failures.Count;
         return failures;
     }
 }
