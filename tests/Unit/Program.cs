@@ -16,6 +16,7 @@ using IUMP.Tests.Unit.Telemetry;
 using IUMP.Tests.Unit.Operations;
 using IUMP.Tests.Integration.Operations;
 using IUMP.Tests.Unit.Audit;
+using IUMP.Tests.Unit.Acceptance;
 
 var failures = new List<string>();
 
@@ -189,6 +190,14 @@ failures.AddRange(t180Failures);
 var t181Failures = await AuditEndpointTests.Run();
 Console.WriteLine($"T181: cases={AuditEndpointTests.TestCount}; assertions={AuditEndpointTests.AssertionCount}; failures={AuditEndpointTests.FailureCount}");
 failures.AddRange(t181Failures);
+
+// Phase 10 — provider-neutral acceptance hardening
+var t224Failures = AuthorizationNegativeTests.Run();
+Console.WriteLine($"T224: cases={AuthorizationNegativeTests.TestCount}; assertions={AuthorizationNegativeTests.AssertionCount}; failures={AuthorizationNegativeTests.FailureCount}");
+failures.AddRange(t224Failures);
+var t225Failures = LifecycleAcceptanceTests.Run();
+Console.WriteLine($"T225: cases={LifecycleAcceptanceTests.TestCount}; assertions={LifecycleAcceptanceTests.AssertionCount}; failures={LifecycleAcceptanceTests.FailureCount}");
+failures.AddRange(t225Failures);
 
 // T028: executable repository contract tests against the deterministic fake
 var cmdRepo = new FakeIamCommandRepository();

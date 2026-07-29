@@ -24,3 +24,10 @@ must not be used or downloaded. No replacement hosted pipeline is asserted.
 
 Until an internal runner/template is supplied, `scripts/verify.ps1` is the local equivalent. It
 must preserve blocked classifications and must not restore, install, or contact public registries.
+
+## Phase 10 T245 state
+
+T245 remains **unchecked** and `BLOCKED_BY_COMPANY_APPROVAL`. No company-approved runner/template,
+release lane, target host, container evidence, or public-CI substitute was supplied. Local Fast and
+Full capability probes are evidence only: they cannot promote T245 or release readiness. Database
+availability at the approved local target does not change this approval blocker.

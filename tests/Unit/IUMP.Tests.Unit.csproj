@@ -26,5 +26,10 @@
     <Compile Include="..\Integration\Operations\OperationsJobRepositoryTests.cs" Link="Operations\OperationsJobRepositoryTests.cs" />
     <Compile Include="..\Integration\Integration\IntegrationRepositoryTests.cs" Link="Integration\IntegrationRepositoryTests.cs" />
     <Compile Include="..\Integration\Audit\AuditRepositoryTests.cs" Link="Audit\AuditRepositoryTests.cs" />
+    <Compile Include="..\Integration\Acceptance\ConfigurationRaceTests.cs" Link="Acceptance\ConfigurationRaceTests.cs" />
+    <Compile Include="..\Integration\Acceptance\SimulatorCrashRecoveryTests.cs" Link="Acceptance\SimulatorCrashRecoveryTests.cs" />
+    <Compile Include="..\Integration\Acceptance\LatestHealthRaceTests.cs" Link="Acceptance\LatestHealthRaceTests.cs" />
+    <Compile Include="..\Integration\Acceptance\AuditIdempotencyE2ETests.cs" Link="Acceptance\AuditIdempotencyE2ETests.cs" />
+    <Compile Include="..\Integration\Acceptance\TimedJourneyAcceptanceTests.cs" Link="Acceptance\TimedJourneyAcceptanceTests.cs" />
   </ItemGroup>
 </Project>
