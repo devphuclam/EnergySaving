@@ -100,19 +100,16 @@ public sealed class FakeSimulatorProductionEligibility : ISimulatorProductionEli
 public sealed class FakeTelemetryIngestionClient : ITelemetryIngestionClient
 {
     public List<SimulatorProductionPayload> Payloads { get; } = new();
-    private static Guid DefaultPersistedId { get; } = Guid.NewGuid();
-    public TelemetryDispatchResult Result { get; set; } =
-        new(TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted,
-            true, true, null, null, DefaultPersistedId, "Good", null,
-            DateTime.UtcNow, "auto-correlation", "auto-lineage");
+    public Func<SimulatorProductionPayload, CanonicalTelemetryIngestionResult> CanonicalResultFactory { get; set; } =
+        CanonicalTelemetryFixtures.Accepted;
     public bool ThrowTransient { get; set; }
     public Func<SimulatorProductionPayload, Exception?>? FailureSelector { get; set; }
     public TimeSpan DispatchDelay { get; set; }
     public Func<bool>? TransactionActiveProbe { get; set; }
     public bool ObservedActiveTransaction { get; private set; }
 
-    public async Task<TelemetryDispatchResult> DispatchAsync(SimulatorProductionPayload payload,
-        CancellationToken ct = default)
+    public async Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
+        SimulatorProductionPayload payload, CancellationToken ct = default)
     {
         ObservedActiveTransaction |= TransactionActiveProbe?.Invoke() == true;
         Payloads.Add(payload with { });
@@ -120,42 +117,23 @@ public sealed class FakeTelemetryIngestionClient : ITelemetryIngestionClient
             await Task.Delay(DispatchDelay, ct);
         if (FailureSelector?.Invoke(payload) is { } failure) throw failure;
         if (ThrowTransient) throw new TimeoutException("TRANSIENT_TELEMETRY");
-        return Result;
+        return CanonicalResultFactory(payload);
     }
+}
 
-    public async Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
-        SimulatorProductionPayload payload, CancellationToken ct = default)
-    {
-        var stable = await DispatchAsync(payload, ct);
-        return ToCanonical(payload, stable);
-    }
+public static class CanonicalTelemetryFixtures
+{
+    private static readonly DateTime CompletedAtUtc =
+        new(2026, 7, 28, 6, 0, 0, DateTimeKind.Utc);
 
-    private static CanonicalTelemetryIngestionResult ToCanonical(
-        SimulatorProductionPayload payload, TelemetryDispatchResult stable)
-    {
-        var disposition = stable.Outcome switch
-        {
-            TelemetryAttemptOutcome.Accepted => CanonicalTelemetryDisposition.Accepted,
-            TelemetryAttemptOutcome.Rejected => CanonicalTelemetryDisposition.Rejected,
-            TelemetryAttemptOutcome.Duplicate => CanonicalTelemetryDisposition.Duplicate,
-            _ => throw new InvalidOperationException("TERMINAL_RESULT_INVALID")
-        };
-        return new CanonicalTelemetryIngestionResult(
-            disposition,
+    public static CanonicalTelemetryIngestionResult Accepted(
+        SimulatorProductionPayload payload) => new(
+            CanonicalTelemetryDisposition.Accepted,
             new CanonicalTelemetryOriginalResult(
-                stable.FinalClassification,
-                stable.MeasurementPersisted ?? stable.FinalClassification == ProductionFinalClassification.Accepted,
-                stable.PersistedMeasurementId,
-                stable.QualityCode,
-                stable.ReasonCode,
-                stable.RejectionCode,
-                stable.LatestAdvanced,
-                stable.CompletedAtUtc ?? DateTime.UtcNow,
-                stable.OriginalCorrelationId ?? "auto-generated",
-                stable.OriginalLineageId ?? "auto-generated"),
-            stable.ErrorCode,
-            payload.CorrelationId);
-    }
+                ProductionFinalClassification.Accepted, true, payload.MeasurementId,
+                "Good", null, null, true, CompletedAtUtc,
+                "fixture-original-correlation", "fixture-original-lineage"),
+            null, payload.CorrelationId);
 }
 
 public sealed class CountingSimulatorValueGenerator : ISimulatorValueGenerator
@@ -455,7 +433,6 @@ public sealed class FakeAcquisitionRunRepositories :
         TelemetryDispatchResult result, DateTime completedAtUtc, ISimulatorRunTransaction transaction,
         CancellationToken ct = default)
     {
-        TelemetryDispatchResultValidator.EnsureValid(result);
         var state = Workspace(transaction);
         var key = (runId, pointId, sourceSequence);
         var attempt = state.Attempts.GetValueOrDefault(key)
@@ -477,6 +454,7 @@ public sealed class FakeAcquisitionRunRepositories :
             if (!same) throw new InvalidOperationException("TERMINAL_RESULT_CONFLICT");
             return Task.FromResult(new AttemptFinalizeResult(Clone(attempt), false, true));
         }
+        TelemetryDispatchResultValidator.EnsureValid(result);
         var completed = attempt with
         {
             Status = SimulatorProductionAttemptStatus.Completed,

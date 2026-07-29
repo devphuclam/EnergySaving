@@ -23,12 +23,18 @@ public static class IngestionPersistenceContractTests
             Check(system.Store.LatestCount == 1, "one Latest", failures);
             Check(system.Store.ListCommittedAsync().Result.Count == 1, "one event", failures);
             Check(system.Store.LastLockTrace.Select(item => item.Target).SequenceEqual(
-                [
-                    TelemetryFlowLockTarget.OrganizationPoint,
-                    TelemetryFlowLockTarget.CatalogSourceMappingMetricUnit,
-                    TelemetryFlowLockTarget.TelemetryIdentityRawLatest,
-                    TelemetryFlowLockTarget.IntegrationOutbox
-                ]), "exact lock order", failures);
+                 [
+                     TelemetryFlowLockTarget.OrganizationSite,
+                     TelemetryFlowLockTarget.OrganizationArea,
+                     TelemetryFlowLockTarget.OrganizationAsset,
+                     TelemetryFlowLockTarget.OrganizationPoint,
+                     TelemetryFlowLockTarget.CatalogSource,
+                     TelemetryFlowLockTarget.CatalogMapping,
+                     TelemetryFlowLockTarget.CatalogMetric,
+                     TelemetryFlowLockTarget.CatalogUnit,
+                     TelemetryFlowLockTarget.TelemetryIdentityRawLatest,
+                     TelemetryFlowLockTarget.IntegrationOutbox
+                 ]), "exact lock order", failures);
         });
         Case("Rejected commits registry only", failures, () =>
         {
@@ -96,8 +102,9 @@ public static class IngestionPersistenceContractTests
             var request = TelemetryTestData.Request();
             var winnerTerminal = TelemetryTestData.Terminal(
                 request, TelemetryFinalClassification.Accepted);
-            system.Store.RaceWinnerOnStage =
-                (winnerTerminal, request.NumericValue, request.UnitCode);
+            var winnerFixture = TelemetryTestData.RaceFixture(request, winnerTerminal);
+            system.Store.RaceWinnerFixtureOnStage =
+                winnerFixture;
             var result = IngestionOrchestrationTests.Execute(system, request);
             Check(result.Disposition == TelemetryDisposition.Duplicate, "race duplicate", failures);
             Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 1, "winner only", failures);
@@ -105,11 +112,11 @@ public static class IngestionPersistenceContractTests
             Check(system.Store.LatestCount == 1, "winner Latest only", failures);
             Check(system.Store.ListCommittedAsync().Result.Count == 1, "winner event only", failures);
             var raw = system.Store.ListCommittedRawAsync().Result[0];
-            Check(raw.NumericValue == request.NumericValue && raw.UnitCode == request.UnitCode,
-                "winner raw uses exact value/unit", failures);
+            Check(raw == winnerFixture.Raw, "winner raw is copied exactly", failures);
             var ev = system.Store.ListCommittedAsync().Result[0];
-            Check(ev.EventType == "MeasurementAccepted.v1" && ev.After.Count > 0,
-                "winner event has type and payload", failures);
+            Check(EventEqual(ev, winnerFixture.Event!), "winner event is copied exactly", failures);
+            Check(system.Store.LatestCount == (winnerFixture.Latest is null ? 0 : 1),
+                "winner Latest fixture is copied exactly", failures);
             Check(MeasurementIdentityRegistryTests.TerminalEqual(
                 result.OriginalResult, winnerTerminal), "exact stored winner terminal", failures);
         });
@@ -120,15 +127,17 @@ public static class IngestionPersistenceContractTests
             var winnerRequest = request with { NumericValue = 44 };
             var winnerTerminal = TelemetryTestData.Terminal(
                 winnerRequest, TelemetryFinalClassification.Accepted);
-            system.Store.RaceWinnerOnStage =
-                (winnerTerminal, winnerRequest.NumericValue, winnerRequest.UnitCode);
+            var winnerFixture = TelemetryTestData.RaceFixture(winnerRequest, winnerTerminal);
+            system.Store.RaceWinnerFixtureOnStage =
+                winnerFixture;
             var result = IngestionOrchestrationTests.Execute(system, request);
             Check(result.ErrorCode == "IDEMPOTENCY_CONFLICT", "race conflict", failures);
             Check(system.Store.ListCommittedRawAsync().Result.Count == 1, "conflict winner raw only", failures);
             Check(system.Store.ListCommittedAsync().Result.Count == 1, "conflict winner event only", failures);
             var raw = system.Store.ListCommittedRawAsync().Result[0];
-            Check(raw.NumericValue == winnerRequest.NumericValue && raw.UnitCode == winnerRequest.UnitCode,
-                "conflict winner raw uses exact value/unit", failures);
+            Check(raw == winnerFixture.Raw, "conflict winner raw is copied exactly", failures);
+            Check(EventEqual(system.Store.ListCommittedAsync().Result.Single(), winnerFixture.Event!),
+                "conflict winner event is copied exactly", failures);
         });
         Case("different-ID slot-race winner returns slot conflict", failures, () =>
         {
@@ -136,8 +145,9 @@ public static class IngestionPersistenceContractTests
             var winnerRequest = TelemetryTestData.Request();
             var winnerTerminal = TelemetryTestData.Terminal(
                 winnerRequest, TelemetryFinalClassification.Accepted);
-            system.Store.RaceWinnerOnStage =
-                (winnerTerminal, winnerRequest.NumericValue, winnerRequest.UnitCode);
+            var winnerFixture = TelemetryTestData.RaceFixture(winnerRequest, winnerTerminal);
+            system.Store.RaceWinnerFixtureOnStage =
+                winnerFixture;
             var mapping = Guid.Parse("66666666-6666-4666-8666-666666666666");
             var loserRequest = IngestionOrchestrationTests.WithIdentity(
                 winnerRequest with { MappingId = mapping });
@@ -149,6 +159,21 @@ public static class IngestionPersistenceContractTests
             Check(MeasurementIdentityRegistryTests.TerminalEqual(
                 system.Store.ListCommittedTerminalsAsync().Result[0], winnerTerminal),
                 "slot race stores winner exactly", failures);
+        });
+        Case("rejected race winner has no synthesized raw/latest/event", failures, () =>
+        {
+            var system = IngestionOrchestrationTests.Create();
+            var request = TelemetryTestData.Request();
+            var rejected = TelemetryTestData.Terminal(request, TelemetryFinalClassification.Rejected);
+            system.Store.RaceWinnerFixtureOnStage = TelemetryTestData.RaceFixture(request, rejected);
+            var result = IngestionOrchestrationTests.Execute(system, request);
+            Check(result.Disposition == TelemetryDisposition.Duplicate &&
+                  result.OriginalResult?.FinalClassification == TelemetryFinalClassification.Rejected,
+                "rejected race winner duplicate", failures);
+            Check(system.Store.ListCommittedRawAsync().Result.Count == 0 &&
+                  system.Store.LatestCount == 0 &&
+                  system.Store.ListCommittedAsync().Result.Count == 0,
+                "rejected winner has no dependent artifacts", failures);
         });
         Case("Bad bypasses Latest seam and still persists raw", failures, () =>
         {
@@ -175,4 +200,15 @@ public static class IngestionPersistenceContractTests
         CheckCount++;
         if (!condition) failures.Add(message);
     }
+
+    private static bool EventEqual(TelemetryOwnerEvent left, TelemetryOwnerEvent right) =>
+        left.EventId == right.EventId && left.EventType == right.EventType &&
+        left.SchemaVersion == right.SchemaVersion && left.Producer == right.Producer &&
+        left.AggregateType == right.AggregateType && left.AggregateId == right.AggregateId &&
+        left.AggregateVersion == right.AggregateVersion && left.ActorId == right.ActorId &&
+        left.ActorUsername == right.ActorUsername && left.Action == right.Action &&
+        left.Summary == right.Summary && left.OccurredAtUtc == right.OccurredAtUtc &&
+        left.CorrelationId == right.CorrelationId && left.CausationId == right.CausationId &&
+        left.SiteId == right.SiteId && left.AreaId == right.AreaId &&
+        left.Before.SequenceEqual(right.Before) && left.After.SequenceEqual(right.After);
 }

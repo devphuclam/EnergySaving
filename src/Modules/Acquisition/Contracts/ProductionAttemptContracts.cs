@@ -87,7 +87,7 @@ public sealed record TelemetryDispatchResult(
     TelemetryAttemptOutcome Outcome,
     ProductionFinalClassification FinalClassification,
     bool? MeasurementPersisted,
-    bool LatestAdvanced,
+    bool? LatestAdvanced,
     string? ErrorCode,
     string? RejectionCode,
     Guid? PersistedMeasurementId = null,
@@ -112,9 +112,9 @@ public sealed record CanonicalTelemetryOriginalResult(
     string? ReasonCode,
     string? RejectionCode,
     bool? LatestAdvanced,
-    DateTime CompletedAtUtc,
-    string OriginalCorrelationId,
-    string OriginalLineageId);
+    DateTime? CompletedAtUtc,
+    string? OriginalCorrelationId,
+    string? OriginalLineageId);
 
 public sealed record CanonicalTelemetryIngestionResult(
     CanonicalTelemetryDisposition Disposition,
@@ -126,34 +126,91 @@ public static class CanonicalTelemetryOriginalResultValidator
 {
     public const string InvalidCode = "CANONICAL_ORIGINAL_RESULT_INVALID";
 
-    public static void EnsureValid(CanonicalTelemetryOriginalResult original)
+    public static void EnsureValid(
+        SimulatorProductionPayload payload,
+        CanonicalTelemetryIngestionResult canonical)
     {
-        if (!Enum.IsDefined(original.FinalClassification))
+        if (canonical is null || canonical.OriginalResult is null ||
+            canonical.CorrelationId != payload.CorrelationId ||
+            string.IsNullOrWhiteSpace(canonical.CorrelationId) ||
+            string.IsNullOrWhiteSpace(canonical.OriginalResult.OriginalCorrelationId) ||
+            string.IsNullOrWhiteSpace(canonical.OriginalResult.OriginalLineageId) ||
+            canonical.OriginalResult.CompletedAtUtc is not { Kind: DateTimeKind.Utc })
             throw new InvalidOperationException(InvalidCode);
 
-        var valid = original.FinalClassification switch
+        var original = canonical.OriginalResult;
+        var valid = canonical.Disposition switch
         {
-            ProductionFinalClassification.Accepted =>
+            CanonicalTelemetryDisposition.Accepted =>
+                original.FinalClassification == ProductionFinalClassification.Accepted &&
                 original.MeasurementPersisted &&
-                original.PersistedMeasurementId.HasValue &&
-                original.QualityCode is not null &&
-                original.LatestAdvanced.HasValue,
-            ProductionFinalClassification.Rejected =>
+                original.PersistedMeasurementId == payload.MeasurementId &&
+                QualityShape(original.QualityCode, original.ReasonCode, original.LatestAdvanced) &&
+                original.RejectionCode is null &&
+                string.IsNullOrWhiteSpace(canonical.ErrorCode),
+            CanonicalTelemetryDisposition.Rejected =>
+                original.FinalClassification == ProductionFinalClassification.Rejected &&
                 !original.MeasurementPersisted &&
                 original.PersistedMeasurementId is null &&
                 original.QualityCode is null &&
-                !original.LatestAdvanced.GetValueOrDefault() &&
+                original.ReasonCode is null &&
+                original.LatestAdvanced is null &&
                 !string.IsNullOrWhiteSpace(original.RejectionCode),
+            CanonicalTelemetryDisposition.Duplicate =>
+                string.IsNullOrWhiteSpace(canonical.ErrorCode) &&
+                original.FinalClassification switch
+                {
+                    ProductionFinalClassification.Accepted =>
+                        original.MeasurementPersisted &&
+                        original.PersistedMeasurementId == payload.MeasurementId &&
+                        QualityShape(original.QualityCode, original.ReasonCode, original.LatestAdvanced) &&
+                        original.RejectionCode is null,
+                    ProductionFinalClassification.Rejected =>
+                        !original.MeasurementPersisted &&
+                        original.PersistedMeasurementId is null &&
+                        original.QualityCode is null &&
+                        original.ReasonCode is null &&
+                        original.LatestAdvanced is null &&
+                        !string.IsNullOrWhiteSpace(original.RejectionCode),
+                    _ => false
+                },
             _ => false
         };
         if (!valid)
             throw new InvalidOperationException(InvalidCode);
     }
+
+    private static bool QualityShape(string? qualityCode, string? reasonCode, bool? latestAdvanced) =>
+        qualityCode switch
+        {
+            "Good" => reasonCode is null && latestAdvanced is not null,
+            "Uncertain" => reasonCode == "SOURCE_TIMESTAMP_FUTURE" && latestAdvanced is not null,
+            "Bad" => reasonCode == "VALUE_OUT_OF_RANGE" && latestAdvanced == false,
+            _ => false
+        };
 }
 
 public static class TelemetryDispatchResultValidator
 {
     public const string InvalidCode = "TERMINAL_RESULT_INVALID";
+
+    public static void EnsureValid(SimulatorProductionPayload payload, TelemetryDispatchResult result)
+    {
+        EnsureValid(result);
+        if (result.CompletedAtUtc is not { Kind: DateTimeKind.Utc } ||
+            string.IsNullOrWhiteSpace(result.OriginalCorrelationId) ||
+            string.IsNullOrWhiteSpace(result.OriginalLineageId) ||
+            (result.FinalClassification == ProductionFinalClassification.Accepted &&
+                (result.MeasurementPersisted != true ||
+                 result.PersistedMeasurementId != payload.MeasurementId ||
+                 !QualityShape(result.QualityCode, result.ReasonCode, result.LatestAdvanced) ||
+                 result.RejectionCode is not null)) ||
+            (result.FinalClassification == ProductionFinalClassification.Rejected &&
+                (result.MeasurementPersisted != false || result.PersistedMeasurementId is not null ||
+                 result.QualityCode is not null || result.ReasonCode is not null ||
+                 result.LatestAdvanced is not null || string.IsNullOrWhiteSpace(result.RejectionCode))))
+            throw new InvalidOperationException(InvalidCode);
+    }
 
     public static void EnsureValid(TelemetryDispatchResult result)
     {
@@ -167,14 +224,14 @@ public static class TelemetryDispatchResultValidator
                 result.RejectionCode is null,
             TelemetryAttemptOutcome.Rejected =>
                 result.FinalClassification == ProductionFinalClassification.Rejected &&
-                !result.LatestAdvanced &&
+                (result.LatestAdvanced is null || result.LatestAdvanced == false) &&
                 !string.IsNullOrWhiteSpace(result.RejectionCode),
             TelemetryAttemptOutcome.Duplicate =>
                 result.FinalClassification switch
                 {
                     ProductionFinalClassification.Accepted => result.RejectionCode is null,
                     ProductionFinalClassification.Rejected =>
-                        !result.LatestAdvanced &&
+                        (result.LatestAdvanced is null || result.LatestAdvanced == false) &&
                         !string.IsNullOrWhiteSpace(result.RejectionCode),
                     _ => false
                 },
@@ -183,6 +240,15 @@ public static class TelemetryDispatchResultValidator
         if (!valid)
             throw new InvalidOperationException(InvalidCode);
     }
+
+    private static bool QualityShape(string? qualityCode, string? reasonCode, bool? latestAdvanced) =>
+        qualityCode switch
+        {
+            "Good" => reasonCode is null && latestAdvanced is not null,
+            "Uncertain" => reasonCode == "SOURCE_TIMESTAMP_FUTURE" && latestAdvanced is not null,
+            "Bad" => reasonCode == "VALUE_OUT_OF_RANGE" && latestAdvanced == false,
+            _ => false
+        };
 }
 
 public sealed record AttemptFinalizeResult(
@@ -209,36 +275,15 @@ public interface ISimulatorProductionAttemptRepository
 
 public interface ITelemetryIngestionClient
 {
+    Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
+        SimulatorProductionPayload payload,
+        CancellationToken ct = default);
+}
+
+public interface ILegacyTelemetryDispatchClient
+{
     Task<TelemetryDispatchResult> DispatchAsync(SimulatorProductionPayload payload,
         CancellationToken ct = default);
-
-    async Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
-        SimulatorProductionPayload payload,
-        CancellationToken ct = default)
-    {
-        var stable = await DispatchAsync(payload, ct);
-        return new CanonicalTelemetryIngestionResult(
-            stable.Outcome switch
-            {
-                TelemetryAttemptOutcome.Accepted => CanonicalTelemetryDisposition.Accepted,
-                TelemetryAttemptOutcome.Rejected => CanonicalTelemetryDisposition.Rejected,
-                TelemetryAttemptOutcome.Duplicate => CanonicalTelemetryDisposition.Duplicate,
-                _ => throw new InvalidOperationException("TERMINAL_RESULT_INVALID")
-            },
-            new CanonicalTelemetryOriginalResult(
-                stable.FinalClassification,
-                stable.MeasurementPersisted ?? stable.FinalClassification == ProductionFinalClassification.Accepted,
-                stable.PersistedMeasurementId,
-                stable.QualityCode,
-                stable.ReasonCode,
-                stable.RejectionCode,
-                stable.LatestAdvanced,
-                stable.CompletedAtUtc ?? throw new InvalidOperationException("TELEMETRY_COMPLETED_AT_REQUIRED"),
-                stable.OriginalCorrelationId ?? throw new InvalidOperationException("TELEMETRY_ORIGINAL_CORRELATION_REQUIRED"),
-                stable.OriginalLineageId ?? throw new InvalidOperationException("TELEMETRY_ORIGINAL_LINEAGE_REQUIRED")),
-            stable.ErrorCode,
-            payload.CorrelationId);
-    }
 }
 
 public interface ISimulatorProductionEligibility

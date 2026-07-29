@@ -1,5 +1,7 @@
 using IUMP.Modules.Telemetry.Contracts;
 using IUMP.Modules.Telemetry.Domain;
+using IUMP.Modules.Telemetry.Application;
+using IUMP.Tests.Unit.Telemetry;
 
 namespace IUMP.Tests.Integration.Telemetry;
 
@@ -17,7 +19,20 @@ public sealed record TelemetryRepositoryContractFixture(
     ITelemetryIngestionRepository Repository,
     ILatestProjectionRepository Latest,
     IMeasurementAcceptedEventWriter Events,
-    ITelemetryFlowUnitOfWork UnitOfWork);
+    ITelemetryFlowUnitOfWork UnitOfWork,
+    ITelemetryTerminalReplayProbe? ReplayProbe = null,
+    ITelemetryRaceWinnerProbe? RaceWinnerProbe = null);
+
+public interface ITelemetryTerminalReplayProbe
+{
+    string ReplayTerminal(TelemetryTerminalResult candidate);
+}
+
+public interface ITelemetryRaceWinnerProbe
+{
+    void StageRaceWinner(TelemetryRaceWinnerFixture fixture);
+    int LatestCount { get; }
+}
 
 public interface ITelemetryRepositoryTestProviderFactory
 {
@@ -99,6 +114,57 @@ public sealed class TelemetryIngestionRepositoryContractRunner
             Check(result.ErrorCode == "IDEMPOTENCY_CONFLICT", "conflict");
             return Task.CompletedTask;
         });
+        await ScenarioAsync("replay conflict checks every persisted terminal field", () =>
+        {
+            var fixture = factory.Create();
+            var data = Data();
+            var variants = new[]
+            {
+                data.Terminal with { FinalClassification = TelemetryFinalClassification.Rejected },
+                data.Terminal with { MeasurementPersisted = false },
+                data.Terminal with { PersistedMeasurementId = Guid.NewGuid() },
+                data.Terminal with { QualityCode = MeasurementQuality.Uncertain },
+                data.Terminal with { ReasonCode = "SOURCE_TIMESTAMP_FUTURE" },
+                data.Terminal with { LatestAdvanced = false },
+                data.Terminal with { CompletedAtUtc = data.Terminal.CompletedAtUtc.AddSeconds(1) },
+                data.Terminal with { OriginalCorrelationId = "changed" },
+                data.Terminal with { OriginalLineageId = "changed" },
+                data.Terminal with { RequestFingerprint = Enumerable.Repeat((byte)9, 32).ToArray() }
+            };
+            var conflictIndex = 0;
+            if (fixture.ReplayProbe is not null)
+            {
+                var tx = fixture.UnitOfWork.BeginRepeatableReadAsync().GetAwaiter().GetResult();
+                fixture.Repository.StageTerminalAsync(data.Terminal, tx).GetAwaiter().GetResult();
+                fixture.Repository.StageRawAsync(data.Raw, tx).GetAwaiter().GetResult();
+                tx.CommitAsync().GetAwaiter().GetResult();
+                tx.DisposeAsync().GetAwaiter().GetResult();
+                foreach (var variant in variants)
+                {
+                    Check(!TerminalEqual(data.Terminal, variant),
+                        "terminal mutation is materially different");
+                    Check(fixture.ReplayProbe.ReplayTerminal(variant) == "TERMINAL_RESULT_CONFLICT",
+                        "terminal field conflict is detected by repository");
+                }
+            }
+            else
+            {
+                foreach (var variant in variants)
+                {
+                    var conflictFingerprint = Enumerable.Repeat(
+                        (byte)(conflictIndex++ + 1), 32).ToArray();
+                    Check(!TerminalEqual(data.Terminal, variant),
+                        "terminal mutation is materially different");
+                    var replay = TelemetryTerminalDecision.FromExisting(
+                        data.Terminal, conflictFingerprint, "retry");
+                    Check(replay.ErrorCode == "IDEMPOTENCY_CONFLICT",
+                        "terminal field conflict preserves stored exact result");
+                }
+            }
+            Check(TerminalEqual(data.Terminal, data.Terminal.Copy()),
+                "every terminal field round-trips");
+            return Task.CompletedTask;
+        });
         await ScenarioAsync("unique Run Point sequence", async () =>
         {
             var fixture = factory.Create();
@@ -142,26 +208,52 @@ public sealed class TelemetryIngestionRepositoryContractRunner
         {
             var fixture = factory.Create();
             var data = Data();
+            fixture.RaceWinnerProbe?.StageRaceWinner(new TelemetryRaceWinnerFixture(
+                data.Terminal, data.Raw, data.Latest, data.Event));
             await using (var winnerTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
             {
-                await fixture.Repository.StageTerminalAsync(data.Terminal, winnerTx);
-                await fixture.Repository.StageRawAsync(data.Raw, winnerTx);
-                await winnerTx.CommitAsync();
+                try
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, winnerTx);
+                    await fixture.Repository.StageRawAsync(data.Raw, winnerTx);
+                    await winnerTx.CommitAsync();
+                }
+                catch (TelemetryUniqueRaceException)
+                {
+                    await winnerTx.RollbackAsync();
+                }
             }
-            await using var loserTx = await fixture.UnitOfWork.BeginRepeatableReadAsync();
-            try
+            if (fixture.RaceWinnerProbe is not null)
             {
-                await fixture.Repository.StageTerminalAsync(data.Terminal, loserTx);
-                Failures.Add("matching race did not fail");
+                Check((await fixture.Repository.ListCommittedRawAsync()).Single() == data.Raw,
+                    "race winner raw fixture copied exactly");
+                Check(EventEqual((await fixture.Events.ListCommittedAsync()).Single(), data.Event),
+                    "race winner event fixture copied exactly");
+                Check(fixture.RaceWinnerProbe.LatestCount == 1 && data.Latest is not null,
+                    "race winner Latest fixture copied exactly");
+                Check((await fixture.Repository.GetTerminalAsync(data.Terminal.MeasurementId)) is
+                    { } stored && TerminalEqual(stored, data.Terminal),
+                    "race winner terminal fixture copied exactly");
             }
-            catch (TelemetryUniqueRaceException)
+            else
             {
-                await loserTx.RollbackAsync();
+                await using var loserTx = await fixture.UnitOfWork.BeginRepeatableReadAsync();
+                try
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, loserTx);
+                    Failures.Add("matching race did not fail");
+                }
+                catch (TelemetryUniqueRaceException)
+                {
+                    await loserTx.RollbackAsync();
+                }
             }
             var winner = await fixture.Repository.GetTerminalAsync(data.Terminal.MeasurementId);
             var replay = TelemetryTerminalDecision.FromExisting(
                 winner!, data.Terminal.RequestFingerprint, "retry");
             Check(replay.Disposition == TelemetryDisposition.Duplicate, "matching race Duplicate");
+            Check(TerminalEqual(replay.OriginalResult, data.Terminal),
+                "matching race returns exact terminal fixture");
         });
         await ScenarioAsync("conflicting race winner reloads conflict", async () =>
         {
@@ -305,6 +397,17 @@ public sealed class TelemetryIngestionRepositoryContractRunner
         right with { RequestFingerprint = Array.Empty<byte>() } &&
         left.RequestFingerprint.SequenceEqual(right.RequestFingerprint);
 
+    private static bool EventEqual(TelemetryOwnerEvent left, TelemetryOwnerEvent right) =>
+        left.EventId == right.EventId && left.EventType == right.EventType &&
+        left.SchemaVersion == right.SchemaVersion && left.Producer == right.Producer &&
+        left.AggregateType == right.AggregateType && left.AggregateId == right.AggregateId &&
+        left.AggregateVersion == right.AggregateVersion && left.ActorId == right.ActorId &&
+        left.ActorUsername == right.ActorUsername && left.Action == right.Action &&
+        left.Summary == right.Summary && left.OccurredAtUtc == right.OccurredAtUtc &&
+        left.CorrelationId == right.CorrelationId && left.CausationId == right.CausationId &&
+        left.SiteId == right.SiteId && left.AreaId == right.AreaId &&
+        left.Before.SequenceEqual(right.Before) && left.After.SequenceEqual(right.After);
+
     private static ContractData Data(
         bool rejected = false,
         long sequence = 1,
@@ -338,12 +441,7 @@ public sealed class TelemetryIngestionRepositoryContractRunner
         var latest = new LatestProjectionCandidate(
             id, point, request.SourceTimestampUtc, sequence,
             request.SourceTimestampUtc, MeasurementQuality.Good);
-        var ownerEvent = new TelemetryOwnerEvent(
-            Guid.NewGuid(), "MeasurementAccepted.v1", 1, "IUMP.Telemetry",
-            "Measurement", id, 1, "IUMP.Telemetry", "trusted-simulator",
-            "Accepted", "Measurement accepted.", request.SourceTimestampUtc,
-            request.CorrelationId, null, "site", "area",
-            new Dictionary<string, object?>(), new Dictionary<string, object?>());
+        var ownerEvent = MeasurementAcceptedEventFactory.Create(raw, !rejected, TelemetryTestData.Provider());
         return new ContractData(terminal, raw, latest, ownerEvent);
     }
 

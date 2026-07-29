@@ -68,7 +68,9 @@ public static class ProductionAttemptTests
 
         TestCount++;
         var accepted = new TelemetryDispatchResult(
-            TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted, true, true, null, null);
+            TelemetryAttemptOutcome.Accepted, ProductionFinalClassification.Accepted, true, true, null, null,
+            reserved.Attempt.Payload.MeasurementId, "Good", null, Phase6Fixtures.Now,
+            "original-correlation", "original-lineage");
         var finalized = await service.FinalizeAsync(runId, Phase6Fixtures.PointId, 0, accepted);
         Check(finalized.FirstTransition && !finalized.Replay &&
               finalized.Attempt.Status == SimulatorProductionAttemptStatus.Completed,
@@ -91,7 +93,8 @@ public static class ProductionAttemptTests
         {
             await service.FinalizeAsync(runId, Phase6Fixtures.PointId, 0,
                 new TelemetryDispatchResult(TelemetryAttemptOutcome.Rejected,
-                    ProductionFinalClassification.Rejected, false, false, "REJECTED", "INVALID"));
+                    ProductionFinalClassification.Rejected, false, false, "REJECTED", "INVALID",
+                    null, null, null, Phase6Fixtures.Now, "different-correlation", "different-lineage"));
         }
         catch (InvalidOperationException ex)
         {
@@ -165,7 +168,8 @@ public static class ProductionAttemptTests
             new FakeUtcClock(Phase6Fixtures.Now));
         var duplicateResult = new TelemetryDispatchResult(
             TelemetryAttemptOutcome.Duplicate, ProductionFinalClassification.Accepted, true, false,
-            "DUPLICATE", null);
+            "DUPLICATE", null, Phase6Fixtures.Pending(duplicateRunId).Payload.MeasurementId,
+            "Good", null, Phase6Fixtures.Now, "original-correlation", "original-lineage");
         var duplicate = await duplicateService.FinalizeAsync(
             duplicateRunId, Phase6Fixtures.PointId, 0, duplicateResult);
         Check(duplicate.FirstTransition &&
@@ -205,8 +209,12 @@ public static class ProductionAttemptTests
         Check(raceGenerator.GenerateCount == 1 &&
               (await raceRepositories.GetAsync(raceRunId, Phase6Fixtures.PointId, 0)) is not null,
             "race preserves exactly the winner Pending attempt", failures);
+        var raceAccepted = accepted with
+        {
+            PersistedMeasurementId = race.Attempt.Payload.MeasurementId
+        };
         await raceService.FinalizeAsync(
-            raceRunId, Phase6Fixtures.PointId, 0, accepted);
+            raceRunId, Phase6Fixtures.PointId, 0, raceAccepted);
         Check((await raceRepositories.GetAsync(raceRunId)) is
               { GeneratedCount: 1, AcceptedCount: 1, RejectedCount: 0 },
             "race winner finalizes Accepted without a second state advance", failures);
@@ -243,7 +251,8 @@ public static class ProductionAttemptTests
         var finalizeRepositories = new FakeAcquisitionRunRepositories();
         finalizeRepositories.Seed(Phase6Fixtures.Run(finalizeRunId),
             Phase6Fixtures.Point(finalizeRunId));
-        finalizeRepositories.SeedAttempt(Phase6Fixtures.Pending(finalizeRunId));
+        var finalizePending = Phase6Fixtures.Pending(finalizeRunId);
+        finalizeRepositories.SeedAttempt(finalizePending);
         finalizeRepositories.FailNextCommit = true;
         var finalizeService = new ProductionAttemptService(
             finalizeRepositories, finalizeRepositories, configurations, finalizeRepositories,
@@ -253,7 +262,8 @@ public static class ProductionAttemptTests
         try
         {
             await finalizeService.FinalizeAsync(
-                finalizeRunId, Phase6Fixtures.PointId, 0, accepted);
+                finalizeRunId, Phase6Fixtures.PointId, 0,
+                accepted with { PersistedMeasurementId = finalizePending.Payload.MeasurementId });
         }
         catch (InvalidOperationException ex)
         {

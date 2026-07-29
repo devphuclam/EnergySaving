@@ -104,12 +104,24 @@ public sealed record RawMeasurement(
     string CorrelationId,
     string LineageId);
 
+public sealed record TelemetryRaceWinnerFixture(
+    TelemetryTerminalResult Terminal,
+    RawMeasurement? Raw,
+    LatestProjectionCandidate? Latest,
+    TelemetryOwnerEvent? Event);
+
 public enum TelemetryFlowLockTarget
 {
-    OrganizationPoint = 1,
-    CatalogSourceMappingMetricUnit = 2,
-    TelemetryIdentityRawLatest = 3,
-    IntegrationOutbox = 4
+    OrganizationSite = 1,
+    OrganizationArea = 2,
+    OrganizationAsset = 3,
+    OrganizationPoint = 4,
+    CatalogSource = 5,
+    CatalogMapping = 6,
+    CatalogMetric = 7,
+    CatalogUnit = 8,
+    TelemetryIdentityRawLatest = 9,
+    IntegrationOutbox = 10
 }
 
 public sealed record TelemetryFlowLock(TelemetryFlowLockTarget Target, string Key);
@@ -203,14 +215,192 @@ public sealed record TelemetryProviderSnapshot(
     long CompatibilityVersion,
     string CompatibilityStatus,
     string TrustedSiteId,
-    string? TrustedAreaId);
+    string? TrustedAreaId,
+    string SiteId,
+    string SiteStatus,
+    string AreaId,
+    string AreaStatus,
+    string AssetId,
+    string AssetStatus,
+    string PointStatus,
+    string SourceStatus,
+    string MappingStatus,
+    string MetricId,
+    string MetricStatus,
+    string UnitId,
+    string UnitStatus,
+    DateTime EffectiveFromUtc,
+    DateTime? EffectiveToUtc);
+
+public sealed record TelemetryProviderRecheckResult(
+    bool SiteIdMatches,
+    bool SiteVersionMatches,
+    bool SiteStatusMatches,
+    bool AreaIdMatches,
+    bool AreaVersionMatches,
+    bool AreaStatusMatches,
+    bool AssetIdMatches,
+    bool AssetVersionMatches,
+    bool AssetStatusMatches,
+    bool PointIdMatches,
+    bool PointVersionMatches,
+    bool PointStatusMatches,
+    bool SourceIdMatches,
+    bool SourceVersionMatches,
+    bool SourceStatusMatches,
+    bool MappingIdMatches,
+    bool MappingVersionMatches,
+    bool MappingStatusMatches,
+    bool MetricIdMatches,
+    bool MetricVersionMatches,
+    bool MetricStatusMatches,
+    bool UnitIdMatches,
+    bool UnitVersionMatches,
+    bool UnitStatusMatches,
+    bool EffectiveFromMatches,
+    bool EffectiveToMatches,
+    bool CompatibilityIdentityMatches,
+    bool CompatibilityVersionMatches,
+    bool CompatibilityStatusMatches,
+    bool PointExistsMatches,
+    bool PointActiveMatches,
+    bool SiteActiveMatches,
+    bool AreaActiveMatches,
+    bool AssetActiveMatches,
+    bool SourceTypeMatches,
+    bool SourceExistsMatches,
+    bool SourceActiveMatches,
+    bool MappingPointIdMatches,
+    bool MappingExistsMatches,
+    bool MappingActiveMatches,
+    bool MappingEffectiveMatches,
+    bool MetricExistsMatches,
+    bool MetricMatchesPointMatches,
+    bool MetricActiveMatches,
+    bool UnitExistsMatches,
+    bool UnitActiveMatches,
+    bool UnitCompatibleMatches,
+    bool UnitCodeMatches,
+    bool TrustedSiteIdMatches,
+    bool TrustedAreaIdMatches)
+{
+    public bool IsExactMatch =>
+        SiteIdMatches && SiteVersionMatches && SiteStatusMatches &&
+        AreaIdMatches && AreaVersionMatches && AreaStatusMatches &&
+        AssetIdMatches && AssetVersionMatches && AssetStatusMatches &&
+        PointIdMatches && PointVersionMatches && PointStatusMatches &&
+        SourceIdMatches && SourceVersionMatches && SourceStatusMatches &&
+        MappingIdMatches && MappingVersionMatches && MappingStatusMatches &&
+        MetricIdMatches && MetricVersionMatches && MetricStatusMatches &&
+        UnitIdMatches && UnitVersionMatches && UnitStatusMatches &&
+        EffectiveFromMatches && EffectiveToMatches &&
+        CompatibilityIdentityMatches && CompatibilityVersionMatches && CompatibilityStatusMatches &&
+        PointExistsMatches && PointActiveMatches && SiteActiveMatches && AreaActiveMatches &&
+        AssetActiveMatches && SourceTypeMatches && SourceExistsMatches && SourceActiveMatches &&
+        MappingPointIdMatches && MappingExistsMatches && MappingActiveMatches &&
+        MappingEffectiveMatches && MetricExistsMatches && MetricMatchesPointMatches &&
+        MetricActiveMatches && UnitExistsMatches && UnitActiveMatches && UnitCompatibleMatches &&
+        UnitCodeMatches && TrustedSiteIdMatches && TrustedAreaIdMatches;
+
+    public static TelemetryProviderRecheckResult Compare(
+        TelemetryProviderSnapshot expected, TelemetryProviderSnapshot current) => new(
+            expected.SiteId == current.SiteId,
+            expected.SiteVersion == current.SiteVersion,
+            expected.SiteStatus == current.SiteStatus,
+            expected.AreaId == current.AreaId,
+            expected.AreaVersion == current.AreaVersion,
+            expected.AreaStatus == current.AreaStatus,
+            expected.AssetId == current.AssetId,
+            expected.AssetVersion == current.AssetVersion,
+            expected.AssetStatus == current.AssetStatus,
+            expected.PointId == current.PointId,
+            expected.PointVersion == current.PointVersion,
+            expected.PointStatus == current.PointStatus,
+            expected.SourceId == current.SourceId,
+            expected.SourceVersion == current.SourceVersion,
+            expected.SourceStatus == current.SourceStatus,
+            expected.MappingId == current.MappingId,
+            expected.MappingVersion == current.MappingVersion,
+            expected.MappingStatus == current.MappingStatus,
+            expected.MetricId == current.MetricId,
+            expected.MetricVersion == current.MetricVersion,
+            expected.MetricStatus == current.MetricStatus,
+            expected.UnitId == current.UnitId,
+            expected.UnitVersion == current.UnitVersion,
+            expected.UnitStatus == current.UnitStatus,
+            expected.EffectiveFromUtc == current.EffectiveFromUtc,
+            expected.EffectiveToUtc == current.EffectiveToUtc,
+            expected.CompatibilityIdentity == current.CompatibilityIdentity,
+            expected.CompatibilityVersion == current.CompatibilityVersion,
+            expected.CompatibilityStatus == current.CompatibilityStatus,
+            expected.PointExists == current.PointExists,
+            expected.PointActive == current.PointActive,
+            expected.SiteActive == current.SiteActive,
+            expected.AreaActive == current.AreaActive,
+            expected.AssetActive == current.AssetActive,
+            expected.SourceType == current.SourceType,
+            expected.SourceExists == current.SourceExists,
+            expected.SourceActive == current.SourceActive,
+            expected.MappingPointId == current.MappingPointId,
+            expected.MappingExists == current.MappingExists,
+            expected.MappingActive == current.MappingActive,
+            expected.MappingEffective == current.MappingEffective,
+            expected.MetricExists == current.MetricExists,
+            expected.MetricMatchesPoint == current.MetricMatchesPoint,
+            expected.MetricActive == current.MetricActive,
+            expected.UnitExists == current.UnitExists,
+            expected.UnitActive == current.UnitActive,
+            expected.UnitCompatible == current.UnitCompatible,
+            expected.UnitCode == current.UnitCode,
+            expected.TrustedSiteId == current.TrustedSiteId,
+            expected.TrustedAreaId == current.TrustedAreaId);
+}
+
+public static class TelemetryProviderSnapshotValidator
+{
+    public const string InvalidCode = "PROVIDER_SNAPSHOT_INVALID";
+
+    public static void EnsureValid(TelemetryProviderSnapshot snapshot, DateTime atUtc)
+    {
+        if (snapshot.PointId == Guid.Empty || snapshot.SourceId == Guid.Empty ||
+            snapshot.MappingId == Guid.Empty || snapshot.MappingPointId != snapshot.PointId ||
+            snapshot.SiteVersion <= 0 || snapshot.AreaVersion <= 0 || snapshot.AssetVersion <= 0 ||
+            snapshot.PointVersion <= 0 || snapshot.SourceVersion <= 0 || snapshot.MappingVersion <= 0 ||
+            snapshot.MetricVersion <= 0 || snapshot.UnitVersion <= 0 ||
+            string.IsNullOrWhiteSpace(snapshot.SiteId) || string.IsNullOrWhiteSpace(snapshot.AreaId) ||
+            string.IsNullOrWhiteSpace(snapshot.AssetId) || string.IsNullOrWhiteSpace(snapshot.MetricId) ||
+            string.IsNullOrWhiteSpace(snapshot.UnitId) ||
+            !string.Equals(snapshot.SourceType, "Simulator", StringComparison.Ordinal) ||
+            !string.Equals(snapshot.CompatibilityStatus, "Active", StringComparison.Ordinal) ||
+            snapshot.EffectiveFromUtc.Kind != DateTimeKind.Utc ||
+            snapshot.EffectiveToUtc is { Kind: not DateTimeKind.Utc } ||
+            snapshot.EffectiveFromUtc > atUtc ||
+            (snapshot.EffectiveToUtc is { } effectiveTo && effectiveTo <= atUtc))
+            throw new InvalidOperationException(InvalidCode);
+
+        var active = new[]
+        {
+            snapshot.SiteStatus, snapshot.AreaStatus, snapshot.AssetStatus,
+            snapshot.PointStatus, snapshot.SourceStatus, snapshot.MappingStatus,
+            snapshot.MetricStatus, snapshot.UnitStatus
+        };
+        if (active.Any(status => !string.Equals(status, "Active", StringComparison.Ordinal)) ||
+            !snapshot.PointExists || !snapshot.PointActive || !snapshot.SiteActive ||
+            !snapshot.AreaActive || !snapshot.AssetActive || !snapshot.SourceExists ||
+            !snapshot.SourceActive || !snapshot.MappingExists || !snapshot.MappingActive ||
+            !snapshot.MappingEffective || !snapshot.MetricExists || !snapshot.MetricMatchesPoint ||
+            !snapshot.MetricActive || !snapshot.UnitExists || !snapshot.UnitActive ||
+            !snapshot.UnitCompatible)
+            throw new InvalidOperationException(InvalidCode);
+    }
+}
 
 public interface ITelemetryProviderSnapshotQuery
 {
     Task<TelemetryProviderSnapshot?> GetAsync(
         TelemetryMeasurementRequest request, DateTime receivedAtUtc,
         CancellationToken ct = default);
-    Task<bool> RecheckAsync(
+    Task<TelemetryProviderRecheckResult> RecheckAsync(
         TelemetryProviderSnapshot snapshot, ITelemetryFlowTransaction transaction,
         CancellationToken ct = default);
 }

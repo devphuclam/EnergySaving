@@ -37,11 +37,15 @@ public sealed class TelemetryPersistenceService
         DateTime completedAtUtc,
         CancellationToken ct = default)
     {
+        if (receivedAtUtc.Kind != DateTimeKind.Utc || processingAtUtc.Kind != DateTimeKind.Utc ||
+            completedAtUtc.Kind != DateTimeKind.Utc)
+            throw new InvalidOperationException("TELEMETRY_TIMESTAMP_INVALID");
+        TelemetryProviderSnapshotValidator.EnsureValid(provider, processingAtUtc);
         await using var transaction = await _unitOfWork.BeginRepeatableReadAsync(ct);
         try
         {
-            await AcquireOwnerLocksAsync(transaction, request, ct);
-            if (!await _providers.RecheckAsync(provider, transaction, ct))
+            await AcquireOwnerLocksAsync(transaction, request, provider, ct);
+            if (!(await _providers.RecheckAsync(provider, transaction, ct)).IsExactMatch)
                 throw new InvalidOperationException("PROVIDER_VERSION_DRIFT");
             var existing = await _repository.RecheckTerminalAsync(measurementId, transaction, ct);
             if (existing is not null)
@@ -107,12 +111,14 @@ public sealed class TelemetryPersistenceService
         TelemetryProviderSnapshot? provider,
         CancellationToken ct = default)
     {
+        if (completedAtUtc.Kind != DateTimeKind.Utc)
+            throw new InvalidOperationException("TELEMETRY_TIMESTAMP_INVALID");
         await using var transaction = await _unitOfWork.BeginRepeatableReadAsync(ct);
         try
         {
-            await AcquireOwnerLocksAsync(transaction, request, ct);
+            await AcquireOwnerLocksAsync(transaction, request, provider, ct);
             if (provider is not null &&
-                !await _providers.RecheckAsync(provider, transaction, ct))
+                !(await _providers.RecheckAsync(provider, transaction, ct)).IsExactMatch)
                 throw new InvalidOperationException("PROVIDER_VERSION_DRIFT");
             var existing = await _repository.RecheckTerminalAsync(measurementId, transaction, ct);
             if (existing is not null)
@@ -155,13 +161,29 @@ public sealed class TelemetryPersistenceService
     private static async ValueTask AcquireOwnerLocksAsync(
         ITelemetryFlowTransaction transaction,
         TelemetryMeasurementRequest request,
+        TelemetryProviderSnapshot? provider,
         CancellationToken ct)
     {
+        if (provider is not null)
+        {
+            await transaction.AcquireLockAsync(
+                TelemetryFlowLockTarget.OrganizationSite, provider.SiteId, ct);
+            await transaction.AcquireLockAsync(
+                TelemetryFlowLockTarget.OrganizationArea, provider.AreaId, ct);
+            await transaction.AcquireLockAsync(
+                TelemetryFlowLockTarget.OrganizationAsset, provider.AssetId, ct);
+        }
         await transaction.AcquireLockAsync(
             TelemetryFlowLockTarget.OrganizationPoint, request.PointId.ToString("D"), ct);
         await transaction.AcquireLockAsync(
-            TelemetryFlowLockTarget.CatalogSourceMappingMetricUnit,
-            $"{request.SourceId:D}|{request.MappingId:D}", ct);
+            TelemetryFlowLockTarget.CatalogSource, request.SourceId.ToString("D"), ct);
+        await transaction.AcquireLockAsync(
+            TelemetryFlowLockTarget.CatalogMapping, request.MappingId.ToString("D"), ct);
+        if (provider is not null)
+            await transaction.AcquireLockAsync(
+                TelemetryFlowLockTarget.CatalogMetric, provider.MetricId, ct);
+        await transaction.AcquireLockAsync(
+            TelemetryFlowLockTarget.CatalogUnit, provider?.UnitId ?? request.UnitCode, ct);
         await transaction.AcquireLockAsync(
             TelemetryFlowLockTarget.TelemetryIdentityRawLatest, request.MeasurementId, ct);
     }
@@ -232,7 +254,7 @@ public static class MeasurementAcceptedEventFactory
             "Measurement", measurement.MeasurementId, 1, "IUMP.Telemetry",
             "trusted-simulator", "Accepted", "Measurement accepted.",
             measurement.ProcessingAtUtc, measurement.CorrelationId, null,
-            provider.TrustedSiteId, provider.TrustedAreaId,
+            provider.SiteId, provider.AreaId,
             new Dictionary<string, object?>(StringComparer.Ordinal), after);
     }
 }

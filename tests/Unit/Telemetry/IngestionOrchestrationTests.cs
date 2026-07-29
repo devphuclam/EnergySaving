@@ -149,6 +149,21 @@ public static class IngestionOrchestrationTests
                 (baseline with { UnitActive = false }, "UNIT_INACTIVE"),
                 (baseline with { UnitCompatible = false }, "UNIT_INCOMPATIBLE"),
                 (baseline with { UnitCode = "KWH" }, "UNIT_MISMATCH"),
+                (baseline with { SiteId = "" }, "PROVIDER_ID_MISSING"),
+                (baseline with { AreaId = "" }, "PROVIDER_ID_MISSING"),
+                (baseline with { AssetId = "" }, "PROVIDER_ID_MISSING"),
+                (baseline with { MetricId = "" }, "PROVIDER_ID_MISSING"),
+                (baseline with { UnitId = "" }, "PROVIDER_ID_MISSING"),
+                (baseline with { SiteStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { AreaStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { AssetStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { PointStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { SourceStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { MappingStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { MetricStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { UnitStatus = "Inactive" }, "PROVIDER_STATUS_NOT_ACTIVE"),
+                (baseline with { EffectiveFromUtc = TelemetryTestData.Now.AddMinutes(1) }, "MAPPING_EFFECTIVE_DATE_INVALID"),
+                (baseline with { EffectiveToUtc = TelemetryTestData.Now }, "MAPPING_EFFECTIVE_DATE_INVALID"),
                 (baseline with { SourceVersion = 0 }, "PROVIDER_VERSION_INVALID"),
                 (baseline with { SourceType = "Modbus" }, "SOURCE_TYPE_NOT_SIMULATOR"),
                 (baseline with { SiteVersion = 0 }, "PROVIDER_VERSION_INVALID"),
@@ -169,6 +184,41 @@ public static class IngestionOrchestrationTests
                 Check(result.OriginalResult?.RejectionCode == item.Code, item.Code, failures);
                 Check(system.Store.ListCommittedRawAsync().Result.Count == 0, "provider rejection no raw", failures);
             }
+        });
+        Case("provider recheck compares each exact tuple fact", failures, () =>
+        {
+            var baseline = TelemetryTestData.Provider();
+            var variants = new[]
+            {
+                baseline with { SiteId = "site-2" }, baseline with { SiteVersion = 2 },
+                baseline with { SiteStatus = "Inactive" }, baseline with { AreaId = "area-2" },
+                baseline with { AreaVersion = 2 }, baseline with { AreaStatus = "Inactive" },
+                baseline with { AssetId = "asset-2" }, baseline with { AssetVersion = 2 },
+                baseline with { AssetStatus = "Inactive" }, baseline with { PointId = Guid.NewGuid() },
+                baseline with { PointVersion = 2 }, baseline with { PointStatus = "Inactive" },
+                baseline with { SourceId = Guid.NewGuid() }, baseline with { SourceVersion = 2 },
+                baseline with { SourceStatus = "Inactive" }, baseline with { SourceType = "Modbus" },
+                baseline with { MappingId = Guid.NewGuid() }, baseline with { MappingVersion = 2 },
+                baseline with { MappingStatus = "Inactive" }, baseline with { MappingPointId = Guid.NewGuid() },
+                baseline with { MetricId = "metric-2" }, baseline with { MetricVersion = 2 },
+                baseline with { MetricStatus = "Inactive" }, baseline with { UnitId = "unit-2" },
+                baseline with { UnitVersion = 2 }, baseline with { UnitStatus = "Inactive" },
+                baseline with { UnitCode = "kWh" }, baseline with { EffectiveFromUtc = TelemetryTestData.Now },
+                baseline with { EffectiveToUtc = null }, baseline with { CompatibilityIdentity = "compat-2" },
+                baseline with { CompatibilityVersion = 2 }, baseline with { CompatibilityStatus = "Inactive" },
+                baseline with { SourceExists = false }, baseline with { MappingEffective = false },
+                baseline with { MetricMatchesPoint = false }, baseline with { UnitCompatible = false }
+            };
+            foreach (var current in variants)
+                Check(!TelemetryProviderRecheckResult.Compare(baseline, current).IsExactMatch,
+                    "provider tuple drift is detected independently", failures);
+            Check(TelemetryProviderRecheckResult.Compare(baseline, baseline).IsExactMatch,
+                "unchanged provider tuple rechecks exactly", failures);
+            var openEnded = Create();
+            openEnded.Providers.Snapshot = baseline with { EffectiveToUtc = null };
+            Check(Execute(openEnded, TelemetryTestData.Request()).Disposition ==
+                  TelemetryDisposition.Accepted,
+                "open-ended effective mapping remains valid", failures);
         });
         Case("finite in-range is Good Accepted", failures, () =>
         {
@@ -234,7 +284,10 @@ public static class IngestionOrchestrationTests
         Case("provider version drift rolls back", failures, () =>
         {
             var system = Create();
-            system.Providers.RecheckResult = false;
+            system.Providers.CurrentSnapshot = TelemetryTestData.Provider() with
+            {
+                CompatibilityVersion = 2
+            };
             try
             {
                 Execute(system, TelemetryTestData.Request());

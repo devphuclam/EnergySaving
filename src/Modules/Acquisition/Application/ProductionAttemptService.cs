@@ -108,16 +108,21 @@ public sealed class ProductionAttemptService : IProductionAttemptService
         TelemetryDispatchResult result,
         CancellationToken ct = default)
     {
-        TelemetryDispatchResultValidator.EnsureValid(result);
+        var existing = await _attempts.GetAsync(runId, pointId, sourceSequence, ct)
+            ?? throw new InvalidOperationException("ATTEMPT_NOT_FOUND");
+        if (existing.Status == SimulatorProductionAttemptStatus.Pending)
+            TelemetryDispatchResultValidator.EnsureValid(existing.Payload, result);
+        if (result.CompletedAtUtc is not { } completedAtUtc ||
+            completedAtUtc.Kind != DateTimeKind.Utc)
+            throw new InvalidOperationException("TELEMETRY_COMPLETED_AT_REQUIRED");
         var run = await _runs.GetAsync(runId, ct) ?? throw new InvalidOperationException("RUN_NOT_FOUND");
         await using var tx = await _unitOfWork.BeginAsync(ct);
         try
         {
             await tx.LockAsync(SimulatorStartLockTarget.AcquisitionRun,
                 $"{runId:D}/{pointId:D}/{sourceSequence}", ct);
-            var completedAt = result.CompletedAtUtc ?? _clock.UtcNow;
             var finalized = await _attempts.FinalizeAsync(runId, pointId, sourceSequence, result,
-                completedAt, tx, ct);
+                completedAtUtc, tx, ct);
             if (finalized.FirstTransition)
                 await _runs.StageFinalCounterAsync(runId, run.Version, result.FinalClassification, tx, ct);
             await tx.CommitAsync(ct);

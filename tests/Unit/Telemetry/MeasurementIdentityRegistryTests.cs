@@ -1,4 +1,5 @@
 using IUMP.Modules.Telemetry.Contracts;
+using IUMP.Modules.Telemetry.Application;
 using IUMP.Modules.Telemetry.Domain;
 
 namespace IUMP.Tests.Unit.Telemetry;
@@ -243,5 +244,56 @@ public static class TelemetryTestData
         SourceId, "Simulator", true, true, 1,
         MappingId, true, true, true, PointId, 1,
         true, true, true, 1, true, true, true, "kW", 1,
-        "compat-id", 1, "Active", "site-1", "area-1");
+         "compat-id", 1, "Active", "trusted-site-1", "trusted-area-1",
+         "site-1", "Active", "area-1", "Active", "asset-1", "Active",
+         "Active", "Active", "Active", "metric-1", "Active", "unit-1", "Active",
+         Now.AddDays(-1), Now.AddDays(1));
+
+    public static TelemetryRaceWinnerFixture RaceFixture(
+        TelemetryMeasurementRequest request, TelemetryTerminalResult winner)
+    {
+        if (winner.FinalClassification == TelemetryFinalClassification.Rejected)
+            return new TelemetryRaceWinnerFixture(winner, null, null, null);
+        var sourceTimestampUtc = new DateTime(2026, 7, 28, 5, 59, 50, DateTimeKind.Utc);
+        var receivedAtUtc = new DateTime(2026, 7, 28, 5, 59, 55, DateTimeKind.Utc);
+        var processingAtUtc = new DateTime(2026, 7, 28, 5, 59, 59, DateTimeKind.Utc);
+        var raw = new RawMeasurement(
+            winner.MeasurementId, winner.SourceId, winner.SimulatorRunId, winner.PointId,
+            winner.MappingId, winner.MappingVersion, winner.SourceSequence,
+            sourceTimestampUtc, receivedAtUtc, processingAtUtc,
+            12.5, "kW", winner.QualityCode!.Value,
+            winner.ReasonCode, winner.OriginalCorrelationId, winner.OriginalLineageId);
+        var latest = winner.LatestAdvanced == true
+            ? new LatestProjectionCandidate(winner.MeasurementId, winner.PointId,
+                raw.SourceTimestampUtc, winner.SourceSequence, raw.ProcessingAtUtc,
+                winner.QualityCode.Value)
+            : null;
+        var ownerEvent = new TelemetryOwnerEvent(
+            Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            "MeasurementAccepted.v1", 1, "IUMP.Telemetry", "Measurement",
+            winner.MeasurementId, 1, "IUMP.Telemetry", "trusted-simulator", "Accepted",
+            "Measurement accepted.", processingAtUtc, raw.CorrelationId, null,
+            "site-1", "area-1", new Dictionary<string, object?>(StringComparer.Ordinal),
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["measurementId"] = raw.MeasurementId.ToString("D"),
+                ["sourceId"] = raw.SourceId.ToString("D"),
+                ["simulatorRunId"] = raw.SimulatorRunId.ToString("D"),
+                ["pointId"] = raw.PointId.ToString("D"),
+                ["mappingId"] = raw.MappingId.ToString("D"),
+                ["mappingVersion"] = raw.MappingVersion,
+                ["sourceSequence"] = raw.SourceSequence,
+                ["sourceTimestampUtc"] = sourceTimestampUtc,
+                ["receivedAtUtc"] = receivedAtUtc,
+                ["processingAtUtc"] = processingAtUtc,
+                ["numericValue"] = 12.5,
+                ["unitCode"] = "kW",
+                ["qualityCode"] = winner.QualityCode.Value.ToString(),
+                ["reasonCode"] = winner.ReasonCode,
+                ["latestAdvanced"] = winner.LatestAdvanced == true,
+                ["correlationId"] = raw.CorrelationId,
+                ["lineageId"] = raw.LineageId
+            });
+        return new TelemetryRaceWinnerFixture(winner, raw, latest, ownerEvent);
+    }
 }

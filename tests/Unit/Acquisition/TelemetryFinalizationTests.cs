@@ -1,5 +1,7 @@
 using IUMP.Modules.Acquisition.Application;
 using IUMP.Modules.Acquisition.Contracts;
+using IUMP.Modules.Acquisition.Domain;
+using IUMP.Tests.Unit.Fakes;
 using IUMP.Tests.Unit.Telemetry;
 
 namespace IUMP.Tests.Unit.Acquisition;
@@ -128,6 +130,270 @@ public static class TelemetryFinalizationTests
             Check(service.AcceptedCount == 0 && service.RejectedCount == 0,
                 "counters preserved", failures);
         });
+        Case("payload-aware canonical validation rejects persisted ID mismatch", failures, () =>
+        {
+            var badId = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+            var result = Accepted() with { PersistedMeasurementId = badId };
+            try
+            {
+                new FinalizeTelemetryAttempt(
+                    new FinalizationAttemptService(Pending()),
+                    new DispatchClient(result)).ExecuteAsync(Pending()).GetAwaiter().GetResult();
+                failures.Add("persisted ID mismatch accepted");
+            }
+            catch (InvalidOperationException ex) when (ex.Message == "CANONICAL_ORIGINAL_RESULT_INVALID") { }
+        });
+        Case("canonical validation rejects non-UTC completion", failures, () =>
+        {
+            var result = Accepted() with
+            {
+                CompletedAtUtc = new DateTime(2026, 7, 28, 12, 0, 0, DateTimeKind.Local)
+            };
+            try
+            {
+                new FinalizeTelemetryAttempt(
+                    new FinalizationAttemptService(Pending()),
+                    new DispatchClient(result)).ExecuteAsync(Pending()).GetAwaiter().GetResult();
+                failures.Add("non-UTC completion accepted");
+            }
+            catch (InvalidOperationException) { }
+        });
+        Case("Rejected preserves nullable LatestAdvanced", failures, () =>
+        {
+            var result = Rejected() with { LatestAdvanced = false };
+            try
+            {
+                new FinalizeTelemetryAttempt(
+                    new FinalizationAttemptService(Pending()),
+                    new DispatchClient(result)).ExecuteAsync(Pending()).GetAwaiter().GetResult();
+                failures.Add("Rejected false LatestAdvanced accepted");
+            }
+            catch (InvalidOperationException) { }
+        });
+        Case("Rejected canonical result maps LatestAdvanced to null", failures, () =>
+        {
+            var result = Dispatch(Rejected()).Result.TelemetryResult;
+            Check(result.LatestAdvanced is null, "Rejected LatestAdvanced is null", failures);
+        });
+        Case("null completion is rejected without a clock fallback", failures, () =>
+        {
+            var result = Accepted() with { CompletedAtUtc = null };
+            try
+            {
+                var client = new DispatchClient(result);
+                _ = new FinalizeTelemetryAttempt(
+                    new FinalizationAttemptService(Pending()), client)
+                    .ExecuteAsync(Pending()).GetAwaiter().GetResult();
+                failures.Add("null completion accepted");
+            }
+            catch (InvalidOperationException) { }
+        });
+        Case("blank provenance is rejected", failures, () =>
+        {
+            var result = Accepted() with { OriginalCorrelationId = "", OriginalLineageId = "" };
+            try
+            {
+                _ = new FinalizeTelemetryAttempt(
+                    new FinalizationAttemptService(Pending()), new DispatchClient(result))
+                    .ExecuteAsync(Pending()).GetAwaiter().GetResult();
+                failures.Add("blank provenance accepted");
+            }
+            catch (InvalidOperationException) { }
+        });
+        Case("client contract exposes only explicit canonical dispatch", failures, () =>
+        {
+            Check(typeof(ITelemetryIngestionClient).GetMethod("DispatchAsync") is null,
+                "legacy DispatchAsync is not part of canonical client", failures);
+            Check(typeof(ITelemetryIngestionClient).GetMethod("DispatchCanonicalAsync") is not null,
+                "canonical dispatch is required", failures);
+        });
+        Case("fake client returns an explicit complete fixture", failures, () =>
+        {
+            var pending = Pending();
+            var canonical = new FakeTelemetryIngestionClient()
+                .DispatchCanonicalAsync(pending.Payload).GetAwaiter().GetResult();
+            Check(canonical.OriginalResult.PersistedMeasurementId == pending.Payload.MeasurementId &&
+                  canonical.OriginalResult.CompletedAtUtc?.Kind == DateTimeKind.Utc &&
+                  !string.IsNullOrWhiteSpace(canonical.OriginalResult.OriginalCorrelationId) &&
+                  !string.IsNullOrWhiteSpace(canonical.OriginalResult.OriginalLineageId),
+                "fake canonical fixture is complete", failures);
+        });
+        Case("concrete repository round-trip preserves every terminal field", failures, () =>
+        {
+            var runId = Guid.Parse("abababab-abab-4aba-8aba-abababababab");
+            var repositories = new FakeAcquisitionRunRepositories();
+            var pending = Phase6Fixtures.Pending(runId);
+            repositories.Seed(Phase6Fixtures.Run(runId), Phase6Fixtures.Point(runId));
+            repositories.SeedAttempt(pending);
+            var service = new ProductionAttemptService(
+                repositories, repositories, ProductionAttemptTests.ConfigurationRepositoryAsync().GetAwaiter().GetResult(),
+                repositories, new DeterministicGenerator(), new MeasurementIdentity(),
+                new FakeUtcClock(Phase6Fixtures.Now));
+            var result = Accepted() with
+            {
+                PersistedMeasurementId = pending.Payload.MeasurementId,
+                CompletedAtUtc = TelemetryTestData.Now
+            };
+            var finalized = new FinalizeTelemetryAttempt(service, new DispatchClient(result))
+                .ExecuteAsync(pending).GetAwaiter().GetResult();
+            var roundTrip = repositories.GetAsync(runId, pending.PointId, pending.SourceSequence)
+                .GetAwaiter().GetResult();
+            Check(finalized.Attempt == roundTrip &&
+                  roundTrip!.TelemetryOutcome == result.Outcome &&
+                  roundTrip.FinalClassification == result.FinalClassification &&
+                  roundTrip.MeasurementPersisted == result.MeasurementPersisted &&
+                  roundTrip.PersistedMeasurementId == result.PersistedMeasurementId &&
+                  roundTrip.QualityCode == result.QualityCode &&
+                  roundTrip.ReasonCode == result.ReasonCode &&
+                  roundTrip.LatestAdvanced == result.LatestAdvanced &&
+                  roundTrip.ErrorCode == result.ErrorCode &&
+                  roundTrip.RejectionCode == result.RejectionCode &&
+                  roundTrip.CompletedAtUtc == result.CompletedAtUtc &&
+                  roundTrip.OriginalCorrelationId == result.OriginalCorrelationId &&
+                  roundTrip.OriginalLineageId == result.OriginalLineageId,
+                "repository round-trip preserves exact terminal result", failures);
+        });
+        Case("concrete service rejects every terminal replay mutation", failures, () =>
+        {
+            var runId = Guid.Parse("cdcdcdcd-cdcd-4cdc-8dcd-cdcdcdcdcdcd");
+            var repositories = new FakeAcquisitionRunRepositories();
+            var pending = Phase6Fixtures.Pending(runId);
+            repositories.Seed(Phase6Fixtures.Run(runId), Phase6Fixtures.Point(runId));
+            repositories.SeedAttempt(pending);
+            var service = new ProductionAttemptService(
+                repositories, repositories,
+                ProductionAttemptTests.ConfigurationRepositoryAsync().GetAwaiter().GetResult(),
+                repositories, new DeterministicGenerator(), new MeasurementIdentity(),
+                new FakeUtcClock(Phase6Fixtures.Now));
+            var accepted = Accepted() with
+            {
+                PersistedMeasurementId = pending.Payload.MeasurementId,
+                CompletedAtUtc = TelemetryTestData.Now
+            };
+            service.FinalizeAsync(runId, pending.PointId, pending.SourceSequence, accepted)
+                .GetAwaiter().GetResult();
+            var variants = new[]
+            {
+                accepted with { Outcome = TelemetryAttemptOutcome.Duplicate },
+                accepted with { FinalClassification = ProductionFinalClassification.Rejected,
+                    MeasurementPersisted = false, PersistedMeasurementId = null,
+                    QualityCode = null, ReasonCode = null, LatestAdvanced = null,
+                    RejectionCode = "POINT_INACTIVE" },
+                accepted with { MeasurementPersisted = false },
+                accepted with { PersistedMeasurementId = Guid.NewGuid() },
+                accepted with { QualityCode = "Uncertain", ReasonCode = "SOURCE_TIMESTAMP_FUTURE" },
+                accepted with { QualityCode = "Bad", ReasonCode = "VALUE_OUT_OF_RANGE", LatestAdvanced = false },
+                accepted with { LatestAdvanced = false },
+                accepted with { ErrorCode = "CHANGED" },
+                accepted with { RejectionCode = "CHANGED" },
+                accepted with { CompletedAtUtc = TelemetryTestData.Now.AddSeconds(1) },
+                accepted with { OriginalCorrelationId = "changed" },
+                accepted with { OriginalLineageId = "changed" }
+            };
+            foreach (var variant in variants)
+            {
+                try
+                {
+                    _ = service.FinalizeAsync(
+                        runId, pending.PointId, pending.SourceSequence, variant)
+                        .GetAwaiter().GetResult();
+                    failures.Add("concrete replay mutation was accepted");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Check(ex.Message == "TERMINAL_RESULT_CONFLICT",
+                        "concrete replay mutation is an exact conflict", failures);
+                }
+            }
+        });
+        Case("replay conflict checks each terminal field", failures, () =>
+        {
+            var result = Dispatch(Accepted());
+            var variants = new[]
+            {
+                Accepted() with { Outcome = TelemetryAttemptOutcome.Duplicate },
+                Accepted() with { FinalClassification = ProductionFinalClassification.Rejected, MeasurementPersisted = false, PersistedMeasurementId = null, QualityCode = null, ReasonCode = null, LatestAdvanced = null, RejectionCode = "POINT_INACTIVE" },
+                Accepted() with { MeasurementPersisted = false },
+                Accepted() with { PersistedMeasurementId = Guid.NewGuid() },
+                Accepted() with { QualityCode = "Uncertain", ReasonCode = "SOURCE_TIMESTAMP_FUTURE" },
+                Accepted() with { ReasonCode = "VALUE_OUT_OF_RANGE", QualityCode = "Bad", LatestAdvanced = false },
+                Accepted() with { LatestAdvanced = false },
+                Accepted() with { ErrorCode = "CHANGED" },
+                Accepted() with { RejectionCode = "CHANGED" },
+                Accepted() with { CompletedAtUtc = TelemetryTestData.Now.AddSeconds(1) },
+                Accepted() with { OriginalCorrelationId = "changed" },
+                Accepted() with { OriginalLineageId = "changed" }
+            };
+            foreach (var variant in variants)
+            {
+                try
+                {
+                    _ = new FinalizeTelemetryAttempt(result.Service, new DispatchClient(variant))
+                        .ExecuteAsync(Pending()).GetAwaiter().GetResult();
+                    failures.Add("replay conflict field was accepted");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Check(ex.Message is "TERMINAL_RESULT_CONFLICT" or "CANONICAL_ORIGINAL_RESULT_INVALID",
+                        "replay field conflict code", failures);
+                }
+            }
+        });
+        Case("malformed canonical-result matrix fails closed before mutation", failures, () =>
+        {
+            var pending = Pending();
+            var valid = CanonicalAccepted(pending.Payload);
+            var rejected = new CanonicalTelemetryIngestionResult(
+                CanonicalTelemetryDisposition.Rejected,
+                new CanonicalTelemetryOriginalResult(
+                    ProductionFinalClassification.Rejected, false, null, null, null,
+                    "POINT_INACTIVE", null, TelemetryTestData.Now,
+                    "original-correlation", "original-lineage"),
+                null, pending.Payload.CorrelationId);
+            var malformed = new[]
+            {
+                valid with { Disposition = CanonicalTelemetryDisposition.Rejected },
+                valid with { OriginalResult = valid.OriginalResult with { MeasurementPersisted = false } },
+                valid with { OriginalResult = valid.OriginalResult with { PersistedMeasurementId = Guid.NewGuid() } },
+                valid with { OriginalResult = valid.OriginalResult with { QualityCode = null } },
+                valid with { OriginalResult = valid.OriginalResult with { ReasonCode = "VALUE_OUT_OF_RANGE" } },
+                valid with { OriginalResult = valid.OriginalResult with { RejectionCode = "POINT_INACTIVE" } },
+                valid with { OriginalResult = valid.OriginalResult with { LatestAdvanced = null } },
+                valid with { OriginalResult = valid.OriginalResult with { CompletedAtUtc = null } },
+                valid with { OriginalResult = valid.OriginalResult with { CompletedAtUtc = new DateTime(2026, 7, 28, 6, 0, 0, DateTimeKind.Local) } },
+                valid with { OriginalResult = valid.OriginalResult with { OriginalCorrelationId = " " } },
+                valid with { OriginalResult = valid.OriginalResult with { OriginalLineageId = null } },
+                valid with { OriginalResult = valid.OriginalResult with { FinalClassification = ProductionFinalClassification.Rejected } },
+                valid with { OriginalResult = valid.OriginalResult with { QualityCode = "Uncertain", ReasonCode = null } },
+                valid with { OriginalResult = valid.OriginalResult with { QualityCode = "Bad", ReasonCode = "VALUE_OUT_OF_RANGE", LatestAdvanced = true } },
+                valid with { OriginalResult = valid.OriginalResult with { MeasurementPersisted = true, PersistedMeasurementId = null } },
+                valid with { OriginalResult = valid.OriginalResult with { RejectionCode = "" } },
+                valid with { OriginalResult = valid.OriginalResult with { QualityCode = "Unknown" } },
+                rejected with { OriginalResult = rejected.OriginalResult with { LatestAdvanced = false } },
+                rejected with { OriginalResult = rejected.OriginalResult with { QualityCode = "Good" } },
+                rejected with { OriginalResult = rejected.OriginalResult with { RejectionCode = null } },
+                rejected with { Disposition = CanonicalTelemetryDisposition.Accepted },
+                valid with { Disposition = (CanonicalTelemetryDisposition)999 }
+            };
+            foreach (var candidate in malformed)
+            {
+                var service = new FinalizationAttemptService(pending);
+                try
+                {
+                    _ = new FinalizeTelemetryAttempt(service, new CanonicalFixtureClient(candidate))
+                        .ExecuteAsync(pending).GetAwaiter().GetResult();
+                    failures.Add("malformed canonical result was accepted");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Check(ex.Message == CanonicalTelemetryOriginalResultValidator.InvalidCode,
+                        "malformed canonical result code", failures);
+                }
+                Check(service.Current.Status == SimulatorProductionAttemptStatus.Pending &&
+                      service.AcceptedCount == 0 && service.RejectedCount == 0,
+                    "malformed result leaves attempt untouched", failures);
+            }
+        });
         return failures;
     }
 
@@ -163,8 +429,17 @@ public static class TelemetryFinalizationTests
 
     private static TelemetryDispatchResult Rejected() => new(
         TelemetryAttemptOutcome.Rejected, ProductionFinalClassification.Rejected,
-        false, false, "POINT_INACTIVE", "POINT_INACTIVE", null, null, null,
+        false, null, "POINT_INACTIVE", "POINT_INACTIVE", null, null, null,
         TelemetryTestData.Now, "original-correlation", "original-lineage");
+
+    private static CanonicalTelemetryIngestionResult CanonicalAccepted(
+        SimulatorProductionPayload payload) => new(
+            CanonicalTelemetryDisposition.Accepted,
+            new CanonicalTelemetryOriginalResult(
+                ProductionFinalClassification.Accepted, true, payload.MeasurementId,
+                "Good", null, null, true, TelemetryTestData.Now,
+                "original-correlation", "original-lineage"),
+            null, payload.CorrelationId);
 
     private static void Case(string name, List<string> failures, Action action)
     {
@@ -195,28 +470,35 @@ public static class TelemetryFinalizationTests
                 },
                 new CanonicalTelemetryOriginalResult(
                     result.FinalClassification,
-                    result.MeasurementPersisted ?? result.FinalClassification == ProductionFinalClassification.Accepted,
+                    result.MeasurementPersisted ??
+                        throw new InvalidOperationException("CANONICAL_FIXTURE_REQUIRED"),
                     result.PersistedMeasurementId,
                     result.QualityCode,
                     result.ReasonCode,
                     result.RejectionCode,
                     result.LatestAdvanced,
-                    result.CompletedAtUtc ?? TelemetryTestData.Now,
-                    result.OriginalCorrelationId ?? "original-correlation",
-                    result.OriginalLineageId ?? "original-lineage"),
-                result.ErrorCode,
-                "dispatch-correlation");
+                    result.CompletedAtUtc,
+                    result.OriginalCorrelationId,
+                    result.OriginalLineageId),
+                 result.Outcome is TelemetryAttemptOutcome.Duplicate or
+                    TelemetryAttemptOutcome.Rejected ? null : result.ErrorCode,
+                 "dispatch-correlation");
         }
-        public Task<TelemetryDispatchResult> DispatchAsync(
-            SimulatorProductionPayload payload, CancellationToken ct = default) =>
-            throw new InvalidOperationException("LEGACY_DISPATCH_MUST_NOT_BE_USED");
-
         public Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
             SimulatorProductionPayload payload, CancellationToken ct = default)
         {
             if (ThrowAfterTerminal) throw new InvalidOperationException("CRASH_AFTER_TELEMETRY");
-            return Task.FromResult(_result);
+            return Task.FromResult(_result with { CorrelationId = payload.CorrelationId });
         }
+    }
+
+    private sealed class CanonicalFixtureClient : ITelemetryIngestionClient
+    {
+        private readonly CanonicalTelemetryIngestionResult _result;
+        public CanonicalFixtureClient(CanonicalTelemetryIngestionResult result) => _result = result;
+        public Task<CanonicalTelemetryIngestionResult> DispatchCanonicalAsync(
+            SimulatorProductionPayload payload, CancellationToken ct = default) =>
+            Task.FromResult(_result);
     }
 
     private sealed class FinalizationAttemptService : IProductionAttemptService
@@ -261,7 +543,7 @@ public static class TelemetryFinalizationTests
                 LatestAdvanced = result.LatestAdvanced,
                 ErrorCode = result.ErrorCode,
                 RejectionCode = result.RejectionCode,
-                CompletedAtUtc = result.CompletedAtUtc ?? TelemetryTestData.Now,
+                CompletedAtUtc = result.CompletedAtUtc ?? throw new InvalidOperationException("TELEMETRY_COMPLETED_AT_REQUIRED"),
                 OriginalCorrelationId = result.OriginalCorrelationId,
                 OriginalLineageId = result.OriginalLineageId,
                 Version = Current.Version + 1

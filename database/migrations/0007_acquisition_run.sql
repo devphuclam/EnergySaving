@@ -206,19 +206,28 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
             status = 'Pending'
             AND telemetry_outcome IS NULL
             AND final_classification IS NULL
+            AND measurement_persisted IS NULL
+            AND persisted_measurement_id IS NULL
+            AND quality_code IS NULL
+            AND reason_code IS NULL
             AND latest_advanced IS NULL
             AND error_code IS NULL
             AND rejection_code IS NULL
             AND completed_at_utc IS NULL
+            AND original_correlation_id IS NULL
+            AND original_lineage_id IS NULL
         )
         OR
         (
             status = 'Completed'
             AND telemetry_outcome IS NOT NULL
             AND final_classification IS NOT NULL
-            AND latest_advanced IS NOT NULL
             AND completed_at_utc IS NOT NULL
             AND completed_at_utc >= created_at_utc
+            AND original_correlation_id IS NOT NULL
+            AND length(btrim(original_correlation_id)) > 0
+            AND original_lineage_id IS NOT NULL
+            AND length(btrim(original_lineage_id)) > 0
         )
     ),
     CONSTRAINT ck_simulator_production_attempt_terminal_pair CHECK (
@@ -227,8 +236,13 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
             telemetry_outcome = 'Accepted'
             AND final_classification = 'Accepted'
             AND measurement_persisted = true
-            AND persisted_measurement_id IS NOT NULL
-            AND quality_code IS NOT NULL
+            AND persisted_measurement_id = measurement_id
+            AND quality_code IN ('Good', 'Uncertain', 'Bad')
+            AND (
+                (quality_code = 'Good' AND reason_code IS NULL AND latest_advanced IS NOT NULL)
+                OR (quality_code = 'Uncertain' AND reason_code = 'SOURCE_TIMESTAMP_FUTURE' AND latest_advanced IS NOT NULL)
+                OR (quality_code = 'Bad' AND reason_code = 'VALUE_OUT_OF_RANGE' AND latest_advanced = false)
+            )
             AND rejection_code IS NULL
         )
         OR (
@@ -238,7 +252,7 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
             AND persisted_measurement_id IS NULL
             AND quality_code IS NULL
             AND reason_code IS NULL
-            AND latest_advanced = false
+            AND latest_advanced IS NULL
             AND rejection_code IS NOT NULL
             AND length(btrim(rejection_code)) > 0
         )
@@ -247,12 +261,24 @@ CREATE TABLE IF NOT EXISTS acquisition.simulator_production_attempt (
             AND (
                 (
                     final_classification = 'Accepted'
+                    AND measurement_persisted = true
+                    AND persisted_measurement_id = measurement_id
+                    AND quality_code IN ('Good', 'Uncertain', 'Bad')
+                    AND (
+                        (quality_code = 'Good' AND reason_code IS NULL AND latest_advanced IS NOT NULL)
+                        OR (quality_code = 'Uncertain' AND reason_code = 'SOURCE_TIMESTAMP_FUTURE' AND latest_advanced IS NOT NULL)
+                        OR (quality_code = 'Bad' AND reason_code = 'VALUE_OUT_OF_RANGE' AND latest_advanced = false)
+                    )
                     AND rejection_code IS NULL
                 )
                 OR
                 (
                     final_classification = 'Rejected'
-                    AND latest_advanced = false
+                    AND measurement_persisted = false
+                    AND persisted_measurement_id IS NULL
+                    AND quality_code IS NULL
+                    AND reason_code IS NULL
+                    AND latest_advanced IS NULL
                     AND rejection_code IS NOT NULL
                     AND length(btrim(rejection_code)) > 0
                 )
@@ -307,3 +333,33 @@ DROP TRIGGER IF EXISTS trg_simulator_attempt_payload_immutable
 CREATE TRIGGER trg_simulator_attempt_payload_immutable
 BEFORE UPDATE ON acquisition.simulator_production_attempt
 FOR EACH ROW EXECUTE FUNCTION acquisition.reject_simulator_attempt_payload_mutation();
+
+CREATE OR REPLACE FUNCTION acquisition.reject_completed_terminal_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.status = 'Completed' AND (
+        NEW.status IS DISTINCT FROM OLD.status
+        OR NEW.telemetry_outcome IS DISTINCT FROM OLD.telemetry_outcome
+        OR NEW.final_classification IS DISTINCT FROM OLD.final_classification
+        OR NEW.measurement_persisted IS DISTINCT FROM OLD.measurement_persisted
+        OR NEW.persisted_measurement_id IS DISTINCT FROM OLD.persisted_measurement_id
+        OR NEW.quality_code IS DISTINCT FROM OLD.quality_code
+        OR NEW.reason_code IS DISTINCT FROM OLD.reason_code
+        OR NEW.latest_advanced IS DISTINCT FROM OLD.latest_advanced
+        OR NEW.error_code IS DISTINCT FROM OLD.error_code
+        OR NEW.rejection_code IS DISTINCT FROM OLD.rejection_code
+        OR NEW.completed_at_utc IS DISTINCT FROM OLD.completed_at_utc
+        OR NEW.original_correlation_id IS DISTINCT FROM OLD.original_correlation_id
+        OR NEW.original_lineage_id IS DISTINCT FROM OLD.original_lineage_id
+    ) THEN
+        RAISE EXCEPTION 'completed simulator production terminal result is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_simulator_attempt_completed_terminal_immutable
+    ON acquisition.simulator_production_attempt;
+CREATE TRIGGER trg_simulator_attempt_completed_terminal_immutable
+BEFORE UPDATE ON acquisition.simulator_production_attempt
+FOR EACH ROW EXECUTE FUNCTION acquisition.reject_completed_terminal_mutation();

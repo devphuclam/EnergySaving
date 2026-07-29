@@ -22,7 +22,9 @@ public sealed class FakeTelemetryRepositories :
     ISourceHealthRepository,
     ITelemetryQueryRepository,
     IMeasurementAcceptedEventWriter,
-    ITelemetryFlowUnitOfWork
+    ITelemetryFlowUnitOfWork,
+    ITelemetryTerminalReplayProbe,
+    ITelemetryRaceWinnerProbe
 {
     private readonly Dictionary<Guid, TelemetryTerminalResult> _terminals = [];
     private readonly Dictionary<Guid, RawMeasurement> _raw = [];
@@ -31,8 +33,11 @@ public sealed class FakeTelemetryRepositories :
 
     public TelemetryFakeFailure Failure { get; set; }
     public bool LatestAdvanceResult { get; set; } = true;
-    public (TelemetryTerminalResult Winner, double NumericValue, string UnitCode)? RaceWinnerOnStage { get; set; }
+    public TelemetryRaceWinnerFixture? RaceWinnerFixtureOnStage { get; set; }
     public IReadOnlyList<TelemetryFlowLock> LastLockTrace { get; private set; } = [];
+
+    public void StageRaceWinner(TelemetryRaceWinnerFixture fixture) =>
+        RaceWinnerFixtureOnStage = fixture;
 
     public ValueTask<ITelemetryFlowTransaction> BeginRepeatableReadAsync(
         CancellationToken ct = default) =>
@@ -61,10 +66,10 @@ public sealed class FakeTelemetryRepositories :
         var tx = Require(transaction);
         ThrowIf(TelemetryFakeFailure.TerminalInsert);
         TelemetryTerminalResultValidator.EnsureValid(result);
-        if (RaceWinnerOnStage is { } w)
+        if (RaceWinnerFixtureOnStage is { } w)
         {
-            PublishRaceWinner(w.Winner, w.NumericValue, w.UnitCode);
-            RaceWinnerOnStage = null;
+            PublishRaceWinner(w);
+            RaceWinnerFixtureOnStage = null;
             throw new TelemetryUniqueRaceException();
         }
         if (_terminals.ContainsKey(result.MeasurementId) ||
@@ -120,6 +125,16 @@ public sealed class FakeTelemetryRepositories :
         Task.FromResult<IReadOnlyList<RawMeasurement>>(
             _raw.Values.OrderBy(value => value.MeasurementId)
                 .Select(value => value with { }).ToList());
+
+    public string ReplayTerminal(TelemetryTerminalResult candidate)
+    {
+        if (!_terminals.TryGetValue(candidate.MeasurementId, out var stored))
+            return "MISSING";
+        var exact = stored with { RequestFingerprint = Array.Empty<byte>() } ==
+                    candidate with { RequestFingerprint = Array.Empty<byte>() } &&
+                    stored.RequestFingerprint.SequenceEqual(candidate.RequestFingerprint);
+        return exact ? "DUPLICATE" : "TERMINAL_RESULT_CONFLICT";
+    }
 
     public Task<bool> EvaluateAdvanceAsync(
         LatestProjectionCandidate candidate,
@@ -178,52 +193,92 @@ public sealed class FakeTelemetryRepositories :
         if (Failure == point) throw new InvalidOperationException($"INJECTED_{point}");
     }
 
-    private void PublishRaceWinner(TelemetryTerminalResult winner,
-        double numericValue, string unitCode)
+    private void PublishRaceWinner(TelemetryRaceWinnerFixture fixture)
     {
+        var winner = fixture.Terminal;
         TelemetryTerminalResultValidator.EnsureValid(winner);
         _terminals[winner.MeasurementId] = winner.Copy();
-        if (winner.FinalClassification != TelemetryFinalClassification.Accepted) return;
-        var sourceTs = winner.CompletedAtUtc.AddSeconds(-2);
-        var receivedAt = winner.CompletedAtUtc.AddSeconds(-1);
-        var processingAt = winner.CompletedAtUtc;
-        var raw = new RawMeasurement(
-            winner.MeasurementId, winner.SourceId, winner.SimulatorRunId, winner.PointId,
-            winner.MappingId, winner.MappingVersion, winner.SourceSequence,
-            sourceTs, receivedAt, processingAt,
-            numericValue, unitCode,
-            winner.QualityCode!.Value, winner.ReasonCode,
-            winner.OriginalCorrelationId, winner.OriginalLineageId);
-        _raw[winner.MeasurementId] = raw;
-        if (winner.LatestAdvanced == true)
-            _latest[winner.PointId] = new LatestProjectionCandidate(
-                winner.MeasurementId, winner.PointId, sourceTs,
-                winner.SourceSequence, processingAt, winner.QualityCode.Value);
-        var after = new Dictionary<string, object?>(StringComparer.Ordinal)
+        if (winner.FinalClassification == TelemetryFinalClassification.Rejected)
         {
-            ["measurementId"] = winner.MeasurementId.ToString("D"),
-            ["sourceId"] = winner.SourceId.ToString("D"),
-            ["simulatorRunId"] = winner.SimulatorRunId.ToString("D"),
-            ["pointId"] = winner.PointId.ToString("D"),
-            ["mappingId"] = winner.MappingId.ToString("D"),
-            ["mappingVersion"] = winner.MappingVersion,
-            ["sourceSequence"] = winner.SourceSequence,
-            ["sourceTimestampUtc"] = sourceTs,
-            ["receivedAtUtc"] = receivedAt,
-            ["processingAtUtc"] = processingAt,
-            ["numericValue"] = numericValue,
-            ["unitCode"] = unitCode,
-            ["qualityCode"] = winner.QualityCode?.ToString() ?? "",
-            ["latestAdvanced"] = winner.LatestAdvanced ?? false,
-            ["correlationId"] = winner.OriginalCorrelationId,
-            ["lineageId"] = winner.OriginalLineageId
+            if (fixture.Raw is not null || fixture.Latest is not null || fixture.Event is not null)
+                throw new InvalidOperationException("RACE_WINNER_FIXTURE_INVALID");
+            return;
+        }
+
+        if (fixture.Raw is null || fixture.Event is null ||
+            ((winner.LatestAdvanced == true) != (fixture.Latest is not null)) ||
+            !RawMatchesWinner(fixture.Raw, winner) ||
+            (fixture.Latest is not null && !LatestMatchesWinner(fixture.Latest, fixture.Raw, winner)) ||
+            !EventMatchesWinner(fixture.Event, fixture.Raw, winner))
+            throw new InvalidOperationException("RACE_WINNER_FIXTURE_INVALID");
+        _raw[winner.MeasurementId] = fixture.Raw with { };
+        if (fixture.Latest is not null)
+            _latest[winner.PointId] = fixture.Latest with { };
+        _events.Add(fixture.Event with
+        {
+            Before = new Dictionary<string, object?>(fixture.Event.Before, StringComparer.Ordinal),
+            After = new Dictionary<string, object?>(fixture.Event.After, StringComparer.Ordinal)
+        });
+    }
+
+    private static bool RawMatchesWinner(RawMeasurement raw, TelemetryTerminalResult winner) =>
+        raw.MeasurementId == winner.MeasurementId && raw.SourceId == winner.SourceId &&
+        raw.SimulatorRunId == winner.SimulatorRunId && raw.PointId == winner.PointId &&
+        raw.MappingId == winner.MappingId && raw.MappingVersion == winner.MappingVersion &&
+        raw.SourceSequence == winner.SourceSequence &&
+        raw.SourceTimestampUtc.Kind == DateTimeKind.Utc &&
+        raw.ReceivedAtUtc.Kind == DateTimeKind.Utc &&
+        raw.ProcessingAtUtc.Kind == DateTimeKind.Utc &&
+        !double.IsNaN(raw.NumericValue) && !double.IsInfinity(raw.NumericValue) &&
+        !string.IsNullOrWhiteSpace(raw.UnitCode) && raw.QualityCode == winner.QualityCode &&
+        raw.ReasonCode == winner.ReasonCode && raw.CorrelationId == winner.OriginalCorrelationId &&
+        raw.LineageId == winner.OriginalLineageId;
+
+    private static bool LatestMatchesWinner(
+        LatestProjectionCandidate latest, RawMeasurement raw, TelemetryTerminalResult winner) =>
+        latest.MeasurementId == winner.MeasurementId && latest.PointId == winner.PointId &&
+        latest.SourceTimestampUtc == raw.SourceTimestampUtc &&
+        latest.SourceSequence == winner.SourceSequence &&
+        latest.ProcessingAtUtc == raw.ProcessingAtUtc && latest.QualityCode == winner.QualityCode;
+
+    private static bool EventMatchesWinner(
+        TelemetryOwnerEvent ownerEvent, RawMeasurement raw, TelemetryTerminalResult winner)
+    {
+        var expected = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["measurementId"] = raw.MeasurementId.ToString("D"),
+            ["sourceId"] = raw.SourceId.ToString("D"),
+            ["simulatorRunId"] = raw.SimulatorRunId.ToString("D"),
+            ["pointId"] = raw.PointId.ToString("D"),
+            ["mappingId"] = raw.MappingId.ToString("D"),
+            ["mappingVersion"] = raw.MappingVersion,
+            ["sourceSequence"] = raw.SourceSequence,
+            ["sourceTimestampUtc"] = raw.SourceTimestampUtc,
+            ["receivedAtUtc"] = raw.ReceivedAtUtc,
+            ["processingAtUtc"] = raw.ProcessingAtUtc,
+            ["numericValue"] = raw.NumericValue,
+            ["unitCode"] = raw.UnitCode,
+            ["qualityCode"] = raw.QualityCode.ToString(),
+            ["reasonCode"] = raw.ReasonCode,
+            ["latestAdvanced"] = winner.LatestAdvanced == true,
+            ["correlationId"] = raw.CorrelationId,
+            ["lineageId"] = raw.LineageId
         };
-        _events.Add(new TelemetryOwnerEvent(
-            Guid.NewGuid(), "MeasurementAccepted.v1", 1, "IUMP.Telemetry", "Measurement",
-            winner.MeasurementId, 1, "IUMP.Telemetry", "trusted-simulator",
-            "Accepted", "Measurement accepted.", processingAt,
-            winner.OriginalCorrelationId, null, "site-1", "area-1",
-            new Dictionary<string, object?>(), after));
+        return ownerEvent.EventType == "MeasurementAccepted.v1" &&
+            ownerEvent.EventId != Guid.Empty && ownerEvent.SchemaVersion == 1 &&
+            ownerEvent.Producer == "IUMP.Telemetry" && ownerEvent.AggregateType == "Measurement" &&
+            ownerEvent.AggregateId == winner.MeasurementId && ownerEvent.AggregateVersion == 1 &&
+            ownerEvent.ActorId == "IUMP.Telemetry" &&
+            ownerEvent.ActorUsername == "trusted-simulator" &&
+            ownerEvent.Action == "Accepted" && ownerEvent.Summary == "Measurement accepted." &&
+            !string.IsNullOrWhiteSpace(ownerEvent.SiteId) &&
+            (ownerEvent.AreaId is null || ownerEvent.AreaId.Length > 0) &&
+            ownerEvent.CausationId is null &&
+            ownerEvent.OccurredAtUtc == raw.ProcessingAtUtc &&
+            ownerEvent.CorrelationId == raw.CorrelationId && ownerEvent.Before.Count == 0 &&
+            ownerEvent.After.Count == expected.Count &&
+            expected.All(pair => ownerEvent.After.TryGetValue(pair.Key, out var actual) &&
+                                 Equals(actual, pair.Value));
     }
 
     private sealed class Transaction : ITelemetryFlowTransaction
@@ -245,9 +300,11 @@ public sealed class FakeTelemetryRepositories :
             CancellationToken ct = default)
         {
             if ((_owner.Failure == TelemetryFakeFailure.OrganizationLock &&
-                 target == TelemetryFlowLockTarget.OrganizationPoint) ||
+                 target >= TelemetryFlowLockTarget.OrganizationSite &&
+                 target <= TelemetryFlowLockTarget.OrganizationPoint) ||
                 (_owner.Failure == TelemetryFakeFailure.CatalogLock &&
-                 target == TelemetryFlowLockTarget.CatalogSourceMappingMetricUnit))
+                 target >= TelemetryFlowLockTarget.CatalogSource &&
+                 target <= TelemetryFlowLockTarget.CatalogUnit))
                 throw new InvalidOperationException($"INJECTED_{target}");
             if (_locks.Count > 0 && target < _locks[^1].Target)
                 throw new InvalidOperationException("LOCK_ORDER_VIOLATION");
@@ -305,7 +362,7 @@ public sealed class FakeTelemetryRepositories :
 public sealed class FakeTelemetryProviderQuery : ITelemetryProviderSnapshotQuery
 {
     public TelemetryProviderSnapshot? Snapshot { get; set; }
-    public bool RecheckResult { get; set; } = true;
+    public TelemetryProviderSnapshot? CurrentSnapshot { get; set; }
     public int Reads { get; private set; }
     public int Rechecks { get; private set; }
 
@@ -317,12 +374,16 @@ public sealed class FakeTelemetryProviderQuery : ITelemetryProviderSnapshotQuery
         return Task.FromResult(Snapshot);
     }
 
-    public Task<bool> RecheckAsync(
+    public Task<TelemetryProviderRecheckResult> RecheckAsync(
         TelemetryProviderSnapshot snapshot, ITelemetryFlowTransaction transaction,
         CancellationToken ct = default)
     {
         Rechecks++;
-        return Task.FromResult(RecheckResult);
+        var current = CurrentSnapshot ?? Snapshot;
+        return Task.FromResult(current is null
+            ? TelemetryProviderRecheckResult.Compare(
+                snapshot, snapshot with { PointExists = false })
+            : TelemetryProviderRecheckResult.Compare(snapshot, current));
     }
 }
 
@@ -362,6 +423,7 @@ public sealed class FakeTelemetryRepositoryTestProviderFactory :
                 _ => TelemetryFakeFailure.None
             }
         };
-        return new TelemetryRepositoryContractFixture(store, store, store, store);
+        return new TelemetryRepositoryContractFixture(
+            store, store, store, store, store, store);
     }
 }

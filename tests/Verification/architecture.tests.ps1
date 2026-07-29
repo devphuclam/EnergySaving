@@ -663,7 +663,7 @@ if ($isCanonicalModuleRoot) {
     if ($tryReserve -lt 0 -or $stageReservation -le $tryReserve) {
         $issues += 'T128 FAIL: Pending insertion must win before Run-Point/Generated staging.'
     }
-    if ($attemptService -notmatch 'TelemetryDispatchResultValidator\.EnsureValid\(result\)') {
+    if ($attemptService -notmatch 'TelemetryDispatchResultValidator\.EnsureValid\((result|existing\.Payload,\s*result)\)') {
         $issues += 'T128 FAIL: terminal result validation must run before completion staging.'
     }
     if ($attemptService -notmatch 'if\s*\(finalized\.FirstTransition\)[\s\S]*StageFinalCounterAsync') {
@@ -948,7 +948,8 @@ if ($isCanonicalModuleRoot) {
         $issues += 'T149 FAIL: Bad Latest bypass or Rejected registry-only persistence is absent.'
     }
     foreach ($target in @(
-        'OrganizationPoint','CatalogSourceMappingMetricUnit',
+        'OrganizationSite','OrganizationArea','OrganizationAsset','OrganizationPoint',
+        'CatalogSource','CatalogMapping','CatalogMetric','CatalogUnit',
         'TelemetryIdentityRawLatest','IntegrationOutbox'
     )) {
         if ($telemetryPersistence -notmatch [regex]::Escape($target)) {
@@ -956,7 +957,7 @@ if ($isCanonicalModuleRoot) {
         }
     }
     $organizationLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.OrganizationPoint', [StringComparison]::Ordinal)
-    $catalogLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.CatalogSourceMappingMetricUnit', [StringComparison]::Ordinal)
+    $catalogLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.CatalogSource', [StringComparison]::Ordinal)
     $telemetryLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.TelemetryIdentityRawLatest', [StringComparison]::Ordinal)
     $integrationLock = $telemetryPersistence.IndexOf('TelemetryFlowLockTarget.IntegrationOutbox', [StringComparison]::Ordinal)
     if ($organizationLock -lt 0 -or $catalogLock -le $organizationLock -or
@@ -968,6 +969,102 @@ if ($isCanonicalModuleRoot) {
         $telemetryPersistence -notmatch 'RequestFingerprint' -and
         $telemetryPersistence -match '\["requestFingerprint"\]') {
         $issues += 'T149 FAIL: Accepted event must be safe and Phase 7 must not emit PointLatestAdvanced.'
+    }
+    $acquisitionContractsPath = Join-Path $repoRoot 'src\Modules\Acquisition\Contracts\ProductionAttemptContracts.cs'
+    $finalizerPath = Join-Path $repoRoot 'src\Modules\Acquisition\Application\FinalizeTelemetryAttempt.cs'
+    $attemptServicePath = Join-Path $repoRoot 'src\Modules\Acquisition\Application\ProductionAttemptService.cs'
+    $acquisitionFakePath = Join-Path $repoRoot 'tests\Unit\Fakes\FakeAcquisitionRunRepositories.cs'
+    $telemetryFakePath = Join-Path $repoRoot 'tests\Unit\Fakes\FakeTelemetryRepositories.cs'
+    $acquisitionContracts = Get-Content -LiteralPath $acquisitionContractsPath -Raw
+    $finalizer = Get-Content -LiteralPath $finalizerPath -Raw
+    $attemptService = Get-Content -LiteralPath $attemptServicePath -Raw
+    $acquisitionFake = Get-Content -LiteralPath $acquisitionFakePath -Raw
+    $telemetryFake = Get-Content -LiteralPath $telemetryFakePath -Raw
+    if ($acquisitionContracts -match 'async\s+Task<CanonicalTelemetryIngestionResult>\s+DispatchCanonicalAsync' -or
+        $acquisitionContracts -match 'return\s+await\s+DispatchAsync\(') {
+        $issues += 'T149 FAIL: canonical ingestion client must not provide a default legacy metadata bridge.'
+    }
+    if ($acquisitionContracts -notmatch 'EnsureValid\(\s*SimulatorProductionPayload\s+payload\s*,\s*CanonicalTelemetryIngestionResult') {
+        $issues += 'T149 FAIL: canonical result validation must receive the payload context.'
+    }
+    if ($finalizer -match 'LatestAdvanced\s*\?\?\s*false' -or
+        $attemptService -match 'CompletedAtUtc\s*\?\?\s*_clock\.UtcNow') {
+        $issues += 'T149 FAIL: canonical terminal metadata must not be silently coerced or clock-fabricated.'
+    }
+    if ($acquisitionContracts -notmatch 'bool\?\s+LatestAdvanced' -or
+        $acquisitionContracts -notmatch 'CANONICAL_ORIGINAL_RESULT_INVALID') {
+        $issues += 'T149 FAIL: nullable LatestAdvanced and canonical invalid-result code are required.'
+    }
+    if ($acquisitionFake -match 'DateTime\.UtcNow|auto-generated|async\s+Task<TelemetryDispatchResult>\s+DispatchAsync' -or
+        $acquisitionFake -match 'payload\.SourceTimestampUtc' -or
+        $acquisitionFake -notmatch 'CanonicalTelemetryFixtures\.Accepted') {
+        $issues += 'T149 FAIL: acquisition fake/client must return an explicit complete canonical fixture.'
+    }
+    foreach ($tupleField in @('SiteId','AreaId','AssetId','MetricId','UnitId','EffectiveFromUtc','EffectiveToUtc','CompatibilityIdentity')) {
+        if ($telemetryContracts -notmatch [regex]::Escape($tupleField)) {
+            $issues += "T149 FAIL: provider snapshot exact tuple is missing $tupleField."
+        }
+    }
+    if ($telemetryFake -match 'RecheckResult\s*=' -or
+        $telemetryFake -notmatch 'TelemetryProviderRecheckResult\.Compare' -or
+        $telemetryContracts -notmatch 'SourceType == current\.SourceType' -or
+        $telemetryContracts -notmatch 'MappingPointId == current\.MappingPointId' -or
+        $telemetryContracts -notmatch 'UnitCode == current\.UnitCode' -or
+        $telemetryContracts -notmatch 'PointExistsMatches' -or
+        $telemetryContracts -notmatch 'TrustedAreaIdMatches') {
+        $issues += 'T149 FAIL: provider recheck must compare the independent exact tuple, not a generic boolean.'
+    }
+    if ($telemetryFake -match 'AddSeconds\(-2\)|Guid\.NewGuid\(\),\s*"MeasurementAccepted') {
+        $issues += 'T149 FAIL: race winner fake must copy a complete supplied fixture without synthesis.'
+    }
+    foreach ($requiredMigration7 in @(
+        'status = ''Pending''',
+        'measurement_persisted IS NULL',
+        'persisted_measurement_id IS NULL',
+        'quality_code IS NULL',
+        'reason_code IS NULL',
+        'latest_advanced IS NULL',
+        'completed_at_utc IS NULL',
+        'original_correlation_id IS NULL',
+        'original_lineage_id IS NULL',
+        'persisted_measurement_id = measurement_id',
+        'quality_code IN (''Good'', ''Uncertain'', ''Bad'')',
+        'reject_completed_terminal_mutation',
+        'trg_simulator_attempt_completed_terminal_immutable'
+    )) {
+        if ($migration7 -notmatch [regex]::Escape($requiredMigration7)) {
+            $issues += "T149 FAIL: migration 0007 exact terminal invariant missing $requiredMigration7."
+        }
+    }
+    $t134Path = Join-Path $repoRoot 'tests\Unit\Acquisition\TelemetryFinalizationTests.cs'
+    $t145Path = Join-Path $repoRoot 'tests\Integration\Telemetry\TelemetryIngestionRepositoryTests.cs'
+    $t134 = Get-Content -LiteralPath $t134Path -Raw
+    $t145 = Get-Content -LiteralPath $t145Path -Raw
+    if ($t134 -notmatch 'GetAsync\(' -or $t134 -notmatch 'TERMINAL_RESULT_CONFLICT' -or
+        $t134 -notmatch 'QualityCode = "Unknown"' -or
+        $t134 -notmatch 'concrete service rejects every terminal replay mutation') {
+        $issues += 'T149 FAIL: T134 must perform repository round-trip and per-field replay conflicts.'
+    }
+    if ($t145 -notmatch 'TerminalEqual' -or $t145 -notmatch 'RequestFingerprint' -or
+        $t145 -notmatch 'ReplayProbe' -or $t145 -notmatch 'RaceWinnerProbe' -or
+        $t145 -notmatch 'ReplayTerminal' -or $t145 -notmatch 'StageRaceWinner' -or
+        $t145 -notmatch 'EventEqual') {
+        $issues += 'T149 FAIL: T145 must compare the complete terminal result and replay identity.'
+    }
+    foreach ($checkpoint in @(
+        (Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-07-red.md'),
+        (Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-07-review.md'),
+        (Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-07-telemetry.md')
+    )) {
+        $checkpointText = Get-Content -LiteralPath $checkpoint -Raw
+        if ($checkpointText -notmatch 'b6b2510820f5ab8f0af5569a2fc18b4ee4b2f892' -or
+            $checkpointText -notmatch 'T151') {
+            $issues += "T149 FAIL: Phase 7 checkpoint is missing the b6/T151 corrective baseline in $checkpoint."
+        }
+    }
+    $reviewCheckPath = Join-Path $repoRoot 'tests\Unit\Telemetry\Phase7ReviewCheck.cs'
+    if ((Get-Content -LiteralPath $reviewCheckPath -Raw) -match 'Check\(true') {
+        $issues += 'T149 FAIL: Phase7ReviewCheck contains an unconditional passing assertion.'
     }
     $telemetrySources = Get-ChildItem -LiteralPath (Join-Path $ModuleRoot 'Telemetry') -Recurse -File |
         Where-Object { $_.Extension -eq '.cs' } |

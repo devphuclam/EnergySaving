@@ -74,7 +74,7 @@ public sealed class IngestMeasurement
 
         var receivedAt = _clock.UtcNow;
         var provider = await _providers.GetAsync(request, receivedAt, ct);
-        var providerError = ValidateProvider(request, provider);
+        var providerError = ValidateProvider(request, provider, receivedAt);
         if (providerError is not null)
             return await _persistence.PersistRejectedAsync(
                 measurementId, fingerprint, request, providerError, _clock.UtcNow, provider, ct);
@@ -123,7 +123,9 @@ public sealed class IngestMeasurement
     }
 
     private static string? ValidateProvider(
-        TelemetryMeasurementRequest request, TelemetryProviderSnapshot? provider)
+        TelemetryMeasurementRequest request,
+        TelemetryProviderSnapshot? provider,
+        DateTime receivedAtUtc)
     {
         if (provider is null || !provider.PointExists) return "POINT_MISSING";
         if (provider.PointId != request.PointId) return "POINT_MISMATCH";
@@ -136,6 +138,25 @@ public sealed class IngestMeasurement
         if (!provider.SourceActive) return "SOURCE_INACTIVE";
         if (!string.Equals(provider.SourceType, "Simulator", StringComparison.Ordinal))
             return "SOURCE_TYPE_NOT_SIMULATOR";
+        if (string.IsNullOrWhiteSpace(provider.SiteId) ||
+            string.IsNullOrWhiteSpace(provider.AreaId) ||
+            string.IsNullOrWhiteSpace(provider.AssetId) ||
+            string.IsNullOrWhiteSpace(provider.MetricId) ||
+            string.IsNullOrWhiteSpace(provider.UnitId))
+            return "PROVIDER_ID_MISSING";
+        if (new[]
+            {
+                provider.SiteStatus, provider.AreaStatus, provider.AssetStatus,
+                provider.PointStatus, provider.SourceStatus, provider.MappingStatus,
+                provider.MetricStatus, provider.UnitStatus
+            }.Any(status => !string.Equals(status, "Active", StringComparison.Ordinal)))
+            return "PROVIDER_STATUS_NOT_ACTIVE";
+        if (provider.EffectiveFromUtc.Kind != DateTimeKind.Utc ||
+            provider.EffectiveToUtc is { Kind: not DateTimeKind.Utc })
+            return "MAPPING_EFFECTIVE_DATE_INVALID";
+        if (provider.EffectiveFromUtc > receivedAtUtc ||
+            (provider.EffectiveToUtc is { } effectiveTo && effectiveTo <= receivedAtUtc))
+            return "MAPPING_EFFECTIVE_DATE_INVALID";
         if (!provider.MappingExists) return "MAPPING_MISSING";
         if (!provider.MappingActive || !provider.MappingEffective) return "MAPPING_NOT_ACTIVE";
         if (provider.MappingPointId != request.PointId) return "MAPPING_POINT_MISMATCH";
