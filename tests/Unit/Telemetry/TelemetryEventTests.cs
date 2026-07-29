@@ -29,7 +29,8 @@ public static class TelemetryEventTests
             Check(evt.OccurredAtUtc.Kind == DateTimeKind.Utc, "UTC", failures);
             Check(evt.CorrelationId == "correlation-1" && evt.CausationId is null,
                 "correlation/causation", failures);
-            Check(evt.SiteId == "site-1" && evt.AreaId == "area-1", "trusted scope", failures);
+            var provider = TelemetryTestData.Provider();
+            Check(evt.SiteId == provider.TrustedSiteId && evt.AreaId == provider.TrustedAreaId, "trusted scope", failures);
         });
         Case("safe After allowlist", failures, () =>
         {
@@ -104,7 +105,9 @@ public static class TelemetryEventTests
             request.SourceTimestampUtc, TelemetryTestData.Now, TelemetryTestData.Now,
             request.NumericValue, request.UnitCode, MeasurementQuality.Good, null,
             request.CorrelationId, request.LineageId);
-        return MeasurementAcceptedEventFactory.Create(raw, true, TelemetryTestData.Provider());
+        var provider = TelemetryTestData.Provider();
+        return MeasurementAcceptedEventFactory.Create(
+            raw, true, provider, provider.TrustedSiteId, provider.TrustedAreaId);
     }
 
     private static void Case(string name, List<string> failures, Action action)

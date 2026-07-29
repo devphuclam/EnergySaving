@@ -32,6 +32,7 @@ public static class IngestionPersistenceContractTests
                      TelemetryFlowLockTarget.CatalogMapping,
                      TelemetryFlowLockTarget.CatalogMetric,
                      TelemetryFlowLockTarget.CatalogUnit,
+                     TelemetryFlowLockTarget.CatalogCompatibility,
                      TelemetryFlowLockTarget.TelemetryIdentityRawLatest,
                      TelemetryFlowLockTarget.IntegrationOutbox
                  ]), "exact lock order", failures);

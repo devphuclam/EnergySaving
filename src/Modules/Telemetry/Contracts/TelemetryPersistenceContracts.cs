@@ -120,8 +120,9 @@ public enum TelemetryFlowLockTarget
     CatalogMapping = 6,
     CatalogMetric = 7,
     CatalogUnit = 8,
-    TelemetryIdentityRawLatest = 9,
-    IntegrationOutbox = 10
+    CatalogCompatibility = 9,
+    TelemetryIdentityRawLatest = 10,
+    IntegrationOutbox = 11
 }
 
 public sealed record TelemetryFlowLock(TelemetryFlowLockTarget Target, string Key);

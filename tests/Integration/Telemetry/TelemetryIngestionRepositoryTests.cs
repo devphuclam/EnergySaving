@@ -32,6 +32,7 @@ public interface ITelemetryRaceWinnerProbe
 {
     void StageRaceWinner(TelemetryRaceWinnerFixture fixture);
     int LatestCount { get; }
+    Task<LatestProjectionCandidate?> GetCommittedLatestAsync(Guid pointId, CancellationToken ct = default);
 }
 
 public interface ITelemetryRepositoryTestProviderFactory
@@ -255,6 +256,42 @@ public sealed class TelemetryIngestionRepositoryContractRunner
             Check(TerminalEqual(replay.OriginalResult, data.Terminal),
                 "matching race returns exact terminal fixture");
         });
+        await ScenarioAsync("exact Rejected race winner", async () =>
+        {
+            var fixture = factory.Create();
+            var data = Data(rejected: true);
+            var rejectedFixture = new TelemetryRaceWinnerFixture(data.Terminal, null, null, null);
+            fixture.RaceWinnerProbe?.StageRaceWinner(rejectedFixture);
+            await using (var winnerTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+            {
+                try
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, winnerTx);
+                    await winnerTx.CommitAsync();
+                }
+                catch (TelemetryUniqueRaceException)
+                {
+                    await winnerTx.RollbackAsync();
+                }
+            }
+            if (fixture.RaceWinnerProbe is not null)
+            {
+                var stored = await fixture.Repository.GetTerminalAsync(data.Terminal.MeasurementId);
+                Check(stored is not null && TerminalEqual(stored, data.Terminal),
+                    "Rejected winner terminal committed exactly");
+                Check((await fixture.Repository.ListCommittedRawAsync()).Count == 0,
+                    "Rejected winner zero raw");
+                Check(fixture.RaceWinnerProbe.LatestCount == 0,
+                    "Rejected winner zero Latest");
+                Check((await fixture.Events.ListCommittedAsync()).Count == 0,
+                    "Rejected winner zero event");
+                var loser = TelemetryTerminalDecision.FromExisting(
+                    data.Terminal, data.Terminal.RequestFingerprint, "retry");
+                Check(loser.Disposition == TelemetryDisposition.Duplicate &&
+                      TerminalEqual(loser.OriginalResult, data.Terminal),
+                    "Rejected winner loser returns exact Duplicate original result");
+            }
+        });
         await ScenarioAsync("conflicting race winner reloads conflict", async () =>
         {
             var fixture = factory.Create();
@@ -441,7 +478,9 @@ public sealed class TelemetryIngestionRepositoryContractRunner
         var latest = new LatestProjectionCandidate(
             id, point, request.SourceTimestampUtc, sequence,
             request.SourceTimestampUtc, MeasurementQuality.Good);
-        var ownerEvent = MeasurementAcceptedEventFactory.Create(raw, !rejected, TelemetryTestData.Provider());
+        var provider = TelemetryTestData.Provider();
+        var ownerEvent = MeasurementAcceptedEventFactory.Create(
+            raw, !rejected, provider, provider.TrustedSiteId, provider.TrustedAreaId);
         return new ContractData(terminal, raw, latest, ownerEvent);
     }
 

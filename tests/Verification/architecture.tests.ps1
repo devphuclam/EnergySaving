@@ -1066,6 +1066,45 @@ if ($isCanonicalModuleRoot) {
     if ((Get-Content -LiteralPath $reviewCheckPath -Raw) -match 'Check\(true') {
         $issues += 'T149 FAIL: Phase7ReviewCheck contains an unconditional passing assertion.'
     }
+    # Atomic-race and compatibility-lock closure checks (Phase 7)
+    $telemetryFake = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeTelemetryRepositories.cs') -Raw
+    $terminalMutatePos = $telemetryFake.IndexOf('_terminals[winner.MeasurementId] = winner.Copy();')
+    $fixtureInvalidPos = $telemetryFake.IndexOf('RACE_WINNER_FIXTURE_INVALID')
+    if ($terminalMutatePos -ge 0 -and $fixtureInvalidPos -ge 0 -and $terminalMutatePos -lt $fixtureInvalidPos) {
+        $issues += 'T149 FAIL: PublishRaceWinner mutates terminal before complete fixture validation.'
+    }
+    $rejectedValPos = $telemetryFake.IndexOf('fixture.Raw is not null || fixture.Latest is not null || fixture.Event is not null')
+    if ($terminalMutatePos -ge 0 -and $rejectedValPos -ge 0 -and $terminalMutatePos -lt $rejectedValPos) {
+        $issues += 'T149 FAIL: Rejected fixture validation happens after terminal mutation.'
+    }
+    $contracts = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Modules\Telemetry\Contracts\TelemetryPersistenceContracts.cs') -Raw
+    if ($contracts -notmatch 'CatalogCompatibility') {
+        $issues += 'T149 FAIL: TelemetryFlowLockTarget lacks CatalogCompatibility member.'
+    }
+    $persistenceService = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Modules\Telemetry\Application\TelemetryPersistenceService.cs') -Raw
+    if ($persistenceService -notmatch 'CatalogCompatibility') {
+        $issues += 'T149 FAIL: AcquireOwnerLocksAsync does not acquire Compatibility lock.'
+    }
+    if ($persistenceService -notmatch 'PROVIDER_SCOPE_MISMATCH') {
+        $issues += 'T149 FAIL: PersistenceService lacks PROVIDER_SCOPE_MISMATCH scope validation.'
+    }
+    if ($persistenceService -notmatch 'provider\.TrustedSiteId') {
+        $issues += 'T149 FAIL: MeasurementAccepted event uses unverified SiteId instead of TrustedSiteId.'
+    }
+    # Phase7ReviewCheck must detect atomic-race, compatibility, Latest probe, Rejected fixture, and trusted scope
+    $reviewContent = Get-Content -LiteralPath $reviewCheckPath -Raw
+    if ($reviewContent -notmatch 'PublishRaceWinner') {
+        $issues += 'T149 FAIL: Phase7ReviewCheck is missing atomic publication check.'
+    }
+    if ($reviewContent -notmatch 'CatalogCompatibility') {
+        $issues += 'T149 FAIL: Phase7ReviewCheck is missing compatibility lock check.'
+    }
+    if ($reviewContent -notmatch 'GetCommittedLatest') {
+        $issues += 'T149 FAIL: Phase7ReviewCheck is missing Latest probe comparison check.'
+    }
+    if ($reviewContent -notmatch 'TrustedSiteId') {
+        $issues += 'T149 FAIL: Phase7ReviewCheck is missing trusted scope check.'
+    }
     $telemetrySources = Get-ChildItem -LiteralPath (Join-Path $ModuleRoot 'Telemetry') -Recurse -File |
         Where-Object { $_.Extension -eq '.cs' } |
         ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }

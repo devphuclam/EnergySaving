@@ -26,10 +26,10 @@ public sealed class FakeTelemetryRepositories :
     ITelemetryTerminalReplayProbe,
     ITelemetryRaceWinnerProbe
 {
-    private readonly Dictionary<Guid, TelemetryTerminalResult> _terminals = [];
-    private readonly Dictionary<Guid, RawMeasurement> _raw = [];
-    private readonly List<TelemetryOwnerEvent> _events = [];
-    private readonly Dictionary<Guid, LatestProjectionCandidate> _latest = [];
+    private Dictionary<Guid, TelemetryTerminalResult> _terminals = [];
+    private Dictionary<Guid, RawMeasurement> _raw = [];
+    private List<TelemetryOwnerEvent> _events = [];
+    private Dictionary<Guid, LatestProjectionCandidate> _latest = [];
 
     public TelemetryFakeFailure Failure { get; set; }
     public bool LatestAdvanceResult { get; set; } = true;
@@ -185,6 +185,10 @@ public sealed class FakeTelemetryRepositories :
 
     public int LatestCount => _latest.Count;
 
+    public Task<LatestProjectionCandidate?> GetCommittedLatestAsync(
+        Guid pointId, CancellationToken ct = default) =>
+        Task.FromResult(_latest.TryGetValue(pointId, out var value) ? value with { } : null);
+
     private Transaction Require(ITelemetryFlowTransaction transaction) =>
         transaction as Transaction ?? throw new InvalidOperationException("FOREIGN_TRANSACTION");
 
@@ -196,8 +200,37 @@ public sealed class FakeTelemetryRepositories :
     private void PublishRaceWinner(TelemetryRaceWinnerFixture fixture)
     {
         var winner = fixture.Terminal;
+        ValidateRaceWinnerFixture(fixture, winner);
+
+        var clonedTerminals = new Dictionary<Guid, TelemetryTerminalResult>(_terminals);
+        var clonedRaw = new Dictionary<Guid, RawMeasurement>(_raw);
+        var clonedLatest = new Dictionary<Guid, LatestProjectionCandidate>(_latest);
+        var clonedEvents = new List<TelemetryOwnerEvent>(_events);
+
+        clonedTerminals[winner.MeasurementId] = winner.Copy();
+
+        if (winner.FinalClassification != TelemetryFinalClassification.Rejected)
+        {
+            clonedRaw[winner.MeasurementId] = fixture.Raw! with { };
+            if (fixture.Latest is not null)
+                clonedLatest[winner.PointId] = fixture.Latest with { };
+            clonedEvents.Add(fixture.Event! with
+            {
+                Before = new Dictionary<string, object?>(fixture.Event!.Before, StringComparer.Ordinal),
+                After = new Dictionary<string, object?>(fixture.Event.After, StringComparer.Ordinal)
+            });
+        }
+
+        _terminals = clonedTerminals;
+        _raw = clonedRaw;
+        _latest = clonedLatest;
+        _events = clonedEvents;
+    }
+
+    private static void ValidateRaceWinnerFixture(
+        TelemetryRaceWinnerFixture fixture, TelemetryTerminalResult winner)
+    {
         TelemetryTerminalResultValidator.EnsureValid(winner);
-        _terminals[winner.MeasurementId] = winner.Copy();
         if (winner.FinalClassification == TelemetryFinalClassification.Rejected)
         {
             if (fixture.Raw is not null || fixture.Latest is not null || fixture.Event is not null)
@@ -211,14 +244,6 @@ public sealed class FakeTelemetryRepositories :
             (fixture.Latest is not null && !LatestMatchesWinner(fixture.Latest, fixture.Raw, winner)) ||
             !EventMatchesWinner(fixture.Event, fixture.Raw, winner))
             throw new InvalidOperationException("RACE_WINNER_FIXTURE_INVALID");
-        _raw[winner.MeasurementId] = fixture.Raw with { };
-        if (fixture.Latest is not null)
-            _latest[winner.PointId] = fixture.Latest with { };
-        _events.Add(fixture.Event with
-        {
-            Before = new Dictionary<string, object?>(fixture.Event.Before, StringComparer.Ordinal),
-            After = new Dictionary<string, object?>(fixture.Event.After, StringComparer.Ordinal)
-        });
     }
 
     private static bool RawMatchesWinner(RawMeasurement raw, TelemetryTerminalResult winner) =>
@@ -302,9 +327,9 @@ public sealed class FakeTelemetryRepositories :
             if ((_owner.Failure == TelemetryFakeFailure.OrganizationLock &&
                  target >= TelemetryFlowLockTarget.OrganizationSite &&
                  target <= TelemetryFlowLockTarget.OrganizationPoint) ||
-                (_owner.Failure == TelemetryFakeFailure.CatalogLock &&
-                 target >= TelemetryFlowLockTarget.CatalogSource &&
-                 target <= TelemetryFlowLockTarget.CatalogUnit))
+                 (_owner.Failure == TelemetryFakeFailure.CatalogLock &&
+                  target >= TelemetryFlowLockTarget.CatalogSource &&
+                  target <= TelemetryFlowLockTarget.CatalogCompatibility))
                 throw new InvalidOperationException($"INJECTED_{target}");
             if (_locks.Count > 0 && target < _locks[^1].Target)
                 throw new InvalidOperationException("LOCK_ORDER_VIOLATION");

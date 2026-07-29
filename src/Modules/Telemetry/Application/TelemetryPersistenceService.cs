@@ -41,6 +41,7 @@ public sealed class TelemetryPersistenceService
             completedAtUtc.Kind != DateTimeKind.Utc)
             throw new InvalidOperationException("TELEMETRY_TIMESTAMP_INVALID");
         TelemetryProviderSnapshotValidator.EnsureValid(provider, processingAtUtc);
+        ValidateTrustedScope(provider);
         await using var transaction = await _unitOfWork.BeginRepeatableReadAsync(ct);
         try
         {
@@ -81,10 +82,10 @@ public sealed class TelemetryPersistenceService
             if (quality != MeasurementQuality.Bad)
                 await _latest.StageAdvanceAsync(
                     latestCandidate, latestAdvanced, transaction, ct);
-            await transaction.AcquireLockAsync(
-                TelemetryFlowLockTarget.IntegrationOutbox, measurementId.ToString("D"), ct);
-            await _events.StageAsync(MeasurementAcceptedEventFactory.Create(
-                raw, latestAdvanced, provider), transaction, ct);
+        await transaction.AcquireLockAsync(
+            TelemetryFlowLockTarget.IntegrationOutbox, measurementId.ToString("D"), ct);
+        await _events.StageAsync(MeasurementAcceptedEventFactory.Create(
+            raw, latestAdvanced, provider, provider.TrustedSiteId, provider.TrustedAreaId), transaction, ct);
             await transaction.CommitAsync(ct);
             return new TelemetryIngestionResult(
                 TelemetryDisposition.Accepted, terminal.Copy(), null, request.CorrelationId);
@@ -184,6 +185,9 @@ public sealed class TelemetryPersistenceService
                 TelemetryFlowLockTarget.CatalogMetric, provider.MetricId, ct);
         await transaction.AcquireLockAsync(
             TelemetryFlowLockTarget.CatalogUnit, provider?.UnitId ?? request.UnitCode, ct);
+        if (provider is not null)
+            await transaction.AcquireLockAsync(
+                TelemetryFlowLockTarget.CatalogCompatibility, provider.CompatibilityIdentity, ct);
         await transaction.AcquireLockAsync(
             TelemetryFlowLockTarget.TelemetryIdentityRawLatest, request.MeasurementId, ct);
     }
@@ -210,6 +214,15 @@ public sealed class TelemetryPersistenceService
         string.IsNullOrWhiteSpace(value)
             ? $"telemetry-{kind}-{measurementId:D}"
             : value;
+
+    private static void ValidateTrustedScope(TelemetryProviderSnapshot provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider.TrustedSiteId) ||
+            string.IsNullOrWhiteSpace(provider.TrustedAreaId) ||
+            !string.Equals(provider.TrustedSiteId, provider.SiteId, StringComparison.Ordinal) ||
+            !string.Equals(provider.TrustedAreaId, provider.AreaId, StringComparison.Ordinal))
+            throw new InvalidOperationException("PROVIDER_SCOPE_MISMATCH");
+    }
 }
 
 public static class MeasurementAcceptedEventFactory
@@ -225,7 +238,9 @@ public static class MeasurementAcceptedEventFactory
     public static TelemetryOwnerEvent Create(
         RawMeasurement measurement,
         bool latestAdvanced,
-        TelemetryProviderSnapshot provider)
+        TelemetryProviderSnapshot provider,
+        string? eventSiteId = null,
+        string? eventAreaId = null)
     {
         var after = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -254,7 +269,8 @@ public static class MeasurementAcceptedEventFactory
             "Measurement", measurement.MeasurementId, 1, "IUMP.Telemetry",
             "trusted-simulator", "Accepted", "Measurement accepted.",
             measurement.ProcessingAtUtc, measurement.CorrelationId, null,
-            provider.SiteId, provider.AreaId,
+            eventSiteId ?? provider.SiteId,
+            eventAreaId ?? provider.AreaId,
             new Dictionary<string, object?>(StringComparer.Ordinal), after);
     }
 }

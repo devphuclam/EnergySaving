@@ -26,6 +26,7 @@ public static class Phase7ReviewCheck
         var migration = File.ReadAllText(Path.Combine(root, "database", "migrations", "0007_acquisition_run.sql"));
         var t134 = File.ReadAllText(Path.Combine(root, "tests", "Unit", "Acquisition", "TelemetryFinalizationTests.cs"));
         var t145 = File.ReadAllText(Path.Combine(root, "tests", "Integration", "Telemetry", "TelemetryIngestionRepositoryTests.cs"));
+        var persistenceService = File.ReadAllText(Path.Combine(root, "src", "Modules", "Telemetry", "Application", "TelemetryPersistenceService.cs"));
 
         Check(typeof(ITelemetryIngestionClient).GetMethod("DispatchCanonicalAsync")?.IsAbstract == true,
             "canonical client requires explicit DispatchCanonicalAsync");
@@ -73,6 +74,30 @@ public static class Phase7ReviewCheck
               t145.Contains("StageRaceWinner") && t145.Contains("ReplayTerminal") &&
               t145.Contains("EventEqual"),
               "T145 executes provider-neutral exact replay and race-winner fixtures");
+        // Atomic-race and compatibility-lock closure checks
+        var terminalMutatePos = telemetryFake.IndexOf("_terminals[winner.MeasurementId] = winner.Copy();", StringComparison.Ordinal);
+        var invalidCheckPos = telemetryFake.IndexOf("RACE_WINNER_FIXTURE_INVALID", StringComparison.Ordinal);
+        Check(terminalMutatePos < 0 || invalidCheckPos < 0 || terminalMutatePos > invalidCheckPos,
+            "PublishRaceWinner validates fixture before mutating terminal");
+        var rejectedValPos = telemetryFake.IndexOf("fixture.Raw is not null || fixture.Latest is not null || fixture.Event is not null", StringComparison.Ordinal);
+        Check(terminalMutatePos < 0 || rejectedValPos < 0 || terminalMutatePos > rejectedValPos,
+            "Rejected fixture validation before terminal mutation");
+        Check(telemetryContracts.Contains("CatalogCompatibility"),
+            "TelemetryFlowLockTarget includes CatalogCompatibility");
+        Check(persistenceService.Contains("CatalogCompatibility"),
+            "AcquireOwnerLocksAsync acquires Compatibility lock");
+        Check(persistenceService.Contains("PROVIDER_SCOPE_MISMATCH"),
+            "Trusted Site/Area scope validation present");
+        Check(persistenceService.Contains("provider.TrustedSiteId"),
+            "MeasurementAccepted event uses TrustedSiteId");
+        var probeType = typeof(IUMP.Tests.Integration.Telemetry.ITelemetryRaceWinnerProbe);
+        Check(probeType.GetMethod("GetCommittedLatestAsync") is not null &&
+              probeType.GetProperty("LatestCount")?.PropertyType == typeof(int),
+            "ITelemetryRaceWinnerProbe exposes GetCommittedLatestAsync and LatestCount");
+        Check(t145.Contains("Rejected") && t145.Contains("StageRaceWinner") &&
+              t145.Contains("zero"),
+            "T145 exact Rejected race-winner scenario present");
+
         Check(!File.Exists(Path.Combine(root, "src", "Modules", "Telemetry", "Infrastructure", "PostgresTelemetryRepositories.cs")),
             "package-policy-blocked PostgreSQL adapter remains absent");
         Check(!Directory.Exists(Path.Combine(root, "src", "Web", "Telemetry")) &&

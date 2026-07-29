@@ -244,7 +244,7 @@ public static class TelemetryTestData
         SourceId, "Simulator", true, true, 1,
         MappingId, true, true, true, PointId, 1,
         true, true, true, 1, true, true, true, "kW", 1,
-         "compat-id", 1, "Active", "trusted-site-1", "trusted-area-1",
+         "compat-id", 1, "Active", "site-1", "area-1",
          "site-1", "Active", "area-1", "Active", "asset-1", "Active",
          "Active", "Active", "Active", "metric-1", "Active", "unit-1", "Active",
          Now.AddDays(-1), Now.AddDays(1));
