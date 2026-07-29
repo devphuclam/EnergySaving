@@ -1,7 +1,7 @@
-# Phase 7 Standards and Specification Review — Atomic-Race and Compatibility-Lock Closure
+# Phase 7 Standards and Specification Review — Atomic-Evidence Closure
 
-- Baseline: `d5c71ed42a45c6fee189c3a67580b0cf096c9bf6`
-- Review target: corrective convergence for T131–T151 only.
+- Baseline: `f8521159802fd39732c4cfa24605aed912c18419`
+- Review target: atomic-evidence corrective convergence for T131–T151 only.
 - Review date: 2026-07-29.
 - Evidence: T131–T135, T145, T149, T150 focused run; Fast harness; source-only migration and
   boundary checks. PostgreSQL execution remains blocked by missing approved tooling.
@@ -10,16 +10,15 @@
 
 | ID | Severity | Finding | Resolution / evidence | State |
 |---|---|---|---|---|
-| A | High | `PublishRaceWinner` mutates committed terminal state before validating the complete winner fixture (defect A). | Refactored into `ValidateRaceWinnerFixture` (phase A, no mutation) then atomic clone-and-replace (phase B). T133 accepted/rejected race scenarios verify zero partial publication. | Resolved |
-| B | Critical | An invalid Accepted or Rejected fixture with incomplete/mismatched raw/latest/event leaves partially committed state (defect B). | Phase A validates exactly before any dictionary assignment; phase B clones, constructs, and replaces atomically. | Resolved |
-| C | High | `TelemetryFlowLockTarget` had no `CatalogCompatibility` member (defect C). | Added `CatalogCompatibility = 9` after `CatalogUnit`. Lock trace tests updated to include it. | Resolved |
-| D | High | `AcquireOwnerLocksAsync` did not lock the Compatibility row; drift after recheck was unchecked (defect D). | Compatibility lock acquired after `CatalogUnit`, keyed by `CompatibilityIdentity`. Fake lock injection range extended. | Resolved |
-| E | High | `ITelemetryRaceWinnerProbe` exposed only `LatestCount` without the actual committed Latest candidate (defect E). | Added `GetCommittedLatestAsync(Guid pointId, CancellationToken)` to the probe interface and `FakeTelemetryRepositories`. | Resolved |
-| F | Medium | T145 had no exact Rejected race-winner scenario (defect F). | Added `exact Rejected race winner` scenario: StageRaceWinner with terminal only, verifies zero raw/latest/event, Duplicate replay. | Resolved |
-| G | High | `MeasurementAcceptedEventFactory.Create` used unverified `provider.SiteId`/`provider.AreaId` (defect G). | Factory accepts optional `eventSiteId`/`eventAreaId`; production callers pass `provider.TrustedSiteId`/`provider.TrustedAreaId`. `ValidateTrustedScope` enforces `TrustedSiteId == SiteId`. | Resolved |
-| H | High | `PROVIDER_SCOPE_MISMATCH` error code was absent; scope validation was missing from `PersistAcceptedAsync` (defect G). | Added `ValidateTrustedScope` method and `PROVIDER_SCOPE_MISMATCH` error. Test data updated to match. | Resolved |
-| I | Medium | T149 architecture checks did not detect atomic publication, compatibility lock, or trusted scope defects (defect H). | Architecture script now inspects `PublishRaceWinner` order, `CatalogCompatibility` existence, lock acquisition, probe interface, and `PROVIDER_SCOPE_MISMATCH`. | Resolved |
-| J | Medium | `Phase7ReviewCheck` lacked checks for atomic-race, compatibility lock, Latest probe, Rejected fixture, and trusted scope. | Added 8 new review checks covering all defects A–G. | Resolved |
+| A | Critical | PublishRaceWinner uses four independently mutable committed fields; no aggregate state holder. | Replaced with `TelemetryCommittedState` record; PublishRaceWinner reads one snapshot, validates, then assigns `_committedState` exactly once. | Resolved |
+| B | Critical | No conflict detection: an existing committed winner can be silently overwritten. | `RACE_WINNER_FIXTURE_CONFLICT` for same Measurement ID with different terminal; `RACE_WINNER_SLOT_CONFLICT` for different Measurement ID but same Run+Point+sequence. | Resolved |
+| C | Critical | T145 cannot prove exact Latest via `GetCommittedLatestAsync`; only `LatestCount` was used. | T145 calls `GetCommittedLatestAsync` and compares every Latest field (MeasurementId, PointId, SourceTimestampUtc, SourceSequence, ProcessingAtUtc, QualityCode). Added Accepted LatestAdvanced=false scenario proving null Latest. | Resolved |
+| D | Critical | T145/T133 lack invalid fixture test matrix; zero-publication evidence is absent. | 8 invalid Accepted and 3 invalid Rejected fixture cases added to T145; 8 invalid Accepted and 3 invalid Rejected added to T133. Each proves terminal/raw/latest/event counts unchanged and existing state intact. | Resolved |
+| E | Critical | Trusted-scope mismatch throws `InvalidOperationException` instead of returning stable result. | `CheckTrustedScope` returns `TelemetryIngestionResult.Failed("PROVIDER_SCOPE_MISMATCH", correlationId)` before transaction begins. No exception, no terminal/raw/latest/event produced. | Resolved |
+| F | Critical | Event factory has optional fallback `eventSiteId ?? provider.SiteId` allowing unverified scope. | Removed optional parameters; factory requires explicit `eventSiteId`/`eventAreaId`. Factory validates `provider.TrustedSiteId == eventSiteId` and `provider.TrustedAreaId == eventAreaId`. | Resolved |
+| G | High | T135 has no dedicated scope mismatch no-event test. | Added scope mismatch case: mismatched provider returns `PROVIDER_SCOPE_MISMATCH` disposition, zero terminal, zero event. | Resolved |
+| H | Medium | Corrective RED/tests use stale baseline and method-presence checks. | RED uses `f8521159` parent baseline and proves 8 natural defects. Phase7ReviewCheck uses 36 specific atomic-evidence checks. T149 fails when fixes are absent. | Resolved |
+| I | Medium | Phase7ReviewCheck had only method-presence assertions, not exact behavior. | Phase7ReviewCheck now verifies `TelemetryCommittedState` existence, single-state assignment, conflict detection codes, `GetCommittedLatestAsync` field comparison, invalid fixture presence, trusted scope stable result, factory signature without optional fallback. | Resolved |
 
 ## Standards result
 
@@ -33,12 +32,11 @@
 
 ## T150 decision
 
-PASS — all review findings A–J are resolved, with zero unresolved Critical or High findings.
-Phase7ReviewCheck executes 24 checks, ArchitectureVerification executes 52 checks.
+PASS — all review findings A–I are resolved, with zero unresolved Critical or High findings.
+Phase7ReviewCheck executes 36 checks, ArchitectureVerification executes 52 checks.
 
-## Historical baseline reference
+## Historical baselines
 
-Previous corrective closure at `b6b2510820f5ab8f0af5569a2fc18b4ee4b2f892` (T151) covered canonical
-validation, exact fixture equality, and provider recheck facts. This T150 review builds on that
-work, adding atomic-race publication, compatibility lock, trusted scope, and extended T145
-coverage.
+Previous corrective closures at `d5c71ed42a45c6fee189c3a67580b0cf096c9bf6` (atomic-race and
+compatibility-lock) and `b6b2510820f5ab8f0af5569a2fc18b4ee4b2f892` (exact-result). This T150
+review is the atomic-evidence closure at `f8521159802fd39732c4cfa24605aed912c18419`.

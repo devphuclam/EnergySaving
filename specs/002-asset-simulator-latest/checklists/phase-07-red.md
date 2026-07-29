@@ -1,37 +1,28 @@
-# Phase 7 Exact-Result RED Evidence
+# Phase 7 Atomic-Evidence RED Evidence
 
-- Parent baseline: `b6b2510820f5ab8f0af5569a2fc18b4ee4b2f892`
-- Corrective checkpoint: T151 exact-result closure (T152+ not in scope).
+- Parent baseline: `f8521159802fd39732c4cfa24605aed912c18419`
+- Corrective checkpoint: T151 atomic-evidence closure (T152+ not in scope).
 - Reproduction: temporary native worktree
-  `C:\Users\TD-999\AppData\Local\Temp\iump-phase7-exact-red-8108d367ace44e3bbff46835a6bbe42b`
-- Scope: post-hoc Phase 7 exact-result assertions only; no production implementation, database,
+  `C:\Users\TD-999\AppData\Local\Temp\opencode\phase7-atomic-red`
+- Scope: post-hoc Phase 7 atomic-evidence assertions only; no production implementation, database,
   migration execution, API/Worker composition root, PostgreSQL adapter, or Phase 8 work.
-- Temporary changes: one test-only `Phase7ExactResultRedTests.cs` and one test-runner line.
+- Temporary changes: one test-only `Phase7AtomicEvidenceRedTests.cs` and one test-runner line.
 - Build: `dotnet build IUMP.slnx -c Debug --no-restore` -> exit `0` (0 warnings, 0 errors).
 - Focused run: `dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj -c Debug --no-build --no-restore` -> exit `1`.
-- Focused failures: exactly 12 assertions, all natural baseline defects:
-  1. canonical client supplied a default legacy metadata bridge;
-  2. canonical validation lacked payload context;
-  3. fake client fabricated canonical metadata;
-  4. Rejected `LatestAdvanced` could not preserve null;
-  5. finalization could fall back to a local clock;
-  6. provider snapshot did not expose the complete exact tuple;
-  7. provider fake used a generic recheck boolean;
-  8. race winner fake synthesized timestamps/raw/event values;
-  9. 0007 lacked strict terminal shape/persisted-ID invariants;
-  10. T134 lacked an actual repository round-trip;
-  11. T149/T145 evidence did not prove exact field equality;
-  12. T150 review checks used unconditional `Check(true)` and stale evidence.
+- Focused failures: exactly 8 assertions, all natural baseline defects:
+  1. **RED-1**: T145 cannot prove exact Latest via GetCommittedLatestAsync.
+  2. **RED-2**: No invalid Accepted fixture with zero-publication proof in T145.
+  3. **RED-3**: No invalid Rejected fixture in T145.
+  4. **RED-4**: No TelemetryCommittedState aggregate; four separate committed-field assignments.
+  5. **RED-5**: No winner conflict/slot conflict detection; existing committed winner can be overwritten.
+  6. **RED-6**: Scope mismatch throws exception instead of returning stable result.
+  7. **RED-7**: Event factory permits unverified fallback scope (eventSiteId ?? provider.SiteId).
+  8. **RED-8**: T133 missing invalid Accepted/Rejected fixture orchestration tests.
 - The temporary worktree was removed after capture. No restore/download, Docker, PostgreSQL
   connection, port `5432` contact, secret output, or source-code sabotage occurred.
 
-## Historical pre-correction record (retained)
+## Historical pre-correction records
 
-The prior checkpoint was recorded against parent `fdc56735dbd6c9c44599fdf498b010bab151f11e` at
-`2026-07-28T07:11:03.6118212Z`. It covered the original T131-T135 RED surface, built with
-`dotnet build IUMP.slnx -c Debug --no-restore` (exit `0`) and ran the focused unit executable
-(exit `1`). Its missing seams were identity/registry, canonical orchestration, atomic
-persistence, Acquisition finalization, and safe event creation. It explicitly recorded no
-production implementation, restore/download, database or migration execution, container use,
-secret output, or contact with port `5432`. This historical record is not reclassified by the
-post-hoc exact-result closure above.
+Prior checkpoints were recorded at `d5c71ed42a45c6fee189c3a67580b0cf096c9bf6` (atomic-race and
+compatibility-lock closure) and `b6b2510820f5ab8f0af5569a2fc18b4ee4b2f892` (exact-result closure).
+Both historical records are retained and not reclassified by this post-hoc atomic-evidence RED.

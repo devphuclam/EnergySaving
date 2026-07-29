@@ -16,6 +16,19 @@ public enum TelemetryFakeFailure
     Commit
 }
 
+public sealed record TelemetryCommittedState(
+    IReadOnlyDictionary<Guid, TelemetryTerminalResult> Terminals,
+    IReadOnlyDictionary<Guid, RawMeasurement> Raw,
+    IReadOnlyDictionary<Guid, LatestProjectionCandidate> Latest,
+    IReadOnlyList<TelemetryOwnerEvent> Events)
+{
+    public static TelemetryCommittedState Empty() => new(
+        new Dictionary<Guid, TelemetryTerminalResult>(),
+        new Dictionary<Guid, RawMeasurement>(),
+        new Dictionary<Guid, LatestProjectionCandidate>(),
+        new List<TelemetryOwnerEvent>());
+}
+
 public sealed class FakeTelemetryRepositories :
     ITelemetryIngestionRepository,
     ILatestProjectionRepository,
@@ -26,15 +39,14 @@ public sealed class FakeTelemetryRepositories :
     ITelemetryTerminalReplayProbe,
     ITelemetryRaceWinnerProbe
 {
-    private Dictionary<Guid, TelemetryTerminalResult> _terminals = [];
-    private Dictionary<Guid, RawMeasurement> _raw = [];
-    private List<TelemetryOwnerEvent> _events = [];
-    private Dictionary<Guid, LatestProjectionCandidate> _latest = [];
+    private TelemetryCommittedState _committedState = TelemetryCommittedState.Empty();
 
     public TelemetryFakeFailure Failure { get; set; }
     public bool LatestAdvanceResult { get; set; } = true;
     public TelemetryRaceWinnerFixture? RaceWinnerFixtureOnStage { get; set; }
     public IReadOnlyList<TelemetryFlowLock> LastLockTrace { get; private set; } = [];
+
+    public TelemetryCommittedState CommittedState => _committedState;
 
     public void StageRaceWinner(TelemetryRaceWinnerFixture fixture) =>
         RaceWinnerFixtureOnStage = fixture;
@@ -45,12 +57,12 @@ public sealed class FakeTelemetryRepositories :
 
     public Task<TelemetryTerminalResult?> GetTerminalAsync(
         Guid measurementId, CancellationToken ct = default) =>
-        Task.FromResult(_terminals.TryGetValue(measurementId, out var value) ? value.Copy() : null);
+        Task.FromResult(_committedState.Terminals.TryGetValue(measurementId, out var value) ? value.Copy() : null);
 
     public Task<TelemetryTerminalResult?> GetTerminalBySlotAsync(
         Guid runId, Guid pointId, long sourceSequence, CancellationToken ct = default)
     {
-        var value = _terminals.Values.FirstOrDefault(candidate =>
+        var value = _committedState.Terminals.Values.FirstOrDefault(candidate =>
             candidate.SimulatorRunId == runId && candidate.PointId == pointId &&
             candidate.SourceSequence == sourceSequence);
         return Task.FromResult(value?.Copy());
@@ -72,9 +84,9 @@ public sealed class FakeTelemetryRepositories :
             RaceWinnerFixtureOnStage = null;
             throw new TelemetryUniqueRaceException();
         }
-        if (_terminals.ContainsKey(result.MeasurementId) ||
+        if (_committedState.Terminals.ContainsKey(result.MeasurementId) ||
             tx.Terminals.Any(item => item.MeasurementId == result.MeasurementId) ||
-            _terminals.Values.Any(item =>
+            _committedState.Terminals.Values.Any(item =>
                 item.SimulatorRunId == result.SimulatorRunId &&
                 item.PointId == result.PointId &&
                 item.SourceSequence == result.SourceSequence) ||
@@ -97,7 +109,7 @@ public sealed class FakeTelemetryRepositories :
             measurement.ProcessingAtUtc.Kind != DateTimeKind.Utc)
             throw new InvalidOperationException("RAW_MEASUREMENT_INVALID");
         var tx = Require(transaction);
-        var terminal = tx.Terminals.Concat(_terminals.Values)
+        var terminal = tx.Terminals.Concat(_committedState.Terminals.Values)
             .FirstOrDefault(item => item.MeasurementId == measurement.MeasurementId);
         if (terminal is null ||
             terminal.FinalClassification != TelemetryFinalClassification.Accepted ||
@@ -117,18 +129,18 @@ public sealed class FakeTelemetryRepositories :
     public Task<IReadOnlyList<TelemetryTerminalResult>> ListCommittedTerminalsAsync(
         CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<TelemetryTerminalResult>>(
-            _terminals.Values.OrderBy(value => value.MeasurementId)
+            _committedState.Terminals.Values.OrderBy(value => value.MeasurementId)
                 .Select(value => value.Copy()).ToList());
 
     public Task<IReadOnlyList<RawMeasurement>> ListCommittedRawAsync(
         CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<RawMeasurement>>(
-            _raw.Values.OrderBy(value => value.MeasurementId)
+            _committedState.Raw.Values.OrderBy(value => value.MeasurementId)
                 .Select(value => value with { }).ToList());
 
     public string ReplayTerminal(TelemetryTerminalResult candidate)
     {
-        if (!_terminals.TryGetValue(candidate.MeasurementId, out var stored))
+        if (!_committedState.Terminals.TryGetValue(candidate.MeasurementId, out var stored))
             return "MISSING";
         var exact = stored with { RequestFingerprint = Array.Empty<byte>() } ==
                     candidate with { RequestFingerprint = Array.Empty<byte>() } &&
@@ -173,21 +185,21 @@ public sealed class FakeTelemetryRepositories :
 
     public Task<IReadOnlyList<TelemetryOwnerEvent>> ListCommittedAsync(
         CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<TelemetryOwnerEvent>>(_events.ToList());
+        Task.FromResult<IReadOnlyList<TelemetryOwnerEvent>>(_committedState.Events.ToList());
 
     public Task<RawMeasurement?> GetMeasurementAsync(
         Guid measurementId, CancellationToken ct = default) =>
-        Task.FromResult(_raw.TryGetValue(measurementId, out var value) ? value with { } : null);
+        Task.FromResult(_committedState.Raw.TryGetValue(measurementId, out var value) ? value with { } : null);
 
     public Task<SourceHealthSnapshot?> GetSourceHealthAsync(
         Guid pointId, CancellationToken ct = default) =>
         Task.FromResult<SourceHealthSnapshot?>(null);
 
-    public int LatestCount => _latest.Count;
+    public int LatestCount => _committedState.Latest.Count;
 
     public Task<LatestProjectionCandidate?> GetCommittedLatestAsync(
         Guid pointId, CancellationToken ct = default) =>
-        Task.FromResult(_latest.TryGetValue(pointId, out var value) ? value with { } : null);
+        Task.FromResult(_committedState.Latest.TryGetValue(pointId, out var value) ? value with { } : null);
 
     private Transaction Require(ITelemetryFlowTransaction transaction) =>
         transaction as Transaction ?? throw new InvalidOperationException("FOREIGN_TRANSACTION");
@@ -201,30 +213,47 @@ public sealed class FakeTelemetryRepositories :
     {
         var winner = fixture.Terminal;
         ValidateRaceWinnerFixture(fixture, winner);
+        var current = _committedState;
 
-        var clonedTerminals = new Dictionary<Guid, TelemetryTerminalResult>(_terminals);
-        var clonedRaw = new Dictionary<Guid, RawMeasurement>(_raw);
-        var clonedLatest = new Dictionary<Guid, LatestProjectionCandidate>(_latest);
-        var clonedEvents = new List<TelemetryOwnerEvent>(_events);
+        if (current.Terminals.TryGetValue(winner.MeasurementId, out var existing))
+        {
+            var fingerprintEqual = existing.RequestFingerprint.SequenceEqual(winner.RequestFingerprint);
+            var terminalEqual = existing with { RequestFingerprint = Array.Empty<byte>() } ==
+                                winner with { RequestFingerprint = Array.Empty<byte>() };
+            if (fingerprintEqual && terminalEqual)
+                return;
+            throw new InvalidOperationException("RACE_WINNER_FIXTURE_CONFLICT");
+        }
 
-        clonedTerminals[winner.MeasurementId] = winner.Copy();
+        var slotMatch = current.Terminals.Values.Any(t =>
+            t.SimulatorRunId == winner.SimulatorRunId &&
+            t.PointId == winner.PointId &&
+            t.SourceSequence == winner.SourceSequence &&
+            t.MeasurementId != winner.MeasurementId);
+        if (slotMatch)
+            throw new InvalidOperationException("RACE_WINNER_SLOT_CONFLICT");
+
+        var nextTerminals = new Dictionary<Guid, TelemetryTerminalResult>(current.Terminals);
+        var nextRaw = new Dictionary<Guid, RawMeasurement>(current.Raw);
+        var nextLatest = new Dictionary<Guid, LatestProjectionCandidate>(current.Latest);
+        var nextEvents = new List<TelemetryOwnerEvent>(current.Events);
+
+        nextTerminals[winner.MeasurementId] = winner.Copy();
 
         if (winner.FinalClassification != TelemetryFinalClassification.Rejected)
         {
-            clonedRaw[winner.MeasurementId] = fixture.Raw! with { };
+            nextRaw[winner.MeasurementId] = fixture.Raw! with { };
             if (fixture.Latest is not null)
-                clonedLatest[winner.PointId] = fixture.Latest with { };
-            clonedEvents.Add(fixture.Event! with
+                nextLatest[winner.PointId] = fixture.Latest with { };
+            nextEvents.Add(fixture.Event! with
             {
                 Before = new Dictionary<string, object?>(fixture.Event!.Before, StringComparer.Ordinal),
                 After = new Dictionary<string, object?>(fixture.Event.After, StringComparer.Ordinal)
             });
         }
 
-        _terminals = clonedTerminals;
-        _raw = clonedRaw;
-        _latest = clonedLatest;
-        _events = clonedEvents;
+        _committedState = new TelemetryCommittedState(
+            nextTerminals, nextRaw, nextLatest, nextEvents);
     }
 
     private static void ValidateRaceWinnerFixture(
@@ -341,10 +370,11 @@ public sealed class FakeTelemetryRepositories :
         {
             _owner.ThrowIf(TelemetryFakeFailure.Commit);
             if (IsCompleted) throw new InvalidOperationException("TRANSACTION_COMPLETED");
+            var current = _owner._committedState;
             foreach (var terminal in Terminals)
             {
                 var rawCount = Raw.Count(item => item.MeasurementId == terminal.MeasurementId) +
-                    (_owner._raw.ContainsKey(terminal.MeasurementId) ? 1 : 0);
+                    (current.Raw.ContainsKey(terminal.MeasurementId) ? 1 : 0);
                 if (terminal.FinalClassification == TelemetryFinalClassification.Accepted &&
                     rawCount != 1)
                     throw new InvalidOperationException("ACCEPTED_REQUIRES_RAW");
@@ -352,13 +382,19 @@ public sealed class FakeTelemetryRepositories :
                     rawCount != 0)
                     throw new InvalidOperationException("REJECTED_FORBIDS_RAW");
             }
+            var nextTerminals = new Dictionary<Guid, TelemetryTerminalResult>(current.Terminals);
+            var nextRaw = new Dictionary<Guid, RawMeasurement>(current.Raw);
+            var nextLatest = new Dictionary<Guid, LatestProjectionCandidate>(current.Latest);
+            var nextEvents = new List<TelemetryOwnerEvent>(current.Events);
             foreach (var terminal in Terminals)
-                _owner._terminals.Add(terminal.MeasurementId, terminal.Copy());
+                nextTerminals.Add(terminal.MeasurementId, terminal.Copy());
             foreach (var measurement in Raw)
-                _owner._raw.Add(measurement.MeasurementId, measurement with { });
+                nextRaw.Add(measurement.MeasurementId, measurement with { });
             foreach (var latest in Latest)
-                _owner._latest[latest.PointId] = latest;
-            _owner._events.AddRange(Events);
+                nextLatest[latest.PointId] = latest;
+            nextEvents.AddRange(Events);
+            _owner._committedState = new TelemetryCommittedState(
+                nextTerminals, nextRaw, nextLatest, nextEvents);
             _owner.LastLockTrace = _locks.ToList();
             IsCompleted = true;
             return ValueTask.CompletedTask;

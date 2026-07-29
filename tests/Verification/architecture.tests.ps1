@@ -1057,53 +1057,59 @@ if ($isCanonicalModuleRoot) {
         (Join-Path $repoRoot 'specs\002-asset-simulator-latest\checklists\phase-07-telemetry.md')
     )) {
         $checkpointText = Get-Content -LiteralPath $checkpoint -Raw
-        if ($checkpointText -notmatch 'b6b2510820f5ab8f0af5569a2fc18b4ee4b2f892' -or
+        if ($checkpointText -notmatch 'f8521159802fd39732c4cfa24605aed912c18419' -or
             $checkpointText -notmatch 'T151') {
-            $issues += "T149 FAIL: Phase 7 checkpoint is missing the b6/T151 corrective baseline in $checkpoint."
+            $issues += "T149 FAIL: Phase 7 checkpoint is missing the f852/T151 corrective baseline in $checkpoint."
         }
     }
     $reviewCheckPath = Join-Path $repoRoot 'tests\Unit\Telemetry\Phase7ReviewCheck.cs'
     if ((Get-Content -LiteralPath $reviewCheckPath -Raw) -match 'Check\(true') {
         $issues += 'T149 FAIL: Phase7ReviewCheck contains an unconditional passing assertion.'
     }
-    # Atomic-race and compatibility-lock closure checks (Phase 7)
+    # Atomic-evidence closure checks (Phase 7)
     $telemetryFake = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Fakes\FakeTelemetryRepositories.cs') -Raw
-    $terminalMutatePos = $telemetryFake.IndexOf('_terminals[winner.MeasurementId] = winner.Copy();')
-    $fixtureInvalidPos = $telemetryFake.IndexOf('RACE_WINNER_FIXTURE_INVALID')
-    if ($terminalMutatePos -ge 0 -and $fixtureInvalidPos -ge 0 -and $terminalMutatePos -lt $fixtureInvalidPos) {
-        $issues += 'T149 FAIL: PublishRaceWinner mutates terminal before complete fixture validation.'
+    if ($telemetryFake -notmatch 'TelemetryCommittedState') {
+        $issues += 'T149 FAIL: Fake lacks aggregate TelemetryCommittedState holder.'
     }
-    $rejectedValPos = $telemetryFake.IndexOf('fixture.Raw is not null || fixture.Latest is not null || fixture.Event is not null')
-    if ($terminalMutatePos -ge 0 -and $rejectedValPos -ge 0 -and $terminalMutatePos -lt $rejectedValPos) {
-        $issues += 'T149 FAIL: Rejected fixture validation happens after terminal mutation.'
+    $publishBody = [regex]::Match($telemetryFake, '(?s)private void PublishRaceWinner.*?(?=private|public|class)').Value
+    if ($publishBody -match '_terminals\[winner\.MeasurementId\]\s*=') {
+        $issues += 'T149 FAIL: PublishRaceWinner still assigns terminal directly.'
     }
-    $contracts = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Modules\Telemetry\Contracts\TelemetryPersistenceContracts.cs') -Raw
-    if ($contracts -notmatch 'CatalogCompatibility') {
-        $issues += 'T149 FAIL: TelemetryFlowLockTarget lacks CatalogCompatibility member.'
+    $publishMethod = [regex]::Match($telemetryFake, '(?s)private void PublishRaceWinner.*?(?=private|public|class)')
+    $publishAssigns = [regex]::Matches($publishMethod.Value, '_committedState\s*=\s*new TelemetryCommittedState').Count
+    if ($publishAssigns -ne 1) {
+        $issues += "T149 FAIL: PublishRaceWinner must perform exactly one committed-state assignment; found $publishAssigns."
+    }
+    if ($telemetryFake -notmatch 'RACE_WINNER_FIXTURE_CONFLICT') {
+        $issues += 'T149 FAIL: Race-winner does not reject existing Measurement-ID conflict.'
+    }
+    if ($telemetryFake -notmatch 'RACE_WINNER_SLOT_CONFLICT') {
+        $issues += 'T149 FAIL: Race-winner does not reject slot conflict.'
+    }
+    $t145 = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Integration\Telemetry\TelemetryIngestionRepositoryTests.cs') -Raw
+    if ($t145 -notmatch 'GetCommittedLatestAsync') {
+        $issues += 'T149 FAIL: T145 never calls GetCommittedLatestAsync.'
+    }
+    if ($t145 -notmatch 'committed!.MeasurementId == data.Latest!.MeasurementId') {
+        $issues += 'T149 FAIL: T145 compares only LatestCount not exact Latest fields.'
+    }
+    $invalidAcceptedCount = [regex]::Matches($t145, '"invalid Accepted').Count
+    $terminalUnchangedCount = [regex]::Matches($t145, 'terminal count unchanged').Count
+    if ($invalidAcceptedCount -lt 2 -or $terminalUnchangedCount -lt 2) {
+        $issues += "T149 FAIL: T145 lacks invalid Accepted fixture scenario (labels=$invalidAcceptedCount, terminalUnchanged=$terminalUnchangedCount)."
+    }
+    $invalidRejectedCount = [regex]::Matches($t145, '"invalid Rejected').Count
+    if ($invalidRejectedCount -lt 1) {
+        $issues += "T149 FAIL: T145 lacks invalid Rejected fixture scenario (count=$invalidRejectedCount)."
     }
     $persistenceService = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Modules\Telemetry\Application\TelemetryPersistenceService.cs') -Raw
-    if ($persistenceService -notmatch 'CatalogCompatibility') {
-        $issues += 'T149 FAIL: AcquireOwnerLocksAsync does not acquire Compatibility lock.'
+    if ($persistenceService -match 'TelemetryUniqueRaceException|InvalidOperationException.*PROVIDER_SCOPE_MISMATCH' -and
+        $persistenceService -notmatch 'TelemetryIngestionResult\.Failed\("PROVIDER_SCOPE_MISMATCH"') {
+        $issues += 'T149 FAIL: Trusted-scope mismatch throws instead of returning stable result.'
     }
-    if ($persistenceService -notmatch 'PROVIDER_SCOPE_MISMATCH') {
-        $issues += 'T149 FAIL: PersistenceService lacks PROVIDER_SCOPE_MISMATCH scope validation.'
-    }
-    if ($persistenceService -notmatch 'provider\.TrustedSiteId') {
-        $issues += 'T149 FAIL: MeasurementAccepted event uses unverified SiteId instead of TrustedSiteId.'
-    }
-    # Phase7ReviewCheck must detect atomic-race, compatibility, Latest probe, Rejected fixture, and trusted scope
-    $reviewContent = Get-Content -LiteralPath $reviewCheckPath -Raw
-    if ($reviewContent -notmatch 'PublishRaceWinner') {
-        $issues += 'T149 FAIL: Phase7ReviewCheck is missing atomic publication check.'
-    }
-    if ($reviewContent -notmatch 'CatalogCompatibility') {
-        $issues += 'T149 FAIL: Phase7ReviewCheck is missing compatibility lock check.'
-    }
-    if ($reviewContent -notmatch 'GetCommittedLatest') {
-        $issues += 'T149 FAIL: Phase7ReviewCheck is missing Latest probe comparison check.'
-    }
-    if ($reviewContent -notmatch 'TrustedSiteId') {
-        $issues += 'T149 FAIL: Phase7ReviewCheck is missing trusted scope check.'
+    $factoryMethod = [regex]::Match($persistenceService, '(?s)public static TelemetryOwnerEvent Create\(.*?\)')
+    if ($factoryMethod.Success -and $factoryMethod.Value -match '\? eventSiteId = null|\? eventAreaId = null') {
+        $issues += 'T149 FAIL: Event factory contains optional fallback parameters.'
     }
     $telemetrySources = Get-ChildItem -LiteralPath (Join-Path $ModuleRoot 'Telemetry') -Recurse -File |
         Where-Object { $_.Extension -eq '.cs' } |

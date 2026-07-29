@@ -85,6 +85,24 @@ public static class TelemetryEventTests
                 IngestionOrchestrationTests.Trusted() with { IsTrusted = false });
             Check(system.Store.ListCommittedAsync().Result.Count == 0, "untrusted no event", failures);
         });
+        Case("scope mismatch produces no event and factory rejects untrusted scope", failures, () =>
+        {
+            var provider = TelemetryTestData.Provider();
+            var mismatched = provider with { SiteId = "different-site" };
+            var scopeMismatch = TelemetryPersistenceService.CheckTrustedScope(mismatched, "corr");
+            Check(scopeMismatch is not null && scopeMismatch.ErrorCode == "PROVIDER_SCOPE_MISMATCH",
+                "scope mismatch result error", failures);
+            var system = IngestionOrchestrationTests.Create();
+            system.Providers.Snapshot = mismatched;
+            var result = IngestionOrchestrationTests.Execute(system, TelemetryTestData.Request());
+            Check(result.Disposition == TelemetryDisposition.Failed &&
+                  result.ErrorCode == "PROVIDER_SCOPE_MISMATCH",
+                "scope mismatch stable disposition", failures);
+            Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0,
+                "scope mismatch no terminal", failures);
+            Check(system.Store.ListCommittedAsync().Result.Count == 0,
+                "scope mismatch no event", failures);
+        });
         Case("PointLatestAdvanced.v1 is not implemented", failures, () =>
         {
             var system = IngestionOrchestrationTests.Create();

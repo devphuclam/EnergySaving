@@ -176,6 +176,124 @@ public static class IngestionPersistenceContractTests
                   system.Store.ListCommittedAsync().Result.Count == 0,
                 "rejected winner has no dependent artifacts", failures);
         });
+        // Invalid Accepted fixture cases — each proves zero partial publication
+        foreach (var (name, makeFixture) in new (string, Func<TelemetryMeasurementRequest, TelemetryTerminalResult, TelemetryRaceWinnerFixture>)[]
+        {
+            ("Accepted fixture with null Raw", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(f.Terminal, null, f.Latest, f.Event);
+            }),
+            ("Accepted fixture with Raw identity mismatch", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(f.Terminal,
+                    f.Raw! with { MeasurementId = Guid.NewGuid() }, f.Latest, f.Event);
+            }),
+            ("Accepted fixture with Latest missing when LatestAdvanced=true", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(f.Terminal, f.Raw, null, f.Event);
+            }),
+            ("Accepted fixture with Latest present when LatestAdvanced=false", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(
+                    f.Terminal with { LatestAdvanced = false },
+                    f.Raw, f.Latest, f.Event);
+            }),
+            ("Accepted fixture with Latest field mismatch", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(f.Terminal, f.Raw,
+                    f.Latest! with { QualityCode = MeasurementQuality.Uncertain }, f.Event);
+            }),
+            ("Accepted fixture with null Event", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(f.Terminal, f.Raw, f.Latest, null);
+            }),
+            ("Accepted fixture with Event envelope mismatch", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                return new TelemetryRaceWinnerFixture(f.Terminal, f.Raw, f.Latest,
+                    f.Event! with { EventType = "Wrong.v1" });
+            }),
+            ("Accepted fixture with Event payload mismatch", (req, term) =>
+            {
+                var f = TelemetryTestData.RaceFixture(req, term);
+                var badAfter = new Dictionary<string, object?>(f.Event!.After, StringComparer.Ordinal)
+                    { ["unitCode"] = "KWH" };
+                return new TelemetryRaceWinnerFixture(f.Terminal, f.Raw, f.Latest,
+                    f.Event with { After = badAfter });
+            }),
+        })
+        {
+            Case($"invalid Accepted fixture: {name}", failures, () =>
+            {
+                var system = IngestionOrchestrationTests.Create();
+                var request = TelemetryTestData.Request();
+                var terminal = TelemetryTestData.Terminal(request, TelemetryFinalClassification.Accepted);
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, "before: zero terminals", failures);
+                Check(system.Store.ListCommittedRawAsync().Result.Count == 0, "before: zero raw", failures);
+                Check(system.Store.LatestCount == 0, "before: zero Latest", failures);
+                Check(system.Store.ListCommittedAsync().Result.Count == 0, "before: zero events", failures);
+                var invalidFixture = makeFixture(request, terminal);
+                system.Store.RaceWinnerFixtureOnStage = invalidFixture;
+                try
+                {
+                    IngestionOrchestrationTests.Execute(system, request);
+                    failures.Add($"{name}: expected failure");
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("RACE_WINNER_FIXTURE_INVALID"))
+                {
+                    CheckCount++;
+                }
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, $"{name}: terminal count unchanged", failures);
+                Check(system.Store.ListCommittedRawAsync().Result.Count == 0, $"{name}: raw count unchanged", failures);
+                Check(system.Store.LatestCount == 0, $"{name}: Latest unchanged", failures);
+                Check(system.Store.ListCommittedAsync().Result.Count == 0, $"{name}: event count unchanged", failures);
+            });
+        }
+        // Invalid Rejected fixture cases
+        foreach (var (label, makeFixture) in new (string, Func<TelemetryMeasurementRequest, TelemetryTerminalResult, TelemetryRaceWinnerFixture>)[]
+        {
+            ("Rejected fixture with Raw present", (req, term) =>
+                new TelemetryRaceWinnerFixture(term,
+                    TelemetryTestData.RaceFixture(req, TelemetryTestData.Terminal(req, TelemetryFinalClassification.Accepted)).Raw,
+                    null, null)),
+            ("Rejected fixture with Latest present", (req, term) =>
+                new TelemetryRaceWinnerFixture(term, null,
+                    TelemetryTestData.RaceFixture(req, TelemetryTestData.Terminal(req, TelemetryFinalClassification.Accepted)).Latest,
+                    null)),
+            ("Rejected fixture with Event present", (req, term) =>
+                new TelemetryRaceWinnerFixture(term, null, null,
+                    TelemetryTestData.RaceFixture(req, TelemetryTestData.Terminal(req, TelemetryFinalClassification.Accepted)).Event)),
+        })
+        {
+            Case($"invalid Rejected fixture: {label}", failures, () =>
+            {
+                var system = IngestionOrchestrationTests.Create();
+                var request = TelemetryTestData.Request();
+                var terminal = TelemetryTestData.Terminal(request, TelemetryFinalClassification.Rejected);
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, "before: zero terminals", failures);
+                var invalidFixture = makeFixture(request, terminal);
+                system.Store.RaceWinnerFixtureOnStage = invalidFixture;
+                try
+                {
+                    IngestionOrchestrationTests.Execute(system, request);
+                    failures.Add($"{label}: expected failure");
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("RACE_WINNER_FIXTURE_INVALID"))
+                {
+                    CheckCount++;
+                }
+                Check(system.Store.ListCommittedTerminalsAsync().Result.Count == 0, $"{label}: terminal count unchanged", failures);
+                Check(system.Store.ListCommittedRawAsync().Result.Count == 0, $"{label}: raw count unchanged", failures);
+                Check(system.Store.LatestCount == 0, $"{label}: Latest unchanged", failures);
+                Check(system.Store.ListCommittedAsync().Result.Count == 0, $"{label}: event count unchanged", failures);
+            });
+        }
         Case("Bad bypasses Latest seam and still persists raw", failures, () =>
         {
             var system = IngestionOrchestrationTests.Create();

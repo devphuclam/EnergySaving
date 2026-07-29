@@ -359,8 +359,8 @@ public sealed class TelemetryIngestionRepositoryContractRunner
                 {
                     await fixture.Repository.StageTerminalAsync(data.Terminal, tx);
                     await fixture.Repository.StageRawAsync(data.Raw, tx);
-                    var advance = await fixture.Latest.EvaluateAdvanceAsync(data.Latest, tx);
-                    await fixture.Latest.StageAdvanceAsync(data.Latest, advance, tx);
+                    var advance = await fixture.Latest.EvaluateAdvanceAsync(data.Latest!, tx);
+                    await fixture.Latest.StageAdvanceAsync(data.Latest!, advance, tx);
                     await fixture.Events.StageAsync(data.Event, tx);
                     await tx.CommitAsync();
                     Failures.Add($"{item.Item2}: expected failure");
@@ -405,6 +405,203 @@ public sealed class TelemetryIngestionRepositoryContractRunner
             Check(one.Select(value => value.MeasurementId)
                 .SequenceEqual(two.Select(value => value.MeasurementId)), "stable ordering");
         });
+        // Exact Latest evidence scenarios
+        await ScenarioAsync("Accepted race winner exact Latest evidence", async () =>
+        {
+            var fixture = factory.Create();
+            var data = Data();
+            fixture.RaceWinnerProbe?.StageRaceWinner(new TelemetryRaceWinnerFixture(
+                data.Terminal, data.Raw, data.Latest, data.Event));
+            await using (var winnerTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+            {
+                try
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, winnerTx);
+                    await fixture.Repository.StageRawAsync(data.Raw, winnerTx);
+                    await winnerTx.CommitAsync();
+                }
+                catch (TelemetryUniqueRaceException)
+                {
+                    await winnerTx.RollbackAsync();
+                }
+            }
+            if (fixture.RaceWinnerProbe is not null)
+            {
+                var committed = await fixture.RaceWinnerProbe.GetCommittedLatestAsync(data.Terminal.PointId);
+                Check(committed is not null, "Latest exists after Accepted race");
+                Check(committed!.MeasurementId == data.Latest!.MeasurementId, "Latest MeasurementId equal");
+                Check(committed.PointId == data.Latest.PointId, "Latest PointId equal");
+                Check(committed.SourceTimestampUtc == data.Latest.SourceTimestampUtc, "Latest SourceTimestampUtc equal");
+                Check(committed.SourceSequence == data.Latest.SourceSequence, "Latest SourceSequence equal");
+                Check(committed.ProcessingAtUtc == data.Latest.ProcessingAtUtc, "Latest ProcessingAtUtc equal");
+                Check(committed.QualityCode == data.Latest.QualityCode, "Latest QualityCode equal");
+            }
+        });
+        await ScenarioAsync("Accepted race winner LatestAdvanced=false returns null Latest", async () =>
+        {
+            var fixture = factory.Create();
+            var data = Data(latestAdvanced: false);
+            fixture.RaceWinnerProbe?.StageRaceWinner(new TelemetryRaceWinnerFixture(
+                data.Terminal, data.Raw, null, data.Event));
+            await using (var winnerTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+            {
+                try
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, winnerTx);
+                    await fixture.Repository.StageRawAsync(data.Raw, winnerTx);
+                    await winnerTx.CommitAsync();
+                }
+                catch (TelemetryUniqueRaceException)
+                {
+                    await winnerTx.RollbackAsync();
+                }
+            }
+            if (fixture.RaceWinnerProbe is not null)
+            {
+                var committed = await fixture.RaceWinnerProbe.GetCommittedLatestAsync(data.Terminal.PointId);
+                Check(committed is null, "LatestAdvanced=false Latest is null");
+                Check(fixture.RaceWinnerProbe.LatestCount == 0, "LatestAdvanced=false LatestCount==0");
+                var stored = await fixture.Repository.GetTerminalAsync(data.Terminal.MeasurementId);
+                Check(stored is not null && stored.LatestAdvanced == false, "LatestAdvanced stored as false");
+                Check(stored is not null && stored.FinalClassification == TelemetryFinalClassification.Accepted, "Accepted classification");
+            }
+            Check((await fixture.Repository.ListCommittedTerminalsAsync()).Count == 1, "terminal committed");
+            Check((await fixture.Repository.ListCommittedRawAsync()).Count == 1, "raw committed");
+            Check((await fixture.Events.ListCommittedAsync()).Count == 1, "event committed");
+        });
+        // Invalid Accepted fixture cases — prove zero partial publication
+        foreach (var (label, makeFixture) in new (string, Func<ContractData, TelemetryRaceWinnerFixture>)[]
+        {
+            ("invalid Accepted Raw null", d => new TelemetryRaceWinnerFixture(d.Terminal, null, d.Latest, d.Event)),
+            ("invalid Accepted Raw identity mismatch", d => new TelemetryRaceWinnerFixture(d.Terminal,
+                d.Raw with { MeasurementId = Guid.NewGuid() }, d.Latest, d.Event)),
+            ("invalid Accepted Latest null when LatestAdvanced=true", d => new TelemetryRaceWinnerFixture(d.Terminal, d.Raw, null, d.Event)),
+            ("invalid Accepted Latest present when LatestAdvanced=false", d => new TelemetryRaceWinnerFixture(
+                d.Terminal with { LatestAdvanced = false }, d.Raw, d.Latest, d.Event)),
+            ("invalid Accepted Latest field mismatch", d => new TelemetryRaceWinnerFixture(d.Terminal, d.Raw,
+                d.Latest! with { QualityCode = MeasurementQuality.Uncertain }, d.Event)),
+            ("invalid Accepted Event null", d => new TelemetryRaceWinnerFixture(d.Terminal, d.Raw, d.Latest, null)),
+            ("invalid Accepted Event envelope", d => new TelemetryRaceWinnerFixture(d.Terminal, d.Raw, d.Latest,
+                d.Event with { EventType = "Wrong.v1" })),
+            ("invalid Accepted Event payload", d =>
+            {
+                var badAfter = new Dictionary<string, object?>(d.Event.After, StringComparer.Ordinal)
+                    { ["unitCode"] = "KWH" };
+                return new TelemetryRaceWinnerFixture(d.Terminal, d.Raw, d.Latest,
+                    d.Event with { After = badAfter });
+            }),
+        })
+        {
+            await ScenarioAsync(label, async () =>
+            {
+                var fixture = factory.Create();
+                var data = Data();
+                await using (var seedTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, seedTx);
+                    await fixture.Repository.StageRawAsync(data.Raw, seedTx);
+                    await seedTx.CommitAsync();
+                }
+                var preCount = (await fixture.Repository.ListCommittedTerminalsAsync()).Count;
+                var preRaw = (await fixture.Repository.ListCommittedRawAsync()).Count;
+                var preLatest = fixture.RaceWinnerProbe?.LatestCount ?? 0;
+                var preEvents = (await fixture.Events.ListCommittedAsync()).Count;
+                var preLatestEntry = fixture.RaceWinnerProbe is not null
+                    ? await fixture.RaceWinnerProbe.GetCommittedLatestAsync(data.Terminal.PointId)
+                    : null;
+                var invalid = makeFixture(data);
+                fixture.RaceWinnerProbe?.StageRaceWinner(invalid);
+                var loserRequest = Data().Terminal;
+                await using (var loserTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+                {
+                    try
+                    {
+                        await fixture.Repository.StageTerminalAsync(loserRequest, loserTx);
+                        Failures.Add($"{label}: expected failure");
+                    }
+                    catch (TelemetryUniqueRaceException)
+                    {
+                        await loserTx.RollbackAsync();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        await loserTx.RollbackAsync();
+                    }
+                }
+                Check((await fixture.Repository.ListCommittedTerminalsAsync()).Count == preCount,
+                    $"{label}: terminal count unchanged");
+                Check((await fixture.Repository.ListCommittedRawAsync()).Count == preRaw,
+                    $"{label}: raw count unchanged");
+                Check((fixture.RaceWinnerProbe?.LatestCount ?? 0) == preLatest,
+                    $"{label}: Latest count unchanged");
+                Check((await fixture.Events.ListCommittedAsync()).Count == preEvents,
+                    $"{label}: event count unchanged");
+                if (fixture.RaceWinnerProbe is not null)
+                {
+                    var afterLatest = await fixture.RaceWinnerProbe.GetCommittedLatestAsync(data.Terminal.PointId);
+                    Check((afterLatest is null) == (preLatestEntry is null),
+                        $"{label}: Latest entry existence unchanged");
+                    if (afterLatest is not null && preLatestEntry is not null)
+                    {
+                        Check(afterLatest.MeasurementId == preLatestEntry.MeasurementId,
+                            $"{label}: Latest MeasurementId unchanged");
+                        Check(afterLatest.QualityCode == preLatestEntry.QualityCode,
+                            $"{label}: Latest QualityCode unchanged");
+                    }
+                }
+            });
+        }
+        // Invalid Rejected fixture cases
+        foreach (var (label, makeFixture) in new (string, Func<ContractData, TelemetryRaceWinnerFixture>)[]
+        {
+            ("invalid Rejected Raw present", d =>
+                new TelemetryRaceWinnerFixture(d.Terminal with { FinalClassification = TelemetryFinalClassification.Rejected },
+                    d.Raw, null, null)),
+            ("invalid Rejected Latest present", d =>
+                new TelemetryRaceWinnerFixture(d.Terminal with { FinalClassification = TelemetryFinalClassification.Rejected },
+                    null, d.Latest!, null)),
+            ("invalid Rejected Event present", d =>
+                new TelemetryRaceWinnerFixture(d.Terminal with { FinalClassification = TelemetryFinalClassification.Rejected },
+                    null, null, d.Event)),
+        })
+        {
+            await ScenarioAsync(label, async () =>
+            {
+                var fixture = factory.Create();
+                var data = Data();
+                await using (var seedTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+                {
+                    await fixture.Repository.StageTerminalAsync(data.Terminal, seedTx);
+                    await fixture.Repository.StageRawAsync(data.Raw, seedTx);
+                    await seedTx.CommitAsync();
+                }
+                var preCount = (await fixture.Repository.ListCommittedTerminalsAsync()).Count;
+                var preRaw = (await fixture.Repository.ListCommittedRawAsync()).Count;
+                var invalid = makeFixture(data);
+                fixture.RaceWinnerProbe?.StageRaceWinner(invalid);
+                await using (var loserTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+                {
+                    var loserTerminal = Data().Terminal;
+                    try
+                    {
+                        await fixture.Repository.StageTerminalAsync(loserTerminal, loserTx);
+                        Failures.Add($"{label}: expected failure");
+                    }
+                    catch (TelemetryUniqueRaceException)
+                    {
+                        await loserTx.RollbackAsync();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        await loserTx.RollbackAsync();
+                    }
+                }
+                Check((await fixture.Repository.ListCommittedTerminalsAsync()).Count == preCount,
+                    $"{label}: terminal count unchanged");
+                Check((await fixture.Repository.ListCommittedRawAsync()).Count == preRaw,
+                    $"{label}: raw count unchanged");
+            });
+        }
         await ScenarioAsync("no independent commit surface", () =>
         {
             Check(!typeof(ITelemetryIngestionRepository).GetMethods()
@@ -448,7 +645,8 @@ public sealed class TelemetryIngestionRepositoryContractRunner
     private static ContractData Data(
         bool rejected = false,
         long sequence = 1,
-        Guid? mappingOverride = null)
+        Guid? mappingOverride = null,
+        bool latestAdvanced = true)
     {
         var source = Guid.Parse("11111111-1111-4111-8111-111111111111");
         var run = Guid.Parse("22222222-2222-4222-8222-222222222222");
@@ -469,24 +667,26 @@ public sealed class TelemetryIngestionRepositoryContractRunner
             rejected ? TelemetryFinalClassification.Rejected : TelemetryFinalClassification.Accepted,
             !rejected, rejected ? null : id,
             rejected ? null : MeasurementQuality.Good, null,
-            rejected ? "POINT_INACTIVE" : null, rejected ? null : true,
+            rejected ? "POINT_INACTIVE" : null, rejected ? null : latestAdvanced,
             request.SourceTimestampUtc, request.CorrelationId, request.LineageId, fingerprint);
         var raw = new RawMeasurement(
             id, source, run, point, mapping, 1, sequence, request.SourceTimestampUtc,
             request.SourceTimestampUtc, request.SourceTimestampUtc, 12.5, "kW",
             MeasurementQuality.Good, null, request.CorrelationId, request.LineageId);
-        var latest = new LatestProjectionCandidate(
-            id, point, request.SourceTimestampUtc, sequence,
-            request.SourceTimestampUtc, MeasurementQuality.Good);
+        var latest = latestAdvanced
+            ? new LatestProjectionCandidate(
+                id, point, request.SourceTimestampUtc, sequence,
+                request.SourceTimestampUtc, MeasurementQuality.Good)
+            : null!;
         var provider = TelemetryTestData.Provider();
         var ownerEvent = MeasurementAcceptedEventFactory.Create(
-            raw, !rejected, provider, provider.TrustedSiteId, provider.TrustedAreaId);
+            raw, latestAdvanced, provider, provider.TrustedSiteId, provider.TrustedAreaId);
         return new ContractData(terminal, raw, latest, ownerEvent);
     }
 
     private sealed record ContractData(
         TelemetryTerminalResult Terminal,
         RawMeasurement Raw,
-        LatestProjectionCandidate Latest,
+        LatestProjectionCandidate? Latest,
         TelemetryOwnerEvent Event);
 }

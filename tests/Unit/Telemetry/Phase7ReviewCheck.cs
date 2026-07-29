@@ -27,6 +27,8 @@ public static class Phase7ReviewCheck
         var t134 = File.ReadAllText(Path.Combine(root, "tests", "Unit", "Acquisition", "TelemetryFinalizationTests.cs"));
         var t145 = File.ReadAllText(Path.Combine(root, "tests", "Integration", "Telemetry", "TelemetryIngestionRepositoryTests.cs"));
         var persistenceService = File.ReadAllText(Path.Combine(root, "src", "Modules", "Telemetry", "Application", "TelemetryPersistenceService.cs"));
+        var t133 = File.ReadAllText(Path.Combine(root, "tests", "Unit", "Telemetry", "IngestionPersistenceContractTests.cs"));
+        var t135 = File.ReadAllText(Path.Combine(root, "tests", "Unit", "Telemetry", "TelemetryEventTests.cs"));
 
         Check(typeof(ITelemetryIngestionClient).GetMethod("DispatchCanonicalAsync")?.IsAbstract == true,
             "canonical client requires explicit DispatchCanonicalAsync");
@@ -74,29 +76,60 @@ public static class Phase7ReviewCheck
               t145.Contains("StageRaceWinner") && t145.Contains("ReplayTerminal") &&
               t145.Contains("EventEqual"),
               "T145 executes provider-neutral exact replay and race-winner fixtures");
-        // Atomic-race and compatibility-lock closure checks
-        var terminalMutatePos = telemetryFake.IndexOf("_terminals[winner.MeasurementId] = winner.Copy();", StringComparison.Ordinal);
-        var invalidCheckPos = telemetryFake.IndexOf("RACE_WINNER_FIXTURE_INVALID", StringComparison.Ordinal);
-        Check(terminalMutatePos < 0 || invalidCheckPos < 0 || terminalMutatePos > invalidCheckPos,
-            "PublishRaceWinner validates fixture before mutating terminal");
-        var rejectedValPos = telemetryFake.IndexOf("fixture.Raw is not null || fixture.Latest is not null || fixture.Event is not null", StringComparison.Ordinal);
-        Check(terminalMutatePos < 0 || rejectedValPos < 0 || terminalMutatePos > rejectedValPos,
-            "Rejected fixture validation before terminal mutation");
-        Check(telemetryContracts.Contains("CatalogCompatibility"),
-            "TelemetryFlowLockTarget includes CatalogCompatibility");
-        Check(persistenceService.Contains("CatalogCompatibility"),
-            "AcquireOwnerLocksAsync acquires Compatibility lock");
-        Check(persistenceService.Contains("PROVIDER_SCOPE_MISMATCH"),
-            "Trusted Site/Area scope validation present");
-        Check(persistenceService.Contains("provider.TrustedSiteId"),
-            "MeasurementAccepted event uses TrustedSiteId");
-        var probeType = typeof(IUMP.Tests.Integration.Telemetry.ITelemetryRaceWinnerProbe);
-        Check(probeType.GetMethod("GetCommittedLatestAsync") is not null &&
-              probeType.GetProperty("LatestCount")?.PropertyType == typeof(int),
-            "ITelemetryRaceWinnerProbe exposes GetCommittedLatestAsync and LatestCount");
-        Check(t145.Contains("Rejected") && t145.Contains("StageRaceWinner") &&
-              t145.Contains("zero"),
-            "T145 exact Rejected race-winner scenario present");
+        // Atomic-evidence checks: exact Latest, aggregate state, conflict detection, invalid fixtures
+        Check(t145.Contains("GetCommittedLatestAsync") && t145.Contains("committed!.MeasurementId == data.Latest!.MeasurementId"),
+            "T145 calls GetCommittedLatestAsync and compares every Latest field");
+        Check(t145.Contains("LatestAdvanced=false") && t145.Contains("returns null Latest"),
+            "T145 Accepted LatestAdvanced=false proves GetCommittedLatestAsync returns null");
+        Check(t145.Contains("latestAdvanced: false") || t145.Contains("latestAdvanced:true"),
+            "T145 Data() accepts explicit latestAdvanced");
+        Check(t145.Contains("LatestCount") && t145.Contains("GetCommittedLatestAsync") &&
+              t145.Contains("committed!.MeasurementId == data.Latest!.MeasurementId"),
+            "T145 uses GetCommittedLatestAsync field comparison, not only LatestCount");
+        Check(telemetryFake.Contains("TelemetryCommittedState"),
+            "Fake uses aggregate TelemetryCommittedState holder");
+        Check(telemetryFake.Contains("_committedState = new TelemetryCommittedState") &&
+              !telemetryFake.Contains("_terminals = clonedTerminals") &&
+              !telemetryFake.Contains("_raw = clonedRaw") &&
+              !telemetryFake.Contains("_latest = clonedLatest") &&
+              !telemetryFake.Contains("_events = clonedEvents"),
+            "PublishRaceWinner assigns committed state exactly once");
+        Check(telemetryFake.Contains("RACE_WINNER_FIXTURE_CONFLICT"),
+            "Race-winner rejects conflict with existing committed Measurement ID");
+        Check(telemetryFake.Contains("RACE_WINNER_SLOT_CONFLICT"),
+            "Race-winner rejects slot conflict for different Measurement ID");
+        Check(t145.Contains("invalid Accepted") && t145.Contains("terminal count unchanged"),
+            "T145 tests invalid Accepted fixture with zero-publication proof");
+        Check(t145.Contains("invalid Rejected") && t145.Contains("invalid Rejected Raw present"),
+            "T145 tests invalid Rejected fixture with zero-publication proof");
+        Check(!t145.Contains("invalid Accepted fixture scenario is absent"),
+            "No stale placeholder for invalid Accepted fixture");
+        Check(t133.Contains("invalid Accepted fixture") && t133.Contains("RACE_WINNER_FIXTURE_INVALID"),
+            "T133 tests invalid Accepted and Rejected fixtures through orchestration");
+        // Trusted-scope returns stable result, not exception
+        Check(persistenceService.Contains("CheckTrustedScope") &&
+              persistenceService.Contains("TelemetryIngestionResult.Failed(\"PROVIDER_SCOPE_MISMATCH\""),
+            "Trusted-scope validation returns stable result, not exception");
+        Check(persistenceService.Contains("if (scopeResult is not null) return scopeResult"),
+            "Orchestration checks scope result before transaction begin");
+        // Event factory has no optional fallback
+        var factoryPath = Path.Combine(root, "src", "Modules", "Telemetry", "Application", "TelemetryPersistenceService.cs");
+        var factoryContent = File.ReadAllText(Path.Combine(root, "src", "Modules", "Telemetry", "Application", "TelemetryPersistenceService.cs"));
+        var createMethod = factoryContent.IndexOf("public static TelemetryOwnerEvent Create(", StringComparison.Ordinal);
+        var createMethodEnd = factoryContent.IndexOf("}", createMethod, StringComparison.Ordinal);
+        var createSig = factoryContent.Substring(createMethod, createMethodEnd - createMethod + 1);
+        Check(!createSig.Contains("string? eventSiteId = null") && !createSig.Contains("string? eventAreaId = null"),
+            "Event factory Create has no optional fallback parameters");
+        Check(createSig.Contains("string eventSiteId") && createSig.Contains("string? eventAreaId"),
+            "Event factory requires eventSiteId/eventAreaId parameters");
+        Check(createSig.Contains("provider.TrustedSiteId != eventSiteId"),
+            "Event factory validates TrustedSiteId equality with eventSiteId");
+        Check(t145.Contains("provider.TrustedSiteId, provider.TrustedAreaId"),
+            "T145 passes explicit TrustedSiteId/TrustedAreaId to factory");
+        Check(t135.Contains("provider.TrustedSiteId") && t135.Contains("provider.TrustedAreaId"),
+            "T135 asserts event uses trusted IDs");
+        Check(t135.Contains("mismatch") || t135.Contains("PROVIDER_SCOPE_MISMATCH") || t135.Contains("scope"),
+            "T135 covers scope mismatch producing no event");
 
         Check(!File.Exists(Path.Combine(root, "src", "Modules", "Telemetry", "Infrastructure", "PostgresTelemetryRepositories.cs")),
             "package-policy-blocked PostgreSQL adapter remains absent");

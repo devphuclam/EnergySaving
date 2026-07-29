@@ -41,7 +41,8 @@ public sealed class TelemetryPersistenceService
             completedAtUtc.Kind != DateTimeKind.Utc)
             throw new InvalidOperationException("TELEMETRY_TIMESTAMP_INVALID");
         TelemetryProviderSnapshotValidator.EnsureValid(provider, processingAtUtc);
-        ValidateTrustedScope(provider);
+        var scopeResult = CheckTrustedScope(provider, request.CorrelationId);
+        if (scopeResult is not null) return scopeResult;
         await using var transaction = await _unitOfWork.BeginRepeatableReadAsync(ct);
         try
         {
@@ -215,13 +216,15 @@ public sealed class TelemetryPersistenceService
             ? $"telemetry-{kind}-{measurementId:D}"
             : value;
 
-    private static void ValidateTrustedScope(TelemetryProviderSnapshot provider)
+    public static TelemetryIngestionResult? CheckTrustedScope(
+        TelemetryProviderSnapshot provider, string correlationId)
     {
         if (string.IsNullOrWhiteSpace(provider.TrustedSiteId) ||
             string.IsNullOrWhiteSpace(provider.TrustedAreaId) ||
             !string.Equals(provider.TrustedSiteId, provider.SiteId, StringComparison.Ordinal) ||
             !string.Equals(provider.TrustedAreaId, provider.AreaId, StringComparison.Ordinal))
-            throw new InvalidOperationException("PROVIDER_SCOPE_MISMATCH");
+            return TelemetryIngestionResult.Failed("PROVIDER_SCOPE_MISMATCH", correlationId);
+        return null;
     }
 }
 
@@ -239,9 +242,11 @@ public static class MeasurementAcceptedEventFactory
         RawMeasurement measurement,
         bool latestAdvanced,
         TelemetryProviderSnapshot provider,
-        string? eventSiteId = null,
-        string? eventAreaId = null)
+        string eventSiteId,
+        string? eventAreaId)
     {
+        if (provider.TrustedSiteId != eventSiteId || provider.TrustedAreaId != eventAreaId)
+            throw new InvalidOperationException("EVENT_TRUSTED_SCOPE_MISMATCH");
         var after = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["measurementId"] = measurement.MeasurementId.ToString("D"),
@@ -269,8 +274,7 @@ public static class MeasurementAcceptedEventFactory
             "Measurement", measurement.MeasurementId, 1, "IUMP.Telemetry",
             "trusted-simulator", "Accepted", "Measurement accepted.",
             measurement.ProcessingAtUtc, measurement.CorrelationId, null,
-            eventSiteId ?? provider.SiteId,
-            eventAreaId ?? provider.AreaId,
+            eventSiteId, eventAreaId,
             new Dictionary<string, object?>(StringComparer.Ordinal), after);
     }
 }
