@@ -1,8 +1,9 @@
 using IUMP.Modules.Integration.Contracts;
+using IUMP.BuildingBlocks.Persistence;
 
 namespace IUMP.Tests.Unit.Fakes;
 
-public sealed class FakeIntegrationDeliveryRepositories : IIntegrationDeliveryRepository
+public sealed class FakeIntegrationDeliveryRepositories : IIntegrationDeliveryRepository, IInboxStateRepository, ITransactionalInboxRepository
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, OutboxDeliveryRecord> _outbox = new();
@@ -36,13 +37,16 @@ public sealed class FakeIntegrationDeliveryRepositories : IIntegrationDeliveryRe
             var key = (consumerName, eventId);
             if (_inbox.TryGetValue(key, out var current) && current.PayloadHash != payloadHash) throw new InvalidOperationException("INBOX_HASH_CONFLICT");
             if (_inbox.TryGetValue(key, out current) && current.Status == DeliveryStatus.Completed) return Task.FromResult<InboxDeliveryRecord?>(null);
+            if (_inbox.TryGetValue(key, out current) && current.Status == DeliveryStatus.Claimed && current.LeaseUntilUtc > nowUtc)
+                return Task.FromResult<InboxDeliveryRecord?>(null);
             var row = current ?? new InboxDeliveryRecord(consumerName, eventId, payloadHash, nowUtc);
             var claimed = row with { Status = DeliveryStatus.Claimed, LeaseOwner = owner, LeaseToken = Guid.NewGuid(), LeaseUntilUtc = nowUtc.AddSeconds(30), AttemptCount = row.AttemptCount + 1, Version = row.Version + 1 };
             _inbox[key] = claimed; return Task.FromResult<InboxDeliveryRecord?>(claimed);
         }
     }
     public Task CompleteAsync(InboxDeliveryRecord record, CancellationToken ct = default) { lock (_gate) { _inbox[(record.ConsumerName, record.EventId)] = record with { Status = DeliveryStatus.Completed, LeaseOwner = null, LeaseToken = null, LeaseUntilUtc = null, Version = record.Version + 1 }; } return Task.CompletedTask; }
+    public Task CompleteAsync(InboxDeliveryRecord record, IHostTransaction transaction, CancellationToken ct = default) => CompleteAsync(record, ct);
     public Task RescheduleAsync(InboxDeliveryRecord record, DateTime availableAtUtc, string redactedError, CancellationToken ct = default) { lock (_gate) { _inbox[(record.ConsumerName, record.EventId)] = record with { Status = DeliveryStatus.Pending, AvailableAtUtc = availableAtUtc, Error = redactedError, LeaseOwner = null, LeaseToken = null, LeaseUntilUtc = null, Version = record.Version + 1 }; } return Task.CompletedTask; }
     public Task MarkFailedAsync(InboxDeliveryRecord record, string redactedError, DateTime nowUtc, CancellationToken ct = default) { lock (_gate) { _inbox[(record.ConsumerName, record.EventId)] = record with { Status = DeliveryStatus.Failed, Error = redactedError, LeaseOwner = null, LeaseToken = null, LeaseUntilUtc = null, Version = record.Version + 1 }; } return Task.CompletedTask; }
-    public Task<InboxDeliveryRecord?> GetInboxAsync(string consumerName, Guid eventId) { lock (_gate) return Task.FromResult(_inbox.TryGetValue((consumerName, eventId), out var row) ? row : null); }
+    public Task<InboxDeliveryRecord?> GetInboxAsync(string consumerName, Guid eventId, CancellationToken ct = default) { lock (_gate) return Task.FromResult(_inbox.TryGetValue((consumerName, eventId), out var row) ? row : null); }
 }

@@ -28,12 +28,16 @@ public sealed class AuditQueryService(IAuditQueryRepository repository, AuditAut
             .OrderByDescending(row => row.OccurredAtUtc).ThenByDescending(row => row.AuditEventId)
             .Where(row => IsAfterCursor(row, request.KeysetCursor))
             .Take(Math.Clamp(request.PageSize, 1, 100)).ToArray();
-        return new(visible, null, visible.Length);
+        return new(visible, null, visible.Length)
+        {
+            NextCursor = visible.Length == 0 ? null : new AuditKeysetCursor(visible[^1].OccurredAtUtc, visible[^1].AuditEventId).Encode()
+        };
     }
 
     private static bool IsAfterCursor(AuditEventRecord row, string? keysetCursor)
     {
-        if (string.IsNullOrWhiteSpace(keysetCursor)) return true;
-        return !string.Equals(row.AuditEventId.ToString("D"), keysetCursor, StringComparison.OrdinalIgnoreCase);
+        if (!AuditKeysetCursor.TryDecode(keysetCursor, out var cursor)) return true;
+        return row.OccurredAtUtc < cursor.OccurredAtUtc ||
+            (row.OccurredAtUtc == cursor.OccurredAtUtc && row.AuditEventId.CompareTo(cursor.AuditEventId) < 0);
     }
 }

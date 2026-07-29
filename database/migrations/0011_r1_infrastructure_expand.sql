@@ -35,8 +35,12 @@ CREATE TABLE IF NOT EXISTS integration.command_idempotency (
     CONSTRAINT ck_command_idempotency_fingerprint CHECK (octet_length(request_fingerprint) = 32),
     CONSTRAINT ck_command_idempotency_status CHECK (status IN ('Pending', 'Completed')),
     CONSTRAINT ck_command_idempotency_pending_shape CHECK (
-        (status = 'Pending' AND original_http_status IS NULL AND completed_at IS NULL)
-        OR (status = 'Completed' AND original_http_status BETWEEN 100 AND 599 AND completed_at IS NOT NULL)
+        (status = 'Pending'
+            AND original_http_status IS NULL AND original_result_payload IS NULL AND stable_result_reference IS NULL
+            AND original_location IS NULL AND original_etag IS NULL AND completed_at IS NULL)
+        OR (status = 'Completed' AND pending_owner IS NULL AND pending_until IS NULL
+            AND original_http_status BETWEEN 100 AND 599 AND original_result_payload IS NOT NULL
+            AND completed_at IS NOT NULL)
     ),
     CONSTRAINT ck_command_idempotency_attempts CHECK (attempt_count >= 0 AND version > 0)
 );
@@ -76,7 +80,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_inbox_pending_completed_shape') THEN
         ALTER TABLE integration.inbox_message ADD CONSTRAINT ck_inbox_pending_completed_shape CHECK (
-            (status IN ('Processing', 'Pending') AND completed_at IS NULL)
+            (status = 'Processing' AND completed_at IS NULL)
             OR (status = 'Completed' AND completed_at IS NOT NULL)
             OR status = 'Failed'
         );
@@ -106,3 +110,36 @@ CREATE TRIGGER trg_inbox_completed_immutable
 
 CREATE INDEX IF NOT EXISTS ix_inbox_message_recovery
     ON integration.inbox_message (pending_until, next_attempt_at);
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_command_idempotency_pending_shape') THEN
+        ALTER TABLE integration.command_idempotency DROP CONSTRAINT ck_command_idempotency_pending_shape;
+    END IF;
+    ALTER TABLE integration.command_idempotency ADD CONSTRAINT ck_command_idempotency_pending_shape CHECK (
+        (status = 'Pending'
+            AND original_http_status IS NULL AND original_result_payload IS NULL AND stable_result_reference IS NULL
+            AND original_location IS NULL AND original_etag IS NULL AND completed_at IS NULL)
+        OR (status = 'Completed' AND pending_owner IS NULL AND pending_until IS NULL
+            AND original_http_status BETWEEN 100 AND 599 AND original_result_payload IS NOT NULL
+            AND completed_at IS NOT NULL)
+    );
+END $$;
+
+CREATE OR REPLACE FUNCTION integration.prevent_completed_command_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.status = 'Completed' THEN
+        RAISE EXCEPTION 'COMMAND_COMPLETED_IMMUTABLE';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_command_completed_immutable ON integration.command_idempotency;
+CREATE TRIGGER trg_command_completed_immutable
+    BEFORE UPDATE OR DELETE ON integration.command_idempotency
+    FOR EACH ROW EXECUTE FUNCTION integration.prevent_completed_command_mutation();

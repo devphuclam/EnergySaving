@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using IUMP.Api.Infrastructure;
+using IUMP.BuildingBlocks.Persistence;
 using IUMP.Modules.Integration.Contracts;
 
 public static class SimulatorEndpointPolicy
@@ -25,28 +26,34 @@ public static class SimulatorEndpoints
             if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
             return Results.Ok(await query.GetRunAsync(runId, principal, ct));
         });
+        group.MapGet("/{sourceId:guid}/run", async (Guid sourceId, ISimulatorQueryPort query,
+            IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
+        {
+            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+            return Results.Ok(await query.GetRunAsync(sourceId, principal, ct));
+        });
         group.MapPost("/{sourceId:guid}/start", (Guid sourceId, HttpRequest request,
             ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-            ExecuteAsync(sourceId, CommandOperationCodes.StartSimulator, request, commands, executor, principalAccessor, ct));
+            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
+            ExecuteAsync(sourceId, CommandOperationCodes.StartSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
         group.MapPost("/{runId:guid}/pause", (Guid runId, HttpRequest request,
             ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-            ExecuteAsync(runId, CommandOperationCodes.PauseSimulator, request, commands, executor, principalAccessor, ct));
+            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
+            ExecuteAsync(runId, CommandOperationCodes.PauseSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
         group.MapPost("/{runId:guid}/resume", (Guid runId, HttpRequest request,
             ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-            ExecuteAsync(runId, CommandOperationCodes.ResumeSimulator, request, commands, executor, principalAccessor, ct));
+            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
+            ExecuteAsync(runId, CommandOperationCodes.ResumeSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
         group.MapPost("/{runId:guid}/stop", (Guid runId, HttpRequest request,
             ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-            ExecuteAsync(runId, CommandOperationCodes.StopSimulator, request, commands, executor, principalAccessor, ct));
+            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
+            ExecuteAsync(runId, CommandOperationCodes.StopSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
         return endpoints;
     }
 
-    private static async Task<IResult> ExecuteAsync(Guid target, string operation, HttpRequest request,
+    public static async Task<IResult> ExecuteAsync(Guid target, string operation, HttpRequest request,
         ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-        IServerPrincipalAccessor principalAccessor, CancellationToken ct)
+        IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct)
     {
         if (!request.Headers.TryGetValue("Idempotency-Key", out var key) || string.IsNullOrWhiteSpace(key))
             return Results.Problem("Idempotency-Key is required.", statusCode: StatusCodes.Status400BadRequest);
@@ -55,8 +62,8 @@ public static class SimulatorEndpoints
         var fields = new[] { CommandFingerprintField.Uuid("targetId", target) };
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
             operation, principal.UserId, "SimulatorRun", target, "SimulatorRun", target, null, fields));
-        var response = await executor.ExecuteAsync(identity, fingerprint,
-            token => commands.ExecuteAsync(operation, target, principal, token), ct);
+        var response = await executor.ExecuteTransactionalAsync(identity, fingerprint, transactionFactory,
+            (transaction, token) => commands.ExecuteAsync(operation, target, principal, transaction, token), ct);
         return new IdempotentHttpResult(response);
     }
 }

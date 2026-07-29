@@ -21,8 +21,18 @@ public sealed class AuditDeliveryHandler(
         {
             // Audit append is first and Integration inbox completion is last in one host transaction.
             hostTransaction = transactionFactory is null ? null : await transactionFactory.BeginAsync(ct);
-            await consumer.ConsumeAsync(envelope, ct);
-            await delivery.CompleteAsync(inbox, ct);
+            if (hostTransaction is not null && consumer is ITransactionalAuditEventConsumer transactionalConsumer)
+                await transactionalConsumer.ConsumeAsync(envelope, hostTransaction, ct);
+            else if (hostTransaction is not null)
+                throw new InvalidOperationException("AUDIT_CONSUMER_TRANSACTION_REQUIRED");
+            else
+                await consumer.ConsumeAsync(envelope, ct);
+            if (hostTransaction is not null && delivery is ITransactionalInboxRepository transactionalInbox)
+                await transactionalInbox.CompleteAsync(inbox, hostTransaction, ct);
+            else if (hostTransaction is not null)
+                throw new InvalidOperationException("INBOX_TRANSACTION_REQUIRED");
+            else
+                await delivery.CompleteAsync(inbox, ct);
             if (hostTransaction is IHostTransactionController controller) await controller.CommitAsync(ct);
             return true;
         }

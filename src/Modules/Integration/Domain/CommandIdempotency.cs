@@ -8,6 +8,41 @@ public static class CommandOperationCodes
 {
     public const string CreateSite = "Organization.CreateSite.v1";
     public const string UpdateSite = "Organization.UpdateSite.v1";
+    public const string CreateArea = "Organization.CreateArea.v1";
+    public const string UpdateArea = "Organization.UpdateArea.v1";
+    public const string CreateAsset = "Organization.CreateAsset.v1";
+    public const string UpdateAsset = "Organization.UpdateAsset.v1";
+    public const string CreatePoint = "Organization.CreatePoint.v1";
+    public const string UpdatePoint = "Organization.UpdatePoint.v1";
+    public const string ActivatePoint = "Organization.ActivatePoint.v1";
+    public const string DeactivatePoint = "Organization.DeactivatePoint.v1";
+    public const string ActivateSite = "Organization.ActivateSite.v1";
+    public const string DeactivateSite = "Organization.DeactivateSite.v1";
+    public const string ActivateArea = "Organization.ActivateArea.v1";
+    public const string DeactivateArea = "Organization.DeactivateArea.v1";
+    public const string ActivateAsset = "Organization.ActivateAsset.v1";
+    public const string DeactivateAsset = "Organization.DeactivateAsset.v1";
+    public const string SupersedeSite = "Organization.SupersedeSite.v1";
+    public const string SupersedeArea = "Organization.SupersedeArea.v1";
+    public const string SupersedeAsset = "Organization.SupersedeAsset.v1";
+    public const string SupersedePoint = "Organization.SupersedePoint.v1";
+    public const string CreateMetric = "Catalog.CreateMetric.v1";
+    public const string UpdateMetric = "Catalog.UpdateMetric.v1";
+    public const string CreateUnit = "Catalog.CreateUnit.v1";
+    public const string UpdateUnit = "Catalog.UpdateUnit.v1";
+    public const string SetMetricCompatibleUnits = "Catalog.SetMetricCompatibleUnits.v1";
+    public const string CreateSource = "Acquisition.CreateSource.v1";
+    public const string UpdateSource = "Acquisition.UpdateSource.v1";
+    public const string CreateMapping = "Acquisition.CreateMapping.v1";
+    public const string UpdateMapping = "Acquisition.UpdateMapping.v1";
+    public const string ActivateMapping = "Acquisition.ActivateMapping.v1";
+    public const string InactivateMapping = "Acquisition.InactivateMapping.v1";
+    public const string SupersedeMapping = "Acquisition.SupersedeMapping.v1";
+    public const string SuspendSource = "Acquisition.SuspendSource.v1";
+    public const string DecommissionSource = "Acquisition.DecommissionSource.v1";
+    public const string CreateSimulatorConfiguration = "Acquisition.CreateSimulatorConfiguration.v1";
+    public const string UpdateSimulatorConfiguration = "Acquisition.UpdateSimulatorConfiguration.v1";
+    public const string ValidateSimulatorConfiguration = "Acquisition.ValidateSimulatorConfiguration.v1";
     public const string StartSimulator = "Simulator.Start.v1";
     public const string PauseSimulator = "Simulator.Pause.v1";
     public const string ResumeSimulator = "Simulator.Resume.v1";
@@ -15,7 +50,13 @@ public static class CommandOperationCodes
 
     private static readonly IReadOnlySet<string> AllCodes = new HashSet<string>(StringComparer.Ordinal)
     {
-        CreateSite, UpdateSite, StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator
+        CreateSite, UpdateSite, CreateArea, UpdateArea, CreateAsset, UpdateAsset, CreatePoint, UpdatePoint,
+        ActivatePoint, DeactivatePoint, ActivateSite, DeactivateSite, ActivateArea, DeactivateArea,
+        ActivateAsset, DeactivateAsset, SupersedeSite, SupersedeArea, SupersedeAsset, SupersedePoint,
+        CreateMetric, UpdateMetric, CreateUnit, UpdateUnit, SetMetricCompatibleUnits, CreateSource, UpdateSource,
+        CreateMapping, UpdateMapping, ActivateMapping, InactivateMapping, SupersedeMapping, SuspendSource,
+        DecommissionSource, CreateSimulatorConfiguration, UpdateSimulatorConfiguration,
+        ValidateSimulatorConfiguration, StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator
     };
 
     public static bool IsKnown(string operationCode) => AllCodes.Contains(operationCode);

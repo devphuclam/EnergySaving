@@ -4,12 +4,14 @@ using IUMP.Modules.Organization.Domain;
 
 namespace IUMP.Tests.Unit.Fakes;
 
-public sealed class FakeHostTransaction : IHostTransaction
+public sealed class FakeHostTransaction : IHostTransaction, IHostTransactionController
 {
     public Guid TransactionId { get; }
     public string IsolationIntent => "REPEATABLE READ";
     public bool IsCompleted { get; internal set; }
     public bool IsDisposed { get; private set; }
+    public int CommitCount { get; private set; }
+    public int RollbackCount { get; private set; }
 
     public FakeHostTransaction(Guid transactionId)
     {
@@ -19,6 +21,22 @@ public sealed class FakeHostTransaction : IHostTransaction
     public ValueTask DisposeAsync()
     {
         IsDisposed = true;
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask CommitAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        CommitCount++;
+        IsCompleted = true;
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask RollbackAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        RollbackCount++;
+        IsCompleted = true;
         return ValueTask.CompletedTask;
     }
 }

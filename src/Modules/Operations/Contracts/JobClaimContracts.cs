@@ -71,3 +71,14 @@ public interface IJobClaimRepository
     Task<IReadOnlyList<DurableJob>> ListExpiredAsync(
         DateTime nowUtc, CancellationToken ct = default);
 }
+
+/// Provider-neutral operational controls used by the audit-delivery reconciliation job.
+/// Adapters may implement these alongside IJobClaimRepository when operator replay and
+/// published-without-audit diagnostics are available.
+public interface IAuditDeliveryOperationsRepository
+{
+    Task<JobOperationResult> ReplayAsync(JobId jobId, string operatorId, DateTime nowUtc,
+        CancellationToken ct = default);
+
+    Task<int> CountPublishedWithoutAuditAsync(DateTime nowUtc, CancellationToken ct = default);
+}

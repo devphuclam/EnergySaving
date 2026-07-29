@@ -13,26 +13,29 @@ public static class TelemetryQueryEndpoints
     public static bool UsesCommandRegistry => false;
     public static string[] Routes => new[] { "/api/v1/points/{pointId}/latest", "/api/v1/points/{pointId}/source-health", "/api/v1/sites/{siteId}/points/current" };
     public static LatestQueryResult NoData(Guid pointId) => new(pointId, null, null, "No Data", true, "NO_DATA");
+    public static async Task<IResult> LatestAsync(Guid pointId, ITelemetryQueryPort query,
+        IServerPrincipalAccessor principalAccessor, CancellationToken ct)
+    {
+        if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+        return Results.Ok(await query.GetLatestAsync(pointId, principal, ct));
+    }
+    public static async Task<IResult> HealthAsync(Guid pointId, ITelemetryQueryPort query,
+        IServerPrincipalAccessor principalAccessor, CancellationToken ct)
+    {
+        if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+        return Results.Ok(await query.GetSourceHealthAsync(pointId, principal, ct));
+    }
+    public static async Task<IResult> CurrentAsync(Guid siteId, ITelemetryQueryPort query,
+        IServerPrincipalAccessor principalAccessor, CancellationToken ct)
+    {
+        if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+        return Results.Ok(await query.GetCurrentAsync(siteId, principal, ct));
+    }
     public static IEndpointRouteBuilder MapTelemetryQueryEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/v1/points/{pointId:guid}/latest", async (Guid pointId,
-            ITelemetryQueryPort query, IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-        {
-            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
-            return Results.Ok(await query.GetLatestAsync(pointId, principal, ct));
-        });
-        endpoints.MapGet("/api/v1/points/{pointId:guid}/source-health", async (Guid pointId,
-            ITelemetryQueryPort query, IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-        {
-            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
-            return Results.Ok(await query.GetSourceHealthAsync(pointId, principal, ct));
-        });
-        endpoints.MapGet("/api/v1/sites/{siteId:guid}/points/current", async (Guid siteId,
-            ITelemetryQueryPort query, IServerPrincipalAccessor principalAccessor, CancellationToken ct) =>
-        {
-            if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
-            return Results.Ok(await query.GetCurrentAsync(siteId, principal, ct));
-        });
+        endpoints.MapGet("/api/v1/points/{pointId:guid}/latest", LatestAsync);
+        endpoints.MapGet("/api/v1/points/{pointId:guid}/source-health", HealthAsync);
+        endpoints.MapGet("/api/v1/sites/{siteId:guid}/points/current", CurrentAsync);
         return endpoints;
     }
 }

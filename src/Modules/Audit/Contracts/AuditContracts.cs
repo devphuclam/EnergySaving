@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using IUMP.BuildingBlocks.Persistence;
 
 namespace IUMP.Modules.Audit.Contracts;
 
@@ -22,8 +24,37 @@ public sealed record AuditEventEnvelope(
 {
     public int SchemaVersion => 1;
     public string SourceProducer => "IUMP";
-    public string PayloadHash => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-        $"{SourceEventId:D}|{EventType}|{ObjectType}|{ObjectId}|{Action}|{Summary}|{CorrelationId}"))).ToLowerInvariant();
+    public string PayloadHash => ComputePayloadHash(this);
+
+    public static string ComputePayloadHash(AuditEventEnvelope envelope)
+    {
+        var canonical = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["sourceEventId"] = envelope.SourceEventId.ToString("D"),
+            ["eventType"] = envelope.EventType,
+            ["schemaVersion"] = envelope.SchemaVersion,
+            ["producer"] = envelope.SourceProducer,
+            ["objectType"] = envelope.ObjectType,
+            ["objectId"] = envelope.ObjectId,
+            ["action"] = envelope.Action,
+            ["summary"] = envelope.Summary,
+            ["occurredAtUtc"] = envelope.OccurredAtUtc.ToUniversalTime().ToString("O"),
+            ["actorId"] = envelope.ActorId,
+            ["actorUsername"] = envelope.ActorUsername,
+            ["siteId"] = envelope.SiteId,
+            ["areaId"] = envelope.AreaId,
+            ["correlationId"] = envelope.CorrelationId,
+            ["causationId"] = envelope.CausationId,
+            ["before"] = CanonicalMap(envelope.Before),
+            ["after"] = CanonicalMap(envelope.After)
+        };
+        var json = JsonSerializer.Serialize(canonical, new JsonSerializerOptions { WriteIndented = false });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+    }
+
+    private static IReadOnlyDictionary<string, object?> CanonicalMap(IReadOnlyDictionary<string, object?>? values) =>
+        (values ?? new Dictionary<string, object?>()).OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
 
     public static AuditEventEnvelope Create(Guid sourceEventId, string eventType, string objectType, string objectId,
         string action, string summary, DateTime occurredAtUtc, string correlationId) =>
@@ -59,9 +90,21 @@ public interface IAuditEventConsumer
     Task<AuditEventRecord> ConsumeAsync(AuditEventEnvelope envelope, CancellationToken ct = default);
 }
 
+public interface ITransactionalAuditEventConsumer : IAuditEventConsumer
+{
+    Task<AuditEventRecord> ConsumeAsync(AuditEventEnvelope envelope, IHostTransaction transaction,
+        CancellationToken ct = default);
+}
+
 public interface IAuditAppendRepository
 {
     Task<AuditEventRecord?> AppendIfAbsentAsync(AuditEventRecord record, CancellationToken ct = default);
+}
+
+public interface ITransactionalAuditAppendRepository
+{
+    Task<AuditEventRecord?> AppendIfAbsentAsync(AuditEventRecord record, IHostTransaction transaction,
+        CancellationToken ct = default);
 }
 
 public interface IAuditConflictRepository
@@ -83,7 +126,32 @@ public sealed record AuditQueryRequest(string? ObjectType, string? Action, strin
 }
 
 public sealed record AuditQueryResult(IReadOnlyList<AuditEventRecord> Items, string? ErrorCode = null,
-    int TotalCount = 0);
+    int TotalCount = 0)
+{
+    public string? NextCursor { get; init; }
+}
+
+public readonly record struct AuditKeysetCursor(DateTime OccurredAtUtc, Guid AuditEventId)
+{
+    public string Encode() => Convert.ToBase64String(Encoding.UTF8.GetBytes(
+        $"{OccurredAtUtc.ToUniversalTime().Ticks}:{AuditEventId:D}"))
+        .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    public static bool TryDecode(string? value, out AuditKeysetCursor cursor)
+    {
+        cursor = default;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        try
+        {
+            var padded = value.Replace('-', '+').Replace('_', '/') + new string('=', (4 - value.Length % 4) % 4);
+            var parts = Encoding.UTF8.GetString(Convert.FromBase64String(padded)).Split(':', 2);
+            if (parts.Length != 2 || !long.TryParse(parts[0], out var ticks) || !Guid.TryParse(parts[1], out var id)) return false;
+            cursor = new AuditKeysetCursor(new DateTime(ticks, DateTimeKind.Utc), id);
+            return true;
+        }
+        catch (FormatException) { return false; }
+    }
+}
 
 public sealed record AuditCaller(bool IsAdministrator, bool HasAuditRead, IReadOnlySet<string> SiteIds,
     IReadOnlySet<string> AreaIds, bool IsActive = true)

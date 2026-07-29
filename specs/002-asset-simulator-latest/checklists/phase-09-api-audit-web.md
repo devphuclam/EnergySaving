@@ -1,6 +1,6 @@
-# Phase 9 checkpoint — API, Audit and Web
+# Phase 9 checkpoint — final contract alignment
 
-Parent baseline SHA: `6e7ff79942188517c644eb43ae541d6eddc23d06`.
+Parent baseline SHA: `2ba23ca10dce6a051ac6cfe1e9806258023d1826`.
 Stop boundary: **T223 complete; T224+ not executed.**
 
 ## Task ledger
@@ -13,57 +13,70 @@ Stop boundary: **T223 complete; T224+ not executed.**
 | FAIL | 0 | — |
 | Runnable NOT_RUN | 0 | — |
 
-## Changed files
+Blocked tasks are not counted as PASS. T218 remains unchecked. T224 and later tasks were not
+opened or modified.
 
-- `src/Api/Infrastructure/ApplicationPorts.cs`
-- `src/Api/Infrastructure/IdempotentCommandExecutor.cs`
-- `src/Api/ConfigurationEndpoints.cs`, `SimulatorEndpoints.cs`, `TelemetryQueryEndpoints.cs`, `AuditEndpoints.cs`
-- `src/Worker/Integration/RequiredConsumerRegistry.cs`, `OutboxDispatcherWorker.cs`, `AuditDeliveryHandler.cs`
-- `src/Modules/Integration/Application/CommandFingerprintV1.cs` and Contracts canonical fingerprint port
-- `src/Modules/Audit/Contracts/AuditContracts.cs`, Audit consumer/query service
-- `src/BuildingBlocks/Persistence/IHostTransactionFactory.cs`, `HostTransactionCoordinator.cs`
-- `database/migrations/0010_audit_event.sql`, `0011_r1_infrastructure_expand.sql`
-- T170–T181 unit sources, unit runner counters, `tests/Verification/architecture.tests.ps1`
-- Typed Web gateway/context, AppShell and configuration/simulator/latest/audit routes, Web behavior matrix source
-- This RED, review and checkpoint evidence plus `docs/blocker-report.md`
+## Measured Phase 9 unit evidence
+
+| Task | Cases/scenarios | Assertions | Failures |
+|---|---:|---:|---:|
+| T170 | 6 | 6 | 0 |
+| T171 | 5 | 4 | 0 |
+| T172 | 8 | 8 | 0 |
+| T173 | 7 | 7 | 0 |
+| T174 | 7 | 7 | 0 |
+| T175 | 6 | 6 | 0 |
+| T176 | 4 | 3 | 0 |
+| T177 | 6 | 7 | 0 |
+| T178 | 6 | 6 | 0 |
+| T179 | 4 | 4 | 0 |
+| T180 | 5 | 4 | 0 |
+| T181 | 4 | 4 | 0 |
+
+The counts are assigned from executed scenario/assertion paths, not declared constants. T172
+executes live/expired Pending, concurrent same-key ownership, crash-after-registration,
+transaction completion failure/rollback, exact replay metadata and one owner/outbox mutation.
+T174–T177 execute delivery, Audit, keyset and reconciliation operations. T178–T181 invoke actual
+endpoint delegates with fake ports and server principals.
+
+## Changed implementation surface
+
+- Canonical Contracts fingerprint; duplicate Application implementation removed.
+- Transaction-aware command executor, configuration/Simulator mutation routes and transaction ports.
+- Full configuration hierarchy/catalog/source/mapping/simulator/lifecycle route surface and query delegates.
+- Required-consumer inbox delivery, live/expired/failed distinction, capped retry and restart deduplication.
+- Canonical Audit hash (all event fields), host-transaction append/inbox seam and strict keyset cursor.
+- Operations reconciliation/release, diagnostics and operator replay contracts without object shortcuts.
+- Backend-aligned Web gateways/routes and fake gateway state-transition behavior evidence.
+- Migration 0011 exact command Pending/Completed constraints and Completed immutability trigger while
+  retaining the R0 inbox `Processing`/`Completed`/`Failed` vocabulary.
+- T221 architecture checks, T222 review and this T223 checkpoint; no database adapter/composition work.
 
 ## Commands and exact results
 
 | Command | Exit | Result |
 |---|---:|---|
-| Temporary RED Debug build | 0 | PASS; baseline compiled before corrective probe. |
-| Temporary RED focused runner | 1 | Expected natural RED: 15 cases / 15 failures; Phase 0–8 suites green; no crash. |
+| Temporary RED probe at baseline `2ba23ca10dce6a051ac6cfe1e9806258023d1826` | 1 | Expected RED: 5 contract-alignment failures; worktree removed. |
 | `dotnet build .\IUMP.slnx --no-restore --configuration Debug` | 0 | PASS |
-| `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore --configuration Debug` | 0 | PASS; T170–T181 expose cases/assertions/failures; all failures 0. |
+| Debug unit runner | 0 | PASS; all T170–T181 failures 0. |
 | `dotnet build .\IUMP.slnx --no-restore --configuration Release` | 0 | PASS |
-| Release focused unit runner | 0 | PASS |
+| Release unit runner | 0 | PASS; all T170–T181 failures 0. |
 | `tests/Verification/architecture.tests.ps1` | 0 | PASS; T221 result PASS |
-| `git diff --check` | 0 | PASS |
+| `git diff --check` | 0 | PASS (run before handoff) |
 | Web `npm run lint` | 0 | PASS (existing oxlint warning only) |
 | Web `npm run build` | 0 | PASS |
-| Fast harness | 0 | PASS |
-| Full harness | 20 | **Non-passing**: PASS=10, BLOCKED_BY_MISSING_TOOL=1 (`psql`), BLOCKED_BY_COMPANY_APPROVAL=2 (CI/container). |
-
-## Functional evidence
-
-- T170: UUID/int/decimal/timestamp normalization, deterministic order, If-Match and exclusion rules.
-- T172: live/expired Pending, exact replay metadata, typed transient handling, and transaction seam.
-- T173/T174: hash conflict, leases, retry, per-consumer inbox and restart deduplication.
-- T175/T176: schema/hash/redaction, immutable source identity, scope-before-paging/keyset.
-- T177: 250ms/1s/2s/5s/30s-capped retry, exhaustion and reconciliation/replay seam.
-- T178–T181: public endpoints delegate to typed command/query ports; no static response arrays.
-- Web: typed gateways outside components; AppShell and routes expose loading, forbidden, expired and No Data states.
-- Crash/replay: the RED probe proved no crash and the green tests prove exact replay; PostgreSQL crash/E2E execution is blocked, not claimed.
+| Fast harness | 0 | PASS=8 |
+| Full harness | 1 | **Non-passing by policy**: PASS=10, BLOCKED_BY_MISSING_TOOL=1 (`psql`), BLOCKED_BY_COMPANY_APPROVAL=2 (CI/container target). |
 
 ## Capability and progression
 
 | Capability | State |
 |---|---|
 | Browser source/build ready | YES |
-| Ready for Phase 10 | YES (source-level Phase 9 closure; Phase 10 remains a separate task phase) |
+| Ready for Phase 10 | YES — runnable Phase 9 contracts pass; Phase 10 remains a separate task phase |
 | Live API/Worker runtime | NO |
-| PostgreSQL E2E/migrations | NO — DB capability available at 127.0.0.1:5433/iump_dev, execution NOT_RUN |
+| PostgreSQL E2E/migrations | NO — approved target is `127.0.0.1:5433/iump_dev`; execution `NOT_RUN` |
 | Release | NO |
 
-Blocked ledger is explicit: T192/T193/T202/T205/T218 are `BLOCKED_BY_PACKAGE_POLICY`; T206/T219/T220
-are `BLOCKED_BY_PACKAGE_POLICY_TRANSITIVE`. None counts as PASS. No Phase 10 task was executed.
+The approved database capability remains available, but this closure did not connect, migrate, or
+mutate it. Port `127.0.0.1:5432` was not contacted. No secret value is recorded here.

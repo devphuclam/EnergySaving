@@ -1,16 +1,16 @@
 # Phase 9 Standards / Spec review
 
 Review boundary is T170–T223 only. Parent baseline is
-`6e7ff79942188517c644eb43ae541d6eddc23d06`; Phase 10 and T224+ are out of scope.
+`2ba23ca10dce6a051ac6cfe1e9806258023d1826`; Phase 10 and T224+ are out of scope.
 
 ## Finding register
 
 | ID | Severity | Requirement | Evidence | Resolution | State |
 |---|---|---|---|---|---|
-| P9-001 | Medium | P-020 / FR-028–039 | Baseline RED detected header trust and key fingerprinting | Server principal accessor and canonical business fingerprint ports in API endpoints/executor | Resolved |
-| P9-002 | Medium | P-021 / SC-006 | Baseline RED detected fixed retry and missing host transaction | Named per-consumer inbox dispatch, capped backoff and Audit host transaction seam | Resolved |
-| P9-003 | Medium | DOC-08 / T211 | Baseline RED detected component-local Web data | Typed gateway layer, AppShell session states and behavior matrix source | Resolved |
-| P9-004 | Low | T221–T223 | Baseline RED detected incomplete static/checkpoint evidence | Architecture defect checks plus exact review/checkpoint evidence | Resolved |
+| P9-001 | High | P-020 / FR-028–039 | RED probe found duplicate fingerprint and non-transactional mutation paths | Contracts-only fingerprint and register/read → owner/outbox/completion transaction flow | Resolved |
+| P9-002 | High | P-021 / SC-006 | RED probe and T172–T177 exposed incomplete lease, delivery and audit atomicity contracts | Live/expired/failed inbox handling, required-consumer gating, host transaction and canonical audit hash | Resolved |
+| P9-003 | Medium | DOC-08 / T211–T216 | Web gateway used placeholder routes and local-only state | Backend-aligned auth/configuration/Simulator/Telemetry/Audit gateways and executable fake state transitions | Resolved |
+| P9-004 | Medium | T221–T223 | Static checks and checkpoint did not enforce final contract details | Architecture checks now detect duplicate code, plain executor, route drift, constants-only tests, hash/keyset/migration drift and measured evidence | Resolved |
 
 No Critical or High findings remain. **Standards/Spec result: PASS.**
 
@@ -18,10 +18,11 @@ No Critical or High findings remain. **Standards/Spec result: PASS.**
 
 | Check | Result | Evidence |
 |---|---|---|
-| Provider-neutral ports and module ownership | PASS | Contracts expose no provider-specific persistence types; architecture script passes. |
-| Typed idempotency and canonical request fingerprint | PASS | T170–T173 tests and executor/API source; Idempotency-Key is identity only. |
-| Consumer delivery and Audit atomicity | PASS | Named consumer registry, inbox leases/dedup, retry schedule, and IHostTransaction seam. |
-| Scope, redaction and keyset | PASS | Audit schema/hash/redaction and scope-before-paging service/tests. |
-| API route and Web gateway boundaries | PASS | Real typed ports/gateways; no static array response or X-Caller-Id trust. |
-| Secrets/prohibited scope | PASS | No secrets, package install/download, Docker, PostgreSQL mutation, or port 5432 access. |
-| Package-policy behavior runner | BLOCKED_BY_PACKAGE_POLICY | T218 remains unchecked; no approved frontend behavior runner/package. |
+| Provider-neutral ports and module ownership | PASS | Public contracts remain provider-neutral; architecture script passes. |
+| Typed idempotency and canonical request fingerprint | PASS | T170–T173 execute normalization, live/expired Pending, concurrency, replay metadata and rollback behavior. |
+| Transactional API mutation seams | PASS | T178–T179 invoke endpoint delegates with fake ports and assert one owner transaction. |
+| Consumer delivery and Audit atomicity | PASS | T174–T175 cover per-consumer leases/retry/dedup, complete hash/redaction and one host transaction. |
+| Scope, redaction and keyset | PASS | T176 covers scope-before-paging and strict `(OccurredAtUtc DESC, AuditEventId DESC)` cursor behavior. |
+| Operations and Web boundaries | PASS | T177 uses real job contracts for reconciliation/replay; T180–T181 invoke query delegates; Web lint/build pass. |
+| Secrets/prohibited scope | PASS | No secrets, package install/download, Docker, PostgreSQL mutation, or port `5432` access. |
+| Frontend behavior runner | BLOCKED_BY_PACKAGE_POLICY | T218 remains unchecked because no approved behavior-test runner/package is available. |

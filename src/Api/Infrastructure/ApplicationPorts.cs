@@ -32,8 +32,12 @@ public sealed record ConfigurationCommandRequest(Guid? TargetId, string Name, lo
 
 public interface IConfigurationCommandPort
 {
-    Task<CommandExecutionResult> CreateSiteAsync(ConfigurationCommandRequest request, ServerPrincipal principal, CancellationToken ct = default);
-    Task<CommandExecutionResult> UpdateSiteAsync(ConfigurationCommandRequest request, ServerPrincipal principal, CancellationToken ct = default);
+    Task<CommandExecutionResult> CreateSiteAsync(ConfigurationCommandRequest request, ServerPrincipal principal,
+        IHostTransaction transaction, CancellationToken ct = default);
+    Task<CommandExecutionResult> UpdateSiteAsync(ConfigurationCommandRequest request, ServerPrincipal principal,
+        IHostTransaction transaction, CancellationToken ct = default);
+    Task<CommandExecutionResult> ExecuteAsync(string operationCode, ConfigurationCommandRequest request,
+        ServerPrincipal principal, IHostTransaction transaction, CancellationToken ct = default);
 }
 
 public interface IConfigurationQueryPort
@@ -43,7 +47,8 @@ public interface IConfigurationQueryPort
 
 public interface ISimulatorCommandPort
 {
-    Task<CommandExecutionResult> ExecuteAsync(string operationCode, Guid targetId, ServerPrincipal principal, CancellationToken ct = default);
+    Task<CommandExecutionResult> ExecuteAsync(string operationCode, Guid targetId, ServerPrincipal principal,
+        IHostTransaction transaction, CancellationToken ct = default);
 }
 
 public interface ISimulatorQueryPort

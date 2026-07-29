@@ -8,7 +8,7 @@ namespace IUMP.Tests.Unit.Fakes;
 /// tests.  Every read returns a copy and every mutation advances the optimistic
 /// version, so tests cannot accidentally depend on shared mutable state.
 /// </summary>
-public sealed class FakeOperationsRepositories : IDurableJobScheduler, IJobClaimRepository
+public sealed class FakeOperationsRepositories : IDurableJobScheduler, IJobClaimRepository, IAuditDeliveryOperationsRepository
 {
     private readonly object _gate = new();
     private readonly Dictionary<(string Type, string Key), DurableJob> _jobs = new();
@@ -16,6 +16,7 @@ public sealed class FakeOperationsRepositories : IDurableJobScheduler, IJobClaim
     private int _nextId;
 
     public DateTime CreatedAtUtc { get; set; } = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    public int PublishedWithoutAuditCount { get; set; }
 
     public int Count
     {
@@ -283,6 +284,26 @@ public sealed class FakeOperationsRepositories : IDurableJobScheduler, IJobClaim
     {
         lock (_gate) return _jobs.Values.OrderBy(job => job.Id.Value).Select(job => job.Copy()).ToList();
     }
+
+    public Task<JobOperationResult> ReplayAsync(JobId jobId, string operatorId, DateTime nowUtc,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(operatorId)) throw new ArgumentException("Operator is required.", nameof(operatorId));
+        lock (_gate)
+        {
+            var current = Find(jobId);
+            if (current.Status == JobState.Pending && current.AvailableAtUtc <= nowUtc)
+                return Task.FromResult(new JobOperationResult(true, true, "ALREADY_PENDING", current.Copy()));
+            var replay = current with { Status = JobState.Pending, AvailableAtUtc = nowUtc, LeaseOwner = null,
+                LeaseToken = null, LeaseExpiresAtUtc = null, RedactedError = $"REPLAYED_BY:{operatorId}",
+                CompletedAtUtc = null, Version = current.Version + 1, UpdatedAtUtc = nowUtc };
+            Replace(replay);
+            return Task.FromResult(new JobOperationResult(true, false, "REPLAYED", replay.Copy()));
+        }
+    }
+
+    public Task<int> CountPublishedWithoutAuditAsync(DateTime nowUtc, CancellationToken ct = default) =>
+        Task.FromResult(PublishedWithoutAuditCount);
 
     private DurableJob Find(JobId id) =>
         _jobs.Values.FirstOrDefault(job => job.Id == id) ?? throw new KeyNotFoundException("JOB_NOT_FOUND");

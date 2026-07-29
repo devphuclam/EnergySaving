@@ -1335,7 +1335,7 @@ if ($isCanonicalModuleRoot) {
     # --- T221 Phase 9 API/Audit/Web seam and ownership checks ---
     $phase9Required = @(
         (Join-Path $ModuleRoot 'Integration\Domain\CommandIdempotency.cs'),
-        (Join-Path $ModuleRoot 'Integration\Application\CommandFingerprintV1.cs'),
+        (Join-Path $ModuleRoot 'Integration\Contracts\CommandFingerprintContracts.cs'),
         (Join-Path $ModuleRoot 'Integration\Contracts\CommandIdempotencyContracts.cs'),
         (Join-Path $ModuleRoot 'Integration\Contracts\DeliveryPersistenceContracts.cs'),
         (Join-Path $repoRoot 'src\Api\Infrastructure\IdempotentCommandExecutor.cs'),
@@ -1356,6 +1356,10 @@ if ($isCanonicalModuleRoot) {
         (Join-Path $repoRoot 'src\Web\src\features\audit\AuditRoute.tsx'))
     foreach ($requiredPath in $phase9Required) {
         if (-not (Test-Path -LiteralPath $requiredPath)) { $issues += "T221 FAIL: missing Phase 9 seam $requiredPath." }
+    }
+    $duplicateFingerprintPath = Join-Path $ModuleRoot 'Integration\Application\CommandFingerprintV1.cs'
+    if (Test-Path -LiteralPath $duplicateFingerprintPath) {
+        $issues += 'T221 FAIL: duplicated CommandFingerprintV1 implementation remains under Integration.Application.'
     }
     foreach ($blockedAdapter in @(
         (Join-Path $ModuleRoot 'Integration\Infrastructure\PostgresIntegrationRepositories.cs'),
@@ -1427,6 +1431,77 @@ if ($isCanonicalModuleRoot) {
     $webTestSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\test\app-shell.test.tsx') -Raw
     if ($webTestSource -notmatch 'loading' -or $webTestSource -notmatch 'forbidden' -or $webTestSource -notmatch 'expired') {
         $issues += 'T211 FAIL: web behavior matrix does not cover loading/forbidden/expired.'
+    }
+
+    # Final Phase 9 contract-alignment closure checks.
+    if ($configurationEndpoint -match 'executor\.ExecuteAsync\(' -or $simulatorEndpoint -match 'executor\.ExecuteAsync\(') {
+        $issues += 'T221 FAIL: mutation endpoint still uses plain ExecuteAsync instead of the transactional executor.'
+    }
+    foreach ($route in @('/sites','/areas','/assets','/points','/metrics','/units','/data-sources','/source-point-mappings','/simulator-configurations','/simulator-configurations/validate','/points/{pointId:guid}/activate','/points/{pointId:guid}/deactivate','/sites/{siteId:guid}/activate','/areas/{areaId:guid}/activate','/assets/{assetId:guid}/activate','/source-point-mappings/{mappingId:guid}/supersede')) {
+        if ($configurationEndpoint -notmatch [regex]::Escape($route)) { $issues += "T221 FAIL: missing configuration route $route." }
+    }
+    $phase9TestFiles = @(
+        'tests\Unit\Integration\CommandFingerprintTests.cs','tests\Unit\Integration\CommandIdempotencyDomainTests.cs',
+        'tests\Unit\Integration\IdempotentCommandExecutorTests.cs','tests\Unit\Integration\DeliveryRepositoryContractTests.cs',
+        'tests\Unit\Worker\OutboxDispatcherTests.cs','tests\Unit\Audit\AuditConsumerTests.cs',
+        'tests\Unit\Audit\AuditQueryTests.cs','tests\Unit\Operations\AuditDeliveryJobsTests.cs',
+        'tests\Unit\Api\ConfigurationEndpointTests.cs','tests\Unit\Api\SimulatorEndpointTests.cs',
+        'tests\Unit\Api\TelemetryQueryEndpointTests.cs','tests\Unit\Api\AuditEndpointTests.cs') |
+        ForEach-Object { Join-Path $repoRoot $_ }
+    foreach ($testFile in $phase9TestFiles) {
+        if ((Get-Content -LiteralPath $testFile -Raw) -match 'public\s+const\s+int\s+(TestCount|AssertionCount)') {
+            $issues += "T221 FAIL: Phase 9 measured evidence may not be declared as constants: $testFile."
+        }
+    }
+    $t178 = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Api\ConfigurationEndpointTests.cs') -Raw
+    $t179 = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Api\SimulatorEndpointTests.cs') -Raw
+    $t180 = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Api\TelemetryQueryEndpointTests.cs') -Raw
+    $t181 = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Unit\Api\AuditEndpointTests.cs') -Raw
+    if ($t178 -notmatch 'CreateSiteAsync|FakeConfigurationPorts|ExecuteTransactionalAsync' -or
+        $t179 -notmatch 'SimulatorEndpoints\.ExecuteAsync|FakeSimulatorPorts|ExecuteTransactionalAsync' -or
+        $t180 -notmatch 'TelemetryQueryEndpoints\.(LatestAsync|HealthAsync|CurrentAsync)|FakeTelemetryPorts' -or
+        $t181 -notmatch 'AuditEndpoints\.QueryAsync|FakeAuditQueryPort') {
+        $issues += 'T221 FAIL: T178-T181 must invoke real endpoint delegates with fake ports and principals.'
+    }
+    if ($dispatcherSource -match 'inbox\s+is\s+null\)\s*continue') {
+        $issues += 'T221 FAIL: a null inbox claim must not be treated as completed delivery.'
+    }
+    if ($auditDelivery -notmatch 'ITransactionalInboxRepository' -or $auditDelivery -notmatch 'ITransactionalAuditEventConsumer' -or
+        $auditDelivery -notmatch 'transaction') {
+        $issues += 'T221 FAIL: audit delivery must pass the host transaction to audit and inbox writes.'
+    }
+    $auditContracts = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Audit\Contracts\AuditContracts.cs') -Raw
+    $auditConsumerSource = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Audit\Application\AuditEventConsumer.cs') -Raw
+    foreach ($hashField in @('sourceEventId','eventType','schemaVersion','producer','occurredAtUtc','correlationId','causationId','before','after')) {
+        if ($auditContracts -notmatch [regex]::Escape($hashField)) { $issues += "T221 FAIL: audit payload hash omits $hashField." }
+    }
+    if ($auditConsumerSource -notmatch 'AUDIT_SOURCE_HASH_CONFLICT') {
+        $issues += 'T221 FAIL: audit source hash conflict code is not stable.'
+    }
+    $auditQuery = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Audit\Application\AuditQueryService.cs') -Raw
+    if ($auditQuery -notmatch 'AuditKeysetCursor' -or $auditQuery -notmatch 'OccurredAtUtc' -or $auditQuery -notmatch 'AuditEventId') {
+        $issues += 'T221 FAIL: audit query must use the strict OccurredAtUtc/AuditEventId keyset tuple.'
+    }
+    $jobsSource = Get-Content -LiteralPath (Join-Path $ModuleRoot 'Operations\Application\AuditDeliveryJobs.cs') -Raw
+    if ($jobsSource -match 'AuditDeliveryJobs\(object' -or $jobsSource -notmatch 'ClaimDueAsync' -or $jobsSource -notmatch 'ListExpiredAsync' -or
+        $jobsSource -notmatch 'ReplayAsync') {
+        $issues += 'T221 FAIL: operations reconciliation must use real job contracts and operator replay.'
+    }
+    if ($migration11 -notmatch 'prevent_completed_command_mutation' -or $migration11 -notmatch 'COMMAND_COMPLETED_IMMUTABLE' -or
+        $migration11 -notmatch "status = 'Pending'" -or $migration11 -notmatch "status = 'Completed'" -or
+        $migration11 -match "status IN \('Processing', 'Pending'\)") {
+        $issues += 'T221 FAIL: 0011 command Pending/Completed constraints or R0 inbox vocabulary are inaccurate.'
+    }
+    $webGateway = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Web\src\gateways\webGateways.ts') -Raw
+    foreach ($forbiddenRoute in @('/auth/session','/simulators/current','/points/current/latest')) {
+        if ($webGateway -match [regex]::Escape($forbiddenRoute)) { $issues += "T221 FAIL: web gateway still uses forbidden route $forbiddenRoute." }
+    }
+    if ($webGateway -match "state:\s*'ready'[^}]*?(?:areaCount|pointCount|siteCount):\s*0") {
+        $issues += 'T221 FAIL: configuration summary may not hardcode zero counts.'
+    }
+    if ($webTestSource -notmatch 'createFakeWebGateways' -or $webTestSource -notmatch 'transition' -or
+        $webTestSource -notmatch 'runAppShellBehaviorScenarios') {
+        $issues += 'T211 FAIL: web behavior evidence must execute fake gateway state transitions.'
     }
 }
 

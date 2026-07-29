@@ -4,22 +4,23 @@ namespace IUMP.Tests.Unit.Integration;
 
 public static class CommandIdempotencyDomainTests
 {
-    public const int TestCount = 5;
-    public const int AssertionCount = 9;
+    public static int TestCount { get; private set; }
+    public static int AssertionCount { get; private set; }
     public static int FailureCount { get; private set; }
 
     public static List<string> Run()
     {
         var failures = new List<string>();
+        var assertions = 0;
         var id = new CommandIdentity(Guid.NewGuid(), "Simulator.Start.v1", "key-1");
         var pending = CommandIdempotencyRecord.Pending(id, new byte[32], DateTime.UtcNow.AddSeconds(30));
-        if (pending.Status != CommandIdempotencyStatus.Pending) failures.Add("new record must be Pending");
+        assertions++; if (pending.Status != CommandIdempotencyStatus.Pending) failures.Add("new record must be Pending");
         var completed = pending.Complete(200, "{}", null, DateTime.UtcNow.AddHours(24));
-        if (completed.Status != CommandIdempotencyStatus.Completed || completed.OriginalHttpStatus != 200)
+        assertions++; if (completed.Status != CommandIdempotencyStatus.Completed || completed.OriginalHttpStatus != 200)
             failures.Add("completion must preserve the original response");
-        if (!completed.IsExpired(DateTime.UtcNow.AddHours(25))) failures.Add("retention must expire");
-        if (!pending.IsLeaseLive(DateTime.UtcNow)) failures.Add("live Pending lease must be detected");
-        FailureCount = failures.Count;
+        assertions++; if (!completed.IsExpired(DateTime.UtcNow.AddHours(25))) failures.Add("retention must expire");
+        assertions++; if (!pending.IsLeaseLive(DateTime.UtcNow)) failures.Add("live Pending lease must be detected");
+        TestCount = 5; AssertionCount = assertions; FailureCount = failures.Count;
         return failures;
     }
 }

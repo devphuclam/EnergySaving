@@ -22,17 +22,30 @@ public sealed class OutboxDispatcherWorker(IIntegrationDeliveryRepository reposi
         }
         try
         {
+            var completedConsumers = 0;
             foreach (var consumer in consumers)
             {
                 // Each required consumer has an independent inbox lease and completion record.
                 // A completed consumer is skipped after restart; incomplete consumers are invoked.
                 var inbox = await repository.ClaimAsync(consumer.Name, claimed.EventId, claimed.PayloadHash,
                     nowUtc, "dispatcher", TimeSpan.FromSeconds(30), ct);
-                if (inbox is null) continue;
+                if (inbox is null)
+                {
+                    if (repository is IInboxStateRepository stateRepository)
+                    {
+                        var state = await stateRepository.GetInboxAsync(consumer.Name, claimed.EventId, ct);
+                        if (state?.Status == DeliveryStatus.Completed) { completedConsumers++; continue; }
+                        if (state?.Status == DeliveryStatus.Claimed && state.LeaseUntilUtc > nowUtc)
+                            throw new InvalidOperationException("CONSUMER_LEASE_LIVE");
+                    }
+                    throw new InvalidOperationException("CONSUMER_CLAIM_UNAVAILABLE");
+                }
                 var handled = await consumer.Handler(claimed);
                 if (!handled) throw new InvalidOperationException("CONSUMER_NOT_COMPLETE");
                 await repository.CompleteAsync(inbox, ct);
+                completedConsumers++;
             }
+            if (completedConsumers != consumers.Count) throw new InvalidOperationException("CONSUMER_COMPLETION_INCOMPLETE");
             await repository.MarkPublishedAsync(claimed.EventId, ct);
             return 1;
         }

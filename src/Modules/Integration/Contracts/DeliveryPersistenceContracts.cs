@@ -1,3 +1,5 @@
+using IUMP.BuildingBlocks.Persistence;
+
 namespace IUMP.Modules.Integration.Contracts;
 
 public enum DeliveryStatus { Pending, Claimed, Published, Completed, Failed }
@@ -35,4 +37,14 @@ public interface IInboxDeduplicationRepository
 public interface IIntegrationDeliveryRepository : IOutboxClaimRepository, IInboxDeduplicationRepository
 {
     Task AddOutboxAsync(OutboxDeliveryRecord record, CancellationToken ct = default);
+}
+
+public interface IInboxStateRepository
+{
+    Task<InboxDeliveryRecord?> GetInboxAsync(string consumerName, Guid eventId, CancellationToken ct = default);
+}
+
+public interface ITransactionalInboxRepository
+{
+    Task CompleteAsync(InboxDeliveryRecord record, IHostTransaction transaction, CancellationToken ct = default);
 }

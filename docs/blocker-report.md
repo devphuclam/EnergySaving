@@ -258,3 +258,25 @@ Phase 9 task classifications remain: T192/T193/T202/T205/T218 are
 approved database capability is still `AVAILABLE` at `127.0.0.1:5433/iump_dev`, but migration and
 E2E execution are `NOT_RUN`; `127.0.0.1:5432` was not contacted. No password or other secret is
 recorded here.
+
+## Phase 9 final contract-alignment closure evidence - 2026-07-29
+
+Parent baseline: `2ba23ca10dce6a051ac6cfe1e9806258023d1826`. A temporary native worktree ran the
+contract-alignment RED probe at that exact baseline and returned exit `1` with five executable
+failures (duplicate fingerprint, non-transactional mutation paths, non-delegating endpoint test,
+and placeholder Web routes). The worktree was removed after capture.
+
+Green provider-neutral evidence: Debug and Release build/unit exit `0`; architecture verification
+exit `0`; Web lint/build exit `0`; Fast harness exit `0` (`PASS=8`); Full harness exit `1` with
+`PASS=10`, `BLOCKED_BY_MISSING_TOOL=1` (`psql`) and `BLOCKED_BY_COMPANY_APPROVAL=2` (CI/container
+target). The Full result is explicitly non-passing because its blockers are real and are not
+promoted to PASS.
+
+Measured T170-T181 evidence is recorded in the Phase 9 checkpoint. Ledger remains
+`PASS=46`, `BLOCKED=8` (`T192/T193/T202/T205/T218` package-policy and `T206/T219/T220`
+transitive), `FAIL=0`, runnable `NOT_RUN=0`. Browser source/build is `YES`; Ready for Phase 10 is
+`YES` only for the runnable provider-neutral contracts; Live runtime, PostgreSQL E2E/migrations,
+and Release are `NO`. T218 remains unchecked and T224+ were not executed.
+
+No database connection, migration, package installation/download, Docker command, port `5432`, or
+secret value was used or recorded during this closure.

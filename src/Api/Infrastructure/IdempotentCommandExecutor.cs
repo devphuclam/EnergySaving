@@ -95,13 +95,51 @@ public sealed class IdempotentCommandExecutor
         Func<IHostTransaction, CancellationToken, Task<CommandExecutionResult>> mutation,
         CancellationToken ct = default)
     {
+        if (_principalAccessor is not null && (_principalAccessor.Current is null ||
+            _principalAccessor.Current.UserId != identity.CallerUserId))
+            return new(401, "{\"errorCode\":\"UNAUTHENTICATED\"}", "UNAUTHENTICATED", false);
+
+        // Registration/read is deliberately outside the owner transaction. Completed replay returns
+        // exact bytes and headers without opening an owner transaction.
+        var nowUtc = _clock.UtcNow.ToUniversalTime();
+        var registration = await _store.RegisterOrReadAsync(identity, fingerprint, null, Lease, ct);
+        if (registration.Conflict)
+            return new(409, "{\"errorCode\":\"IDEMPOTENCY_CONFLICT\"}", "IDEMPOTENCY_CONFLICT", false);
+        if (registration.InProgress)
+            return new(409, "{\"errorCode\":\"IDEMPOTENCY_IN_PROGRESS\"}", "IDEMPOTENCY_IN_PROGRESS", false);
+        if (registration.Equivalent && registration.Record.OriginalResult is { } replay)
+            return new(replay.StatusCode, replay.Body, "DUPLICATE", true, replay.ResourceReference,
+                replay.Location, replay.ETag, replay.OriginalCorrelationId);
+
+        var reservation = registration.Record;
+        if (reservation.Status == CommandIdempotencyStatus.Pending && !reservation.IsLeaseLive(nowUtc))
+        {
+            reservation = await _store.TryReclaimExpiredAsync(reservation.Id, reservation.Version,
+                "server-principal", nowUtc.Add(Lease), ct) ?? reservation;
+            if (reservation.IsLeaseLive(nowUtc) && reservation.PendingOwner != "server-principal")
+                return new(409, "{\"errorCode\":\"IDEMPOTENCY_IN_PROGRESS\"}", "IDEMPOTENCY_IN_PROGRESS", false);
+        }
+
         await using var transaction = await transactionFactory.BeginAsync(ct);
         try
         {
-            var response = await ExecuteAsync(identity, fingerprint,
-                _ => mutation(transaction, ct), ct);
-            if (response.Code is "EXECUTED" or "DUPLICATE") await transaction.CommitAsyncIfSupported(ct);
-            return response;
+            var result = await mutation(transaction, ct);
+            var stored = new StoredHttpResult(result.StatusCode, result.Body, result.ResourceReference,
+                result.Location, result.ETag, result.CorrelationId);
+            var completed = _store is ITransactionalCommandIdempotencyStore transactionalStore
+                ? await transactionalStore.CompleteInTransactionAsync(reservation.Id, reservation.Version, stored,
+                    nowUtc.AddHours(24), transaction, ct)
+                : await _store.CompleteAsync(reservation.Id, reservation.Version, stored, nowUtc.AddHours(24), ct);
+            if (completed is null)
+                throw new TransientDatabaseConflictException("COMMAND_COMPLETION_CONFLICT");
+            await transaction.CommitAsyncIfSupported(ct);
+            return new(result.StatusCode, result.Body, "EXECUTED", false, result.ResourceReference,
+                result.Location, result.ETag, result.CorrelationId);
+        }
+        catch (TransientDatabaseConflictException)
+        {
+            await transaction.RollbackAsyncIfSupported(CancellationToken.None);
+            return new(503, "{\"errorCode\":\"TRANSIENT_DATABASE_CONFLICT\",\"retryable\":true}", "TRANSIENT_DATABASE_CONFLICT", false);
         }
         catch
         {

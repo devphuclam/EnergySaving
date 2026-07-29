@@ -2,10 +2,12 @@ using IUMP.Modules.Integration.Contracts;
 
 namespace IUMP.Tests.Unit.Fakes;
 
-public sealed class FakeCommandIdempotencyStore : ICommandIdempotencyStore
+public sealed class FakeCommandIdempotencyStore : ICommandIdempotencyStore, ITransactionalCommandIdempotencyStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<(Guid, string, string), CommandIdempotencyRecord> _rows = new();
+    public bool FailTransactionalCompletion { get; set; }
+    public int CompletionCalls { get; private set; }
 
     public Task<CommandRegistrationResult> RegisterOrReadAsync(CommandIdentity identity, byte[] fingerprint,
         string? target, TimeSpan lease, CancellationToken ct = default)
@@ -55,6 +57,15 @@ public sealed class FakeCommandIdempotencyStore : ICommandIdempotencyStore
             _rows[(row.Identity.CallerUserId, row.Identity.OperationCode, row.Identity.IdempotencyKey)] = updated;
             return Task.FromResult<CommandIdempotencyRecord?>(updated);
         }
+    }
+
+    public Task<CommandIdempotencyRecord?> CompleteInTransactionAsync(Guid id, long expectedVersion,
+        StoredHttpResult result, DateTime expiresAtUtc,
+        IUMP.BuildingBlocks.Persistence.IHostTransaction transaction, CancellationToken ct = default)
+    {
+        CompletionCalls++;
+        if (FailTransactionalCompletion) return Task.FromResult<CommandIdempotencyRecord?>(null);
+        return CompleteAsync(id, expectedVersion, result, expiresAtUtc, ct);
     }
 
     public Task<int> RemoveExpiredAsync(DateTime nowUtc, CancellationToken ct = default)
