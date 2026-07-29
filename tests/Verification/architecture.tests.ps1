@@ -1122,6 +1122,86 @@ if ($isCanonicalModuleRoot) {
         $issues += 'T149 FAIL: Worker writes or registers Telemetry storage directly.'
     }
 
+    # Phase 7 concurrency-and-scope closure checks (A-J)
+    if ($telemetryFake -notmatch '_committedGate') {
+        $issues += 'T149 FAIL: FakeTelemetryRepositories lacks _committedGate synchronization field.'
+    }
+    $commitAsyncBody = [regex]::Match($telemetryFake, '(?s)public ValueTask CommitAsync.*?(?=public|private|class)').Value
+    if ($commitAsyncBody -notmatch 'lock\s*\(_owner\._committedGate\)') {
+        $issues += 'T149 FAIL: CommitAsync not serialized inside _committedGate lock.'
+    }
+    if ($commitAsyncBody -notmatch 'current\.Terminals\.ContainsKey\(terminal\.MeasurementId\)') {
+        $issues += 'T149 FAIL: CommitAsync missing commit-time Measurement-ID recheck.'
+    }
+    if ($commitAsyncBody -notmatch '(?s)SimulatorRunId.*PointId.*SourceSequence.*MeasurementId') {
+        $issues += 'T149 FAIL: CommitAsync missing commit-time slot recheck.'
+    }
+    if ($publishBody -notmatch 'lock\s*\(_committedGate\)') {
+        $issues += 'T149 FAIL: PublishRaceWinner not serialized inside _committedGate lock.'
+    }
+    if ($publishBody -notmatch 'storedRaw.*Equals.*fixture\.Raw') {
+        $issues += 'T149 FAIL: PublishRaceWinner no-op does not verify raw equality.'
+    }
+    if ($publishBody -notmatch 'storedLatest.*Equals.*fixture\.Latest') {
+        $issues += 'T149 FAIL: PublishRaceWinner no-op does not verify Latest equality.'
+    }
+    if ($publishBody -notmatch 'EventId.*fixture\.Event\.EventId') {
+        $issues += 'T149 FAIL: PublishRaceWinner no-op does not verify event equality.'
+    }
+    $committedStateGetter = [regex]::Match($telemetryFake, '(?s)public TelemetryCommittedState CommittedState[\s\S]*?}').Value
+    if ($committedStateGetter -notmatch 'lock\s*\(_committedGate\)') {
+        $issues += 'T149 FAIL: CommittedState getter returns shallow reference without lock.'
+    }
+    if ($committedStateGetter -notmatch 'new TelemetryCommittedState') {
+        $issues += 'T149 FAIL: CommittedState getter does not return a deep-copy snapshot.'
+    }
+    $listCommittedAsyncBody = [regex]::Match($telemetryFake, '(?s)Task.*ListCommittedAsync.*?(?=public Task|public ValueTask|private|class)').Value
+    if ($listCommittedAsyncBody -notmatch 'new Dictionary.*Before.*StringComparer') {
+        $issues += 'T149 FAIL: ListCommittedAsync does not deep-copy event dictionaries.'
+    }
+    if ($telemetryIngestion -notmatch 'TelemetryPersistenceService\.CheckTrustedScope') {
+        $issues += 'T149 FAIL: IngestMeasurement does not call CheckTrustedScope before ValidateProvider.'
+    }
+    $scopeIndex = $telemetryIngestion.IndexOf('CheckTrustedScope', [StringComparison]::Ordinal)
+    $providerIndex2 = $telemetryIngestion.IndexOf('ValidateProvider', [StringComparison]::Ordinal)
+    if ($scopeIndex -lt 0 -or $providerIndex2 -lt 0 -or $scopeIndex -gt $providerIndex2) {
+        $issues += 'T149 FAIL: CheckTrustedScope must precede ValidateProvider in IngestMeasurement.'
+    }
+    if ($persistenceService -notmatch 'EVENT_SCOPE_ID_BLANK') {
+        $issues += 'T149 FAIL: Event factory missing nonblank scope ID validation.'
+    }
+    $factoryCreateSig = [regex]::Match($persistenceService, '(?s)public static TelemetryOwnerEvent Create\(.*?\)').Value
+    if ($factoryCreateSig -match 'string\?\s+eventAreaId') {
+        $issues += 'T149 FAIL: Event factory eventAreaId parameter is still nullable.'
+    }
+    $t145 = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Integration\Telemetry\TelemetryIngestionRepositoryTests.cs') -Raw
+    if ($t145 -notmatch 'Rejected fixture preserves pre-existing Accepted state') {
+        $issues += 'T149 FAIL: T145 missing pre-existing state proof for Rejected fixture.'
+    }
+    if ($t145 -notmatch 'Rejected fixture with multiple rejection codes') {
+        $issues += 'T149 FAIL: T145 missing Rejected fixture matrix with multiple codes.'
+    }
+    if ($t145 -notmatch 'direct fixture conflict probe rejects different terminal') {
+        $issues += 'T149 FAIL: T145 missing direct fixture conflict probe test.'
+    }
+    if ($t145 -notmatch 'direct slot conflict probe rejects different Terminal') {
+        $issues += 'T149 FAIL: T145 missing direct slot conflict probe test.'
+    }
+    $t135Path = Join-Path $repoRoot 'tests\Unit\Telemetry\TelemetryEventTests.cs'
+    $t135 = Get-Content -LiteralPath $t135Path -Raw
+    if ($t135 -notmatch 'factory rejects blank eventSiteId') {
+        $issues += 'T149 FAIL: T135 missing factory blank eventSiteId test.'
+    }
+    if ($t135 -notmatch 'factory rejects blank eventAreaId') {
+        $issues += 'T149 FAIL: T135 missing factory blank eventAreaId test.'
+    }
+    if ($t135 -notmatch 'factory rejects mismatched trusted scope') {
+        $issues += 'T149 FAIL: T135 missing factory mismatched trusted site test.'
+    }
+    if ($t135 -notmatch 'factory rejects mismatched trusted area') {
+        $issues += 'T149 FAIL: T135 missing factory mismatched trusted area test.'
+    }
+
     $migration8Path = Join-Path $repoRoot 'database\migrations\0008_telemetry_measurement.sql'
     $migration8 = Get-Content -LiteralPath $migration8Path -Raw
     foreach ($required in @(

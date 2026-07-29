@@ -103,6 +103,88 @@ public static class TelemetryEventTests
             Check(system.Store.ListCommittedAsync().Result.Count == 0,
                 "scope mismatch no event", failures);
         });
+        Case("factory rejects blank eventSiteId", failures, () =>
+        {
+            var request = TelemetryTestData.Request();
+            var raw = new RawMeasurement(
+                Guid.Parse(request.MeasurementId), request.SourceId, request.SimulatorRunId,
+                request.PointId, request.MappingId, request.MappingVersion, request.SourceSequence,
+                request.SourceTimestampUtc, TelemetryTestData.Now, TelemetryTestData.Now,
+                request.NumericValue, request.UnitCode, MeasurementQuality.Good, null,
+                request.CorrelationId, request.LineageId);
+            var provider = TelemetryTestData.Provider();
+            try
+            {
+                MeasurementAcceptedEventFactory.Create(raw, true, provider, "", provider.TrustedAreaId!);
+                failures.Add("blank eventSiteId should throw");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("EVENT_SCOPE_ID_BLANK"))
+            {
+                CheckCount++;
+            }
+        });
+        Case("factory rejects blank eventAreaId", failures, () =>
+        {
+            var request = TelemetryTestData.Request();
+            var raw = new RawMeasurement(
+                Guid.Parse(request.MeasurementId), request.SourceId, request.SimulatorRunId,
+                request.PointId, request.MappingId, request.MappingVersion, request.SourceSequence,
+                request.SourceTimestampUtc, TelemetryTestData.Now, TelemetryTestData.Now,
+                request.NumericValue, request.UnitCode, MeasurementQuality.Good, null,
+                request.CorrelationId, request.LineageId);
+            var provider = TelemetryTestData.Provider();
+            try
+            {
+                MeasurementAcceptedEventFactory.Create(raw, true, provider, provider.TrustedSiteId, "");
+                failures.Add("blank eventAreaId should throw");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("EVENT_SCOPE_ID_BLANK"))
+            {
+                CheckCount++;
+            }
+        });
+        Case("factory rejects mismatched trusted scope", failures, () =>
+        {
+            var request = TelemetryTestData.Request();
+            var raw = new RawMeasurement(
+                Guid.Parse(request.MeasurementId), request.SourceId, request.SimulatorRunId,
+                request.PointId, request.MappingId, request.MappingVersion, request.SourceSequence,
+                request.SourceTimestampUtc, TelemetryTestData.Now, TelemetryTestData.Now,
+                request.NumericValue, request.UnitCode, MeasurementQuality.Good, null,
+                request.CorrelationId, request.LineageId);
+            var provider = TelemetryTestData.Provider();
+            try
+            {
+                MeasurementAcceptedEventFactory.Create(
+                    raw, true, provider, "wrong-site", provider.TrustedAreaId!);
+                failures.Add("mismatched eventSiteId should throw");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("EVENT_TRUSTED_SCOPE_MISMATCH"))
+            {
+                CheckCount++;
+            }
+        });
+        Case("factory rejects mismatched trusted area", failures, () =>
+        {
+            var request = TelemetryTestData.Request();
+            var raw = new RawMeasurement(
+                Guid.Parse(request.MeasurementId), request.SourceId, request.SimulatorRunId,
+                request.PointId, request.MappingId, request.MappingVersion, request.SourceSequence,
+                request.SourceTimestampUtc, TelemetryTestData.Now, TelemetryTestData.Now,
+                request.NumericValue, request.UnitCode, MeasurementQuality.Good, null,
+                request.CorrelationId, request.LineageId);
+            var provider = TelemetryTestData.Provider();
+            try
+            {
+                MeasurementAcceptedEventFactory.Create(
+                    raw, true, provider, provider.TrustedSiteId, "wrong-area");
+                failures.Add("mismatched eventAreaId should throw");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("EVENT_TRUSTED_SCOPE_MISMATCH"))
+            {
+                CheckCount++;
+            }
+        });
         Case("PointLatestAdvanced.v1 is not implemented", failures, () =>
         {
             var system = IngestionOrchestrationTests.Create();
@@ -125,7 +207,7 @@ public static class TelemetryEventTests
             request.CorrelationId, request.LineageId);
         var provider = TelemetryTestData.Provider();
         return MeasurementAcceptedEventFactory.Create(
-            raw, true, provider, provider.TrustedSiteId, provider.TrustedAreaId);
+            raw, true, provider, provider.TrustedSiteId, provider.TrustedAreaId!);
     }
 
     private static void Case(string name, List<string> failures, Action action)

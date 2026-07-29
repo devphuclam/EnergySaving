@@ -602,6 +602,147 @@ public sealed class TelemetryIngestionRepositoryContractRunner
                     $"{label}: raw count unchanged");
             });
         }
+        // Rejected fixture matrix — multiple valid Rejected fixtures preserve pre-existing state
+        await ScenarioAsync("Rejected fixture preserves pre-existing Accepted state", async () =>
+        {
+            var fixture = factory.Create();
+            var accepted = Data();
+            await using (var seedTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+            {
+                await fixture.Repository.StageTerminalAsync(accepted.Terminal, seedTx);
+                await fixture.Repository.StageRawAsync(accepted.Raw, seedTx);
+                await seedTx.CommitAsync();
+            }
+            var preTerminals = (await fixture.Repository.ListCommittedTerminalsAsync()).ToList();
+            var preRaw = (await fixture.Repository.ListCommittedRawAsync()).ToList();
+            var preEvents = (await fixture.Events.ListCommittedAsync()).ToList();
+            var preLatest = fixture.RaceWinnerProbe?.LatestCount ?? 0;
+            var rejected = Data(rejected: true, sequence: 2);
+            var rejectedFixture = new TelemetryRaceWinnerFixture(rejected.Terminal, null, null, null);
+            fixture.RaceWinnerProbe?.StageRaceWinner(rejectedFixture);
+            await using (var rejectedTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+            {
+                try
+                {
+                    await fixture.Repository.StageTerminalAsync(rejected.Terminal, rejectedTx);
+                    await rejectedTx.CommitAsync();
+                }
+                catch (TelemetryUniqueRaceException)
+                {
+                    await rejectedTx.RollbackAsync();
+                }
+            }
+            Check((await fixture.Repository.ListCommittedTerminalsAsync()).Count == preTerminals.Count + 1,
+                "Rejected adds one terminal");
+            Check((await fixture.Repository.ListCommittedRawAsync()).Count == preRaw.Count,
+                "Rejected does not add raw");
+            Check((fixture.RaceWinnerProbe?.LatestCount ?? 0) == preLatest,
+                "Rejected does not add Latest");
+            Check((await fixture.Events.ListCommittedAsync()).Count == preEvents.Count,
+                "Rejected does not add event");
+            foreach (var pre in preTerminals)
+            {
+                var stored = await fixture.Repository.GetTerminalAsync(pre.MeasurementId);
+                Check(TerminalEqual(stored, pre), "Rejected preserves pre-existing terminal");
+            }
+            foreach (var pre in preRaw)
+            {
+                var storedRawList = await fixture.Repository.ListCommittedRawAsync();
+                Check(storedRawList.Any(r => r.MeasurementId == pre.MeasurementId && r.Equals(pre)),
+                    "Rejected preserves pre-existing raw");
+            }
+        });
+        await ScenarioAsync("Rejected fixture with multiple rejection codes", async () =>
+        {
+            var codes = new[] { "POINT_INACTIVE", "SITE_INACTIVE", "SOURCE_TYPE_NOT_SIMULATOR",
+                "PROVENANCE_INVALID", "CONFIGURATION_VERSION_MISSING" };
+            for (var i = 0; i < codes.Length; i++)
+            {
+                var code = codes[i];
+                var fixture = factory.Create();
+                var rejected = Data(rejected: true, sequence: i + 1);
+                var terminalWithCode = rejected.Terminal with { RejectionCode = code };
+                var rejectedFixture = new TelemetryRaceWinnerFixture(terminalWithCode, null, null, null);
+                fixture.RaceWinnerProbe?.StageRaceWinner(rejectedFixture);
+                await using (var tx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+                {
+                    try
+                    {
+                        await fixture.Repository.StageTerminalAsync(terminalWithCode, tx);
+                        await tx.CommitAsync();
+                    }
+                    catch (TelemetryUniqueRaceException)
+                    {
+                        await tx.RollbackAsync();
+                    }
+                }
+                var stored = await fixture.Repository.GetTerminalAsync(terminalWithCode.MeasurementId);
+                Check(stored is not null && TerminalEqual(stored, terminalWithCode),
+                    $"Rejected code {code} stored exactly");
+                Check(stored?.RejectionCode == code, $"Rejected code {code} preserved");
+                Check(stored?.FinalClassification == TelemetryFinalClassification.Rejected,
+                    $"Rejected code {code} classification");
+                Check((await fixture.Repository.ListCommittedRawAsync()).Count == 0,
+                    $"Rejected code {code} zero raw");
+                Check(fixture.RaceWinnerProbe?.LatestCount == 0,
+                    $"Rejected code {code} zero Latest");
+                Check((await fixture.Events.ListCommittedAsync()).Count == 0,
+                    $"Rejected code {code} zero event");
+            }
+        });
+        // Direct fixture/slot conflict probe tests
+        await ScenarioAsync("direct fixture conflict probe rejects different terminal for same MeasurementId", async () =>
+        {
+            var fixture = factory.Create();
+            var data = Data();
+            var conflicting = data.Terminal with { OriginalCorrelationId = "different" };
+            var probe = fixture.ReplayProbe;
+            if (probe is not null)
+            {
+                await using var tx = await fixture.UnitOfWork.BeginRepeatableReadAsync();
+                await fixture.Repository.StageTerminalAsync(data.Terminal, tx);
+                await fixture.Repository.StageRawAsync(data.Raw, tx);
+                await tx.CommitAsync();
+                var replayResult = probe.ReplayTerminal(conflicting);
+                Check(replayResult != "DUPLICATE", "conflicting measurement not DUPLICATE");
+                Check(probe.ReplayTerminal(data.Terminal) == "DUPLICATE",
+                    "exact match is DUPLICATE");
+            }
+        });
+        await ScenarioAsync("direct slot conflict probe rejects different Terminal for same Run+Point+sequence", async () =>
+        {
+            var fixture = factory.Create();
+            var winner = Data();
+            var loser = Data(mappingOverride: Guid.Parse("66666666-6666-4666-8666-666666666666"));
+            await using (var seedTx = await fixture.UnitOfWork.BeginRepeatableReadAsync())
+            {
+                await fixture.Repository.StageTerminalAsync(winner.Terminal, seedTx);
+                await fixture.Repository.StageRawAsync(winner.Raw, seedTx);
+                await seedTx.CommitAsync();
+            }
+            await using var slotTx = await fixture.UnitOfWork.BeginRepeatableReadAsync();
+            try
+            {
+                await fixture.Repository.StageTerminalAsync(loser.Terminal, slotTx);
+                Check(false, "slot conflict should throw");
+            }
+            catch (TelemetryUniqueRaceException)
+            {
+                await slotTx.RollbackAsync();
+            }
+            var stored = await fixture.Repository.GetTerminalBySlotAsync(
+                winner.Terminal.SimulatorRunId, winner.Terminal.PointId,
+                winner.Terminal.SourceSequence);
+            Check(stored?.MeasurementId == winner.Terminal.MeasurementId,
+                "slot conflict preserves original winner");
+            if (fixture.ReplayProbe is not null)
+            {
+                Check(fixture.ReplayProbe.ReplayTerminal(winner.Terminal) == "DUPLICATE",
+                    "slot conflict probe: winner is DUPLICATE");
+                Check(fixture.ReplayProbe.ReplayTerminal(loser.Terminal) == "MISSING",
+                    "slot conflict probe: loser never committed so is MISSING");
+            }
+        });
         await ScenarioAsync("no independent commit surface", () =>
         {
             Check(!typeof(ITelemetryIngestionRepository).GetMethods()
@@ -680,7 +821,7 @@ public sealed class TelemetryIngestionRepositoryContractRunner
             : null!;
         var provider = TelemetryTestData.Provider();
         var ownerEvent = MeasurementAcceptedEventFactory.Create(
-            raw, latestAdvanced, provider, provider.TrustedSiteId, provider.TrustedAreaId);
+            raw, latestAdvanced, provider, provider.TrustedSiteId, provider.TrustedAreaId!);
         return new ContractData(terminal, raw, latest, ownerEvent);
     }
 

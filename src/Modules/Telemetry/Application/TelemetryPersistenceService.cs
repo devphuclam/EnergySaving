@@ -86,7 +86,7 @@ public sealed class TelemetryPersistenceService
         await transaction.AcquireLockAsync(
             TelemetryFlowLockTarget.IntegrationOutbox, measurementId.ToString("D"), ct);
         await _events.StageAsync(MeasurementAcceptedEventFactory.Create(
-            raw, latestAdvanced, provider, provider.TrustedSiteId, provider.TrustedAreaId), transaction, ct);
+            raw, latestAdvanced, provider, provider.TrustedSiteId, provider.TrustedAreaId!), transaction, ct);
             await transaction.CommitAsync(ct);
             return new TelemetryIngestionResult(
                 TelemetryDisposition.Accepted, terminal.Copy(), null, request.CorrelationId);
@@ -243,8 +243,10 @@ public static class MeasurementAcceptedEventFactory
         bool latestAdvanced,
         TelemetryProviderSnapshot provider,
         string eventSiteId,
-        string? eventAreaId)
+        string eventAreaId)
     {
+        if (string.IsNullOrWhiteSpace(eventSiteId) || string.IsNullOrWhiteSpace(eventAreaId))
+            throw new InvalidOperationException("EVENT_SCOPE_ID_BLANK");
         if (provider.TrustedSiteId != eventSiteId || provider.TrustedAreaId != eventAreaId)
             throw new InvalidOperationException("EVENT_TRUSTED_SCOPE_MISMATCH");
         var after = new Dictionary<string, object?>(StringComparer.Ordinal)

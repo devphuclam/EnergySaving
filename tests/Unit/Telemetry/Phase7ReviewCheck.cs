@@ -120,16 +120,28 @@ public static class Phase7ReviewCheck
         var createSig = factoryContent.Substring(createMethod, createMethodEnd - createMethod + 1);
         Check(!createSig.Contains("string? eventSiteId = null") && !createSig.Contains("string? eventAreaId = null"),
             "Event factory Create has no optional fallback parameters");
-        Check(createSig.Contains("string eventSiteId") && createSig.Contains("string? eventAreaId"),
-            "Event factory requires eventSiteId/eventAreaId parameters");
+        Check(createSig.Contains("string eventSiteId") && createSig.Contains("string eventAreaId"),
+            "Event factory requires non-nullable eventSiteId/eventAreaId parameters");
         Check(createSig.Contains("provider.TrustedSiteId != eventSiteId"),
             "Event factory validates TrustedSiteId equality with eventSiteId");
-        Check(t145.Contains("provider.TrustedSiteId, provider.TrustedAreaId"),
+        Check(createSig.Contains("EVENT_SCOPE_ID_BLANK"),
+            "Event factory rejects blank eventSiteId or eventAreaId");
+        Check(t145.Contains("provider.TrustedSiteId, provider.TrustedAreaId!"),
             "T145 passes explicit TrustedSiteId/TrustedAreaId to factory");
-        Check(t135.Contains("provider.TrustedSiteId") && t135.Contains("provider.TrustedAreaId"),
+        Check(t135.Contains("provider.TrustedSiteId") && t135.Contains("provider.TrustedAreaId!"),
             "T135 asserts event uses trusted IDs");
         Check(t135.Contains("mismatch") || t135.Contains("PROVIDER_SCOPE_MISMATCH") || t135.Contains("scope"),
             "T135 covers scope mismatch producing no event");
+        Check(t135.Contains("EVENT_SCOPE_ID_BLANK"),
+            "T135 covers factory blank scope ID rejection");
+        Check(t135.Contains("EVENT_TRUSTED_SCOPE_MISMATCH"),
+            "T135 covers factory trusted scope mismatch rejection");
+
+        var ingestMeasurement = File.ReadAllText(Path.Combine(root, "src", "Modules", "Telemetry", "Application", "IngestMeasurement.cs"));
+        Check(ingestMeasurement.Contains("TelemetryPersistenceService.CheckTrustedScope"),
+            "IngestMeasurement calls CheckTrustedScope before ValidateProvider");
+        Check(ingestMeasurement.IndexOf("CheckTrustedScope") < ingestMeasurement.IndexOf("ValidateProvider"),
+            "CheckTrustedScope precedes ValidateProvider in IngestMeasurement");
 
         Check(!File.Exists(Path.Combine(root, "src", "Modules", "Telemetry", "Infrastructure", "PostgresTelemetryRepositories.cs")),
             "package-policy-blocked PostgreSQL adapter remains absent");

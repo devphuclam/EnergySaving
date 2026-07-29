@@ -74,6 +74,11 @@ public sealed class IngestMeasurement
 
         var receivedAt = _clock.UtcNow;
         var provider = await _providers.GetAsync(request, receivedAt, ct);
+        if (provider is not null)
+        {
+            var scopeError = TelemetryPersistenceService.CheckTrustedScope(provider, request.CorrelationId);
+            if (scopeError is not null) return scopeError;
+        }
         var providerError = ValidateProvider(request, provider, receivedAt);
         if (providerError is not null)
             return await _persistence.PersistRejectedAsync(
