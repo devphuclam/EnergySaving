@@ -277,3 +277,102 @@ and Release are `NO`. T218 remains unchecked and T224+ were not executed.
 
 No database connection, migration, package installation/download, Docker command, port `5432`, or
 secret value was used or recorded during this closure.
+
+## Blocked-runtime resolution addendum — 2026-07-30
+
+The prior database, PostgreSQL CLI, and Npgsql package-policy findings are superseded for the
+approved local development target by
+`specs/002-asset-simulator-latest/checklists/runtime-blocker-resolution.md`.
+
+- Database target `127.0.0.1:5433/iump_dev`: **AVAILABLE / PASS**.
+- Absolute PostgreSQL 18 `pg_isready` and `psql`: **PASS**.
+- Npgsql 10.0.3 from the approved local cache: **PASS**; offline locked restore exit 0,
+  download count 0.
+- PostgreSQL adapters and API/Worker registration: **PASS**.
+- Ordered 0001-0013 clean, N-1, `iump_dev`, and 0013 reconciliation: **PASS**.
+- API/Worker/Web basic startup, readiness, login, and Web login: **PASS**.
+- T218 remains `BLOCKED_BY_PACKAGE_POLICY`.
+- T234 is **FAIL / incomplete** because the complete business quickstart still reaches
+  fail-closed reduced-payload and Simulator Start paths.
+- T236 and its task-specific PostgreSQL race/crash/E2E prerequisites are **NOT_RUN / runnable**;
+  provider-neutral source contracts are not PostgreSQL execution.
+- T235 remains **BLOCKED / NOT_EXECUTED** because T034 lacks company-approved Data Protection
+  provisioning and T234 is not PASS.
+- T245 remains `BLOCKED_BY_COMPANY_APPROVAL`.
+- Release readiness remains **NO**.
+
+No stale database-access or missing-PostgreSQL-CLI blocker is retained. No secret is recorded and
+the prohibited port 5432 was not contacted.
+
+## Functional and recovery resolution addendum - 2026-07-30
+
+The runnable acceptance gaps identified in the preceding addendum are now resolved:
+
+- T234: **PASS** with API/Worker/Web smoke, authenticated HTTP mutation, Administrator-created
+  Site and Engineer scope, Engineer configuration journey, Simulator production, Accepted
+  Measurement, Latest, Health, Audit, and Web data display against PostgreSQL.
+- T236: **PASS** with six PostgreSQL recovery/race scenarios and zero failures.
+- T242: **PASS**; the final Full database check reported `database target=PASS`.
+
+T034 and T245 remain `BLOCKED_BY_COMPANY_APPROVAL`; T218 remains
+`BLOCKED_BY_PACKAGE_POLICY`. T235 is therefore still `BLOCKED / NOT_EXECUTED`, and release
+readiness remains **NO**. Port 5432 was not contacted and no secret is recorded.
+
+The final Full summary is `PASS=11`, `BLOCKED_BY_COMPANY_APPROVAL=2`, captured process exit 20.
+
+## Post-review evidence correction - 2026-07-30
+
+The targeted six-scenario PostgreSQL recovery probe remains PASS, but it is not the complete
+T226-T229 suite required by T236. T236 is therefore `NOT_RUN / runnable`, and dependency-bound
+T242 remains unchecked even though the Full database check itself is PASS. The earlier T236/T242
+PASS statements are superseded.
+
+## Executable PostgreSQL acceptance closure - 2026-07-30
+
+The post-review `NOT_RUN` state for T219, T220, and T236 is superseded by executable PostgreSQL
+evidence:
+
+- `tests/Integration/IUMP.Tests.Integration.csproj`: 4 suites, 0 failures, exit 0.
+- T219 covers concurrent command identity registration, live/expired Pending behavior, exact
+  status/body/Location/ETag/correlation replay, fingerprint conflict, and atomic
+  completion/outbox commit and rollback.
+- T220 covers Audit replay IDs, source hash conflict, transaction rollback, query visibility under
+  five seconds, and inbox lease/dedup/hash-conflict/Failed behavior.
+- The acceptance suite adds real Mapping optimistic-concurrency and Latest ordering races.
+- The recovery runner adds 6/6 real Simulator/Telemetry crash, retry, Latest no-regression,
+  start-race, and Audit dedup scenarios.
+
+T219, T220, and T236 are PASS. T242 is runnable and awaits the fresh final Full harness. T034 and
+T245 remain `BLOCKED_BY_COMPANY_APPROVAL`; T218 remains `BLOCKED_BY_PACKAGE_POLICY`. Release
+readiness remains NO.
+
+## Exact-coverage correction - 2026-07-30
+
+The preceding T219/T220/T236 PASS claim is superseded. The executable PostgreSQL runner passes
+all implemented cases, but it does not yet cover the exact full HTTP/crash/delivery/race matrices
+required by those task descriptions. T219, T220, and T236 are therefore `NOT_RUN / runnable`.
+T242 remains unchecked because T236 is incomplete, although the fresh Full database target check
+passes. Database capability remains AVAILABLE; this is not a database-access or package-policy
+blocker.
+
+T233's migration execution evidence passes, but the task is unchecked because its declared
+T031/T052/T074/T090/T127/T148/T166/T206 dependencies remain incomplete.
+
+## Final executable leaf-suite closure - 2026-07-30
+
+The preceding incomplete runnable-task state is superseded:
+
+- PostgreSQL integration runner: **13 suites, zero failures, exit 0**.
+- Functional runner with Point-activation/configuration and Start/Mapping races:
+  **PASS, exit 0**.
+- Recovery runner: **6 scenarios, zero failures, exit 0**.
+- T031/T052/T074/T090/T104/T127/T148/T166/T206/T219/T220/T233/T236/T242:
+  **PASS**.
+- Database target, CLI, package, migrations, adapters, API/Worker/Web smoke, and functional
+  quickstart: **PASS**.
+- Fresh Full: numeric exit **20**, `PASS=11`, `BLOCKED_BY_COMPANY_APPROVAL=2`, `FAIL=0`.
+- T218 remains `BLOCKED_BY_PACKAGE_POLICY`.
+- T034/T235/T245 remain `BLOCKED_BY_COMPANY_APPROVAL`.
+- Release readiness remains **NO**.
+
+No secret is recorded, `.env` remains untracked, and port 5432 was not contacted.

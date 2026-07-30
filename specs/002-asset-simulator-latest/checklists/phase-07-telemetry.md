@@ -218,3 +218,10 @@ dotnet run --project tests/Unit/IUMP.Tests.Unit.csproj -c Release --no-build
 Previous Phase 7 checkpoint at `8261074a2c77f34a7988d4b9a0d04df5565d8deb` (concurrency-and-scope
 closure) and `f8521159802fd39732c4cfa24605aed912c18419` (atomic-evidence closure). Those
 historical records are retained and not reclassified by this truth-and-concurrency closure.
+
+## 2026-07-30 runtime-resolution addendum
+
+T146 and T147 are now PASS with the Telemetry adapter, API/Worker registration, build, and runtime
+resolution. Accepted terminal/raw persistence and Latest advance passed in the local runtime
+verifier. T148 remains unchecked and `RUNNABLE_NOW` because its complete uniqueness,
+Rejected-without-raw, replay/conflict, and concurrency suite was not executed.

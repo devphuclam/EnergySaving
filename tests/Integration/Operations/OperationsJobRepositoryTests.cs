@@ -1,5 +1,4 @@
 using IUMP.Modules.Operations.Contracts;
-using IUMP.Tests.Unit.Fakes;
 
 namespace IUMP.Tests.Integration.Operations;
 
@@ -29,9 +28,10 @@ public sealed class OperationsJobRepositoryContractRunner
         Failures.Clear();
         var fixture = factory.Create();
         var now = new DateTime(2026, 7, 29, 12, 0, 0, DateTimeKind.Utc);
-        var type = new JobType("ContractHealth");
-        var key = new IdempotencyKey("point:contract");
-        var payload = SafeJobPayload.Create("pointId=50000000-0000-0000-0000-000000000001;purpose=health");
+        var suffix = Guid.NewGuid().ToString("N");
+        var type = new JobType($"ContractHealth-{suffix}");
+        var key = new IdempotencyKey($"point:contract:{suffix}");
+        var payload = SafeJobPayload.Create($"pointId={Guid.NewGuid():D};purpose=health");
 
         TestCount++;
         var first = await fixture.Scheduler.EnqueueAsync(type, key, payload, now);
@@ -73,14 +73,5 @@ public sealed class OperationsJobRepositoryContractRunner
     {
         AssertionCount++;
         if (!condition) failures.Add(message);
-    }
-}
-
-public sealed class FakeOperationsJobRepositoryTestProviderFactory : IOperationsJobRepositoryTestProviderFactory
-{
-    public OperationsJobRepositoryFixture Create()
-    {
-        var fake = new FakeOperationsRepositories();
-        return new OperationsJobRepositoryFixture(fake, fake);
     }
 }

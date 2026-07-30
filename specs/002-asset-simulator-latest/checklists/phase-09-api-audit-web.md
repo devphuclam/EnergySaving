@@ -79,3 +79,11 @@ endpoint delegates with fake ports and server principals.
 
 The approved database capability remains available, but this closure did not connect, migrate, or
 mutate it. Port `127.0.0.1:5432` was not contacted. No secret value is recorded here.
+
+## 2026-07-30 runtime-resolution addendum
+
+T192, T193, T202, and T205 are now PASS with local Npgsql adapters, composition registration,
+build, and runtime resolution. Basic command completion/replay/conflict, Audit append/replay/query,
+API login, and Web login passed. T206, T219, and T220 are reclassified `RUNNABLE_NOW` and remain
+unchecked because their complete task-specific PostgreSQL leases/crashes/poison/cleanup/E2E suites
+were not executed. T218 remains package-policy blocked.

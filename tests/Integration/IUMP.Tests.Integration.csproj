@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\Composition\Postgres\IUMP.Composition.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Api\IUMP.Api.csproj" />
+    <ProjectReference Include="..\..\src\Worker\IUMP.Worker.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\Postgres\IUMP.Infrastructure.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Modules\IAM\IUMP.Modules.IAM.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Catalog\IUMP.Modules.Catalog.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Organization\IUMP.Modules.Organization.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Acquisition\IUMP.Modules.Acquisition.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Telemetry\IUMP.Modules.Telemetry.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Operations\IUMP.Modules.Operations.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Integration\IUMP.Modules.Integration.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\IUMP.Modules.Audit.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Integration\CommandIdempotencyApiTests.cs" />
+    <Compile Include="Audit\AuditDeliveryTests.cs" />
+    <Compile Include="Acceptance\AcceptancePostgresTests.cs" />
+    <Compile Include="Runtime\PostgresRuntimeLeafTests.cs" />
+    <Compile Include="Operations\OperationsJobRepositoryTests.cs" />
+  </ItemGroup>
+</Project>

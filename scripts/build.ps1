@@ -11,17 +11,22 @@ if (-not (Test-CommandAvailable -Name 'dotnet')) {
 }
 
 $projects = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -Recurse -Filter '*.csproj'
-$packageRefs = @($projects | Select-String -Pattern '<PackageReference\b')
-if ($packageRefs.Count -gt 0) {
-    Write-Output 'backend-build: BLOCKED_BY_PACKAGE_POLICY [BLK-R0-001] - PackageReference exists'
-    exit 20
-}
-
 $missingAssets = @($projects | Where-Object {
     -not (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'obj\project.assets.json'))
 })
 if ($missingAssets.Count -gt 0) {
     Write-Output 'backend-build: BLOCKED_BY_PACKAGE_POLICY [BLK-R0-001] - assets not generated; run only the approved no-source restore documented in README'
+    exit 20
+}
+
+$packageProjects = @($projects | Where-Object {
+    Select-String -LiteralPath $_.FullName -Pattern '<PackageReference\b' -Quiet
+})
+$missingLocks = @($packageProjects | Where-Object {
+    -not (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'packages.lock.json') -PathType Leaf)
+})
+if ($missingLocks.Count -gt 0) {
+    Write-Output 'backend-build: BLOCKED_BY_PACKAGE_POLICY [BLK-R0-001] - package lock evidence is missing'
     exit 20
 }
 

@@ -73,3 +73,10 @@ Blocked tasks are exactly T050 (`BLOCKED_BY_PACKAGE_POLICY`), T051
 - Release-ready: **NO**; locked package capability and PostgreSQL adapter/migration execution remain
   external blockers.
 - Explicit stop: Phase 2 ends at **T055**. Do not execute T056 or later tasks in this invocation.
+
+## 2026-07-30 runtime-resolution addendum
+
+T050 and T051 are now PASS with the approved local Npgsql package, Catalog adapter, host
+registration, build, and runtime resolution. T052 is `RUNNABLE_NOW` but remains unchecked because
+the complete task-specific overlap/dependency/rollback+outbox PostgreSQL suite was not executed.
+Historical evidence above remains unchanged.

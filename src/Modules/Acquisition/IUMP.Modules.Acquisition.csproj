@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\Infrastructure\Postgres\IUMP.Infrastructure.Postgres.csproj" />
     <ProjectReference Include="..\Catalog\IUMP.Modules.Catalog.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
   </ItemGroup>
 </Project>

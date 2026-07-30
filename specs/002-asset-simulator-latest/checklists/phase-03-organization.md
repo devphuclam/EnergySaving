@@ -101,3 +101,10 @@ been committed. A commit SHA must be resolved externally (after `git add` and
 micro-closure. All pre-commit verification evidence (build, run, architecture,
 diff hygiene) has been captured above and in the updated `phase-03-red.md` and
 `phase-03-review.md`.
+
+## 2026-07-30 runtime-resolution addendum
+
+T072 and T073 are now PASS with the approved local Npgsql package, Organization adapter, host
+registration, build, and runtime resolution. T074 is `RUNNABLE_NOW` but remains unchecked because
+its complete lock/concurrent-decommission/rollback+outbox PostgreSQL suite was not executed.
+Historical evidence above remains unchanged.

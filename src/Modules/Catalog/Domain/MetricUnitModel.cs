@@ -14,7 +14,7 @@ public sealed class Metric
 {
     public MetricId Id { get; }
     public string Code { get; }
-    public string Name { get; }
+    public string Name { get; private set; }
     public MetricStatus Status { get; private set; }
     public long Version { get; private set; }
 
@@ -48,6 +48,15 @@ public sealed class Metric
 
     public bool IsActive() => Status == MetricStatus.Active;
 
+    public bool TryUpdate(string name)
+    {
+        var normalized = RequireText(name, nameof(name), 200);
+        if (normalized == Name) return false;
+        Name = normalized;
+        Version++;
+        return true;
+    }
+
     internal static string NormalizeCode(string value, string paramName, int maxLength)
     {
         var normalized = RequireText(value, paramName, maxLength).ToUpperInvariant();
@@ -77,7 +86,7 @@ public sealed class MetricUnit
 {
     public UnitId Id { get; }
     public string Code { get; }
-    public string Symbol { get; }
+    public string Symbol { get; private set; }
     public MetricUnitStatus Status { get; private set; }
     public long Version { get; private set; }
 
@@ -110,6 +119,15 @@ public sealed class MetricUnit
     }
 
     public bool IsActive() => Status == MetricUnitStatus.Active;
+
+    public bool TryUpdate(string symbol)
+    {
+        var normalized = Metric.RequireText(symbol, nameof(symbol), 50);
+        if (normalized == Symbol) return false;
+        Symbol = normalized;
+        Version++;
+        return true;
+    }
 }
 
 public sealed class MetricUnitCompatibility

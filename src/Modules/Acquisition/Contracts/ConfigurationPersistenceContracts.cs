@@ -111,10 +111,16 @@ public sealed record ConfigurationCallerSnapshot(
     string Username,
     bool IsActive,
     IReadOnlyCollection<string> Roles,
-    IReadOnlyCollection<string> SiteScopes)
+    IReadOnlyCollection<string> SiteScopes,
+    IReadOnlyCollection<string>? AreaScopes = null)
 {
     public bool HasRole(string role) => Roles.Any(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase));
     public bool HasSiteScope(string siteId) => SiteScopes.Any(s => string.Equals(s, siteId, StringComparison.OrdinalIgnoreCase));
+    public bool HasAreaScope(string areaId) => (AreaScopes ?? Array.Empty<string>())
+        .Any(s => string.Equals(s, areaId, StringComparison.OrdinalIgnoreCase));
+    public bool HasScope(string siteId, string? areaId) =>
+        HasSiteScope(siteId) ||
+        (!string.IsNullOrWhiteSpace(areaId) && HasAreaScope(areaId));
 }
 
 public interface IConfigurationCallerSnapshotProvider
@@ -133,6 +139,7 @@ public interface IAcquisitionConfigurationRepository
     Task<SimulatorConfigurationHead?> GetBySourceIdAsync(Guid sourceId, CancellationToken ct = default);
     Task<SimulatorConfigurationHead?> GetHeadAsync(Guid configurationId, CancellationToken ct = default);
     Task<SimulatorConfigurationVersion?> GetVersionAsync(Guid configurationId, long configurationVersion, CancellationToken ct = default);
+    Task<IReadOnlyList<SimulatorConfigurationHead>> ListHeadsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<SimulatorConfigurationVersion>> ListVersionsAsync(Guid configurationId, CancellationToken ct = default);
     Task CreateAsync(SimulatorConfigurationHead head, SimulatorConfigurationVersion firstVersion, CancellationToken ct = default);
     Task AppendVersionAsync(Guid configurationId, long expectedAggregateVersion, SimulatorConfigurationVersion nextVersion, CancellationToken ct = default);

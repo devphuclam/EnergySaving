@@ -1,5 +1,6 @@
 namespace IUMP.Api;
 
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -70,6 +71,7 @@ public static class ConfigurationEndpoints
         MapMutation(group, "/metrics/{metricId:guid}/compatible-units", "Catalog.SetMetricCompatibleUnits.v1");
         MapMutation(group, "/units", "Catalog.CreateUnit.v1");
         MapMutation(group, "/data-sources", "Acquisition.CreateSource.v1");
+        MapMutation(group, "/data-sources/{sourceId:guid}/activate", "Acquisition.ActivateSource.v1");
         MapMutation(group, "/source-point-mappings", "Acquisition.CreateMapping.v1");
         MapMutation(group, "/simulator-configurations", "Acquisition.CreateSimulatorConfiguration.v1");
         MapMutation(group, "/simulator-configurations/validate", "Acquisition.ValidateSimulatorConfiguration.v1");
@@ -220,26 +222,83 @@ public static class ConfigurationEndpoints
             return Results.Problem("A valid If-Match is required.", statusCode: StatusCodes.Status400BadRequest);
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
         var expectedVersion = requiresExpectedVersion ? parsedExpectedVersion : (long?)null;
-        var name = request.Query["name"].FirstOrDefault() ?? string.Empty;
-        var fields = targetId.HasValue
-            ? new[] { CommandFingerprintField.Uuid("targetId", targetId.Value), CommandFingerprintField.String("name", name) }
-            : new[] { CommandFingerprintField.String("name", name) };
+        var bodyFields = await ReadCommandFieldsAsync(request, ct);
+        var queryName = request.Query["name"].FirstOrDefault();
+        var name = queryName ?? bodyFields.FirstOrDefault(field =>
+            field.Name.Equals("name", StringComparison.OrdinalIgnoreCase))?.Value?.ToString() ?? string.Empty;
+        var fields = new List<CommandFingerprintField>();
+        if (targetId.HasValue)
+            fields.Add(CommandFingerprintField.Uuid("targetId", targetId.Value));
+        fields.Add(CommandFingerprintField.String("httpMethod", request.Method));
+        fields.AddRange(bodyFields);
+        if (!fields.Any(field => field.Name.Equals("name", StringComparison.OrdinalIgnoreCase)))
+            fields.Add(CommandFingerprintField.String("name", name));
         var identity = new CommandIdentity(principal.UserId, operationCode, key!);
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
             operationCode, principal.UserId, "Configuration", null, "Configuration", targetId, expectedVersion, fields));
         return await ExecuteWithTransactionAsync(operationCode, targetId, expectedVersion, name, identity, fingerprint,
-            commands, executor, principal, transactionFactory, ct);
+            fields, commands, executor, principal, transactionFactory, ct);
     }
 
     private static async Task<IResult> ExecuteWithTransactionAsync(string operationCode, Guid? targetId,
         long? expectedVersion, string name, CommandIdentity identity, byte[] fingerprint,
+        IReadOnlyList<CommandFingerprintField> fields,
         IConfigurationCommandPort commands, IdempotentCommandExecutor executor,
         ServerPrincipal principal, IHostTransactionFactory transactionFactory, CancellationToken ct)
     {
         var response = await executor.ExecuteTransactionalAsync(identity, fingerprint, transactionFactory,
             (transaction, token) => commands.ExecuteAsync(operationCode,
-                new ConfigurationCommandRequest(targetId, name, expectedVersion,
-                    new[] { CommandFingerprintField.String("name", name) }), principal, transaction, token), ct);
+                new ConfigurationCommandRequest(targetId, name, expectedVersion, fields),
+                principal, transaction, token), ct);
         return ToResult(response);
     }
+
+    private static async Task<IReadOnlyList<CommandFingerprintField>> ReadCommandFieldsAsync(
+        HttpRequest request,
+        CancellationToken ct)
+    {
+        if (request.ContentLength is 0 || request.Body == Stream.Null ||
+            request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) != true)
+            return Array.Empty<CommandFingerprintField>();
+
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(request.Body,
+                new JsonDocumentOptions { AllowTrailingCommas = false }, ct);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return Array.Empty<CommandFingerprintField>();
+            var fields = new List<CommandFingerprintField>();
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Name.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Contains("token", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                fields.Add(ToFingerprintField(property.Name, property.Value));
+            }
+            return fields;
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<CommandFingerprintField>();
+        }
+    }
+
+    private static CommandFingerprintField ToFingerprintField(string name, JsonElement value) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.Null => CommandFingerprintField.Null(name),
+            JsonValueKind.True => CommandFingerprintField.Bool(name, true),
+            JsonValueKind.False => CommandFingerprintField.Bool(name, false),
+            JsonValueKind.Number when value.TryGetInt64(out var integer) =>
+                CommandFingerprintField.Int64(name, integer),
+            JsonValueKind.Number when value.TryGetDecimal(out var number) =>
+                CommandFingerprintField.Decimal(name, number),
+            JsonValueKind.String when value.TryGetGuid(out var guid) =>
+                CommandFingerprintField.Uuid(name, guid),
+            JsonValueKind.String when value.TryGetDateTime(out var timestamp) =>
+                CommandFingerprintField.Timestamp(name, timestamp.ToUniversalTime()),
+            JsonValueKind.String => CommandFingerprintField.String(name, value.GetString() ?? string.Empty),
+            _ => CommandFingerprintField.String(name, value.GetRawText())
+        };
 }

@@ -10,19 +10,22 @@ public sealed class TelemetryPersistenceService
     private readonly ILatestProjectionRepository _latest;
     private readonly IMeasurementAcceptedEventWriter _events;
     private readonly ITelemetryProviderSnapshotQuery _providers;
+    private readonly ISourceHealthProjectionRepository? _health;
 
     public TelemetryPersistenceService(
         ITelemetryFlowUnitOfWork unitOfWork,
         ITelemetryIngestionRepository repository,
         ILatestProjectionRepository latest,
         IMeasurementAcceptedEventWriter events,
-        ITelemetryProviderSnapshotQuery providers)
+        ITelemetryProviderSnapshotQuery providers,
+        ISourceHealthProjectionRepository? health = null)
     {
         _unitOfWork = unitOfWork;
         _repository = repository;
         _latest = latest;
         _events = events;
         _providers = providers;
+        _health = health;
     }
 
     public async Task<TelemetryIngestionResult> PersistAcceptedAsync(
@@ -83,6 +86,15 @@ public sealed class TelemetryPersistenceService
             if (quality != MeasurementQuality.Bad)
                 await _latest.StageAdvanceAsync(
                     latestCandidate, latestAdvanced, transaction, ct);
+            if (_health is not null)
+                _ = await _health.CompareAndSetAsync(
+                    new SourceHealthEvaluationInput(
+                        request.PointId, request.SourceId, provider.SiteId,
+                        provider.AreaId, provider.PointStatus, provider.SourceStatus,
+                        "Running", 1, 1, 0, receivedAtUtc,
+                        1, 3, provider.PointVersion, provider.SourceVersion,
+                        Math.Max(provider.PointVersion, provider.SourceVersion)),
+                    SourceHealthStatus.Online, completedAtUtc, transaction, ct);
         await transaction.AcquireLockAsync(
             TelemetryFlowLockTarget.IntegrationOutbox, measurementId.ToString("D"), ct);
         await _events.StageAsync(MeasurementAcceptedEventFactory.Create(

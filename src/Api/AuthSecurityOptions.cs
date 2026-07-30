@@ -55,7 +55,9 @@ public static class AuthSecurityOptions
 
     public const string LoginError = "Authentication failed.";
 
-    public static IServiceCollection AddAuthAntiforgery(this IServiceCollection services)
+    public static IServiceCollection AddAuthAntiforgery(
+        this IServiceCollection services,
+        bool allowInsecureDevelopment = false)
     {
         services.AddAntiforgery(options =>
         {
@@ -63,7 +65,9 @@ public static class AuthSecurityOptions
             options.HeaderName = "X-XSRF-TOKEN";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Cookie.SecurePolicy = allowInsecureDevelopment
+                ? CookieSecurePolicy.None
+                : CookieSecurePolicy.Always;
         });
         return services;
     }

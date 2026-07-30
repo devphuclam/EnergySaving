@@ -36,4 +36,5 @@ public sealed record MeSnapshot(
     string Username,
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> Scopes,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    IReadOnlyList<string>? AreaScopes = null);

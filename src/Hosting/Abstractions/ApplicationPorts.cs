@@ -1,20 +1,34 @@
 using IUMP.BuildingBlocks.Persistence;
-using IUMP.Api;
 using IUMP.Modules.Integration.Contracts;
 
 namespace IUMP.Api.Infrastructure;
 
 /// <summary>Identity established by the server authentication middleware.</summary>
 public sealed record ServerPrincipal(Guid UserId, string Username, IReadOnlySet<string> SiteIds,
-    IReadOnlySet<string> AreaIds, bool IsAdministrator = false)
+    IReadOnlySet<string> AreaIds, bool IsAdministrator = false,
+    IReadOnlySet<string>? Roles = null,
+    IReadOnlySet<string>? Capabilities = null)
 {
     public bool HasScope(string? siteId, string? areaId) => IsAdministrator ||
         (siteId is not null && SiteIds.Contains(siteId)) || (areaId is not null && AreaIds.Contains(areaId));
+
+    public bool HasRole(string role) =>
+        (IsAdministrator &&
+         role.Equals("Administrator", StringComparison.OrdinalIgnoreCase)) ||
+        Roles?.Contains(role) == true;
+
+    public bool HasCapability(string capability) =>
+        IsAdministrator || Capabilities?.Contains(capability) == true;
 }
 
 public interface IServerPrincipalAccessor
 {
     ServerPrincipal? Current { get; }
+}
+
+public sealed class RuntimeScopeDeniedException : Exception
+{
+    public RuntimeScopeDeniedException() : base("NOT_FOUND") { }
 }
 
 public interface IUtcClock
@@ -47,7 +61,8 @@ public interface IConfigurationQueryPort
 
 public interface ISimulatorCommandPort
 {
-    Task<CommandExecutionResult> ExecuteAsync(string operationCode, Guid targetId, ServerPrincipal principal,
+    Task<CommandExecutionResult> ExecuteAsync(string operationCode, Guid targetId, long? expectedVersion,
+        ServerPrincipal principal,
         IHostTransaction transaction, CancellationToken ct = default);
 }
 
@@ -55,6 +70,11 @@ public interface ISimulatorQueryPort
 {
     Task<object> GetRunAsync(Guid runId, ServerPrincipal principal, CancellationToken ct = default);
 }
+
+public sealed record LatestQueryResult(Guid PointId, double? NumericValue, string? UnitCode,
+    string Status, bool IsNoData, string? ReasonCode = null,
+    DateTime? SourceTimestampUtc = null, DateTime? ReceivedAtUtc = null,
+    string? RunStatus = null, long Generated = 0, long Accepted = 0, long Rejected = 0);
 
 public interface ITelemetryQueryPort
 {
@@ -75,4 +95,12 @@ public interface IAuditQueryPort
 public interface ITransactionalCommandMutation
 {
     Task<CommandExecutionResult> ExecuteAsync(IHostTransaction transaction, CancellationToken ct = default);
+}
+
+public sealed record CommandExecutionResult(int StatusCode, string Body, string? ResourceReference,
+    string? Location = null, string? ETag = null, string? CorrelationId = null)
+{
+    public static CommandExecutionResult Ok(int statusCode, string body, string? resourceReference,
+        string? location = null, string? etag = null, string? correlationId = null) =>
+        new(statusCode, body, resourceReference, location, etag, correlationId);
 }

@@ -4,6 +4,12 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Infrastructure\Postgres\IUMP.Infrastructure.Postgres.csproj" />
+    <ProjectReference Include="..\Composition\Postgres\IUMP.Composition.Postgres.csproj" />
+    <ProjectReference Include="..\Modules\IAM\IUMP.Modules.IAM.csproj" />
+    <ProjectReference Include="..\Modules\Catalog\IUMP.Modules.Catalog.csproj" />
+    <ProjectReference Include="..\Modules\Organization\IUMP.Modules.Organization.csproj" />
+    <ProjectReference Include="..\Modules\Telemetry\IUMP.Modules.Telemetry.csproj" />
     <ProjectReference Include="..\Modules\Operations\IUMP.Modules.Operations.csproj" />
     <ProjectReference Include="..\Modules\Integration\IUMP.Modules.Integration.csproj" />
     <ProjectReference Include="..\Modules\Audit\IUMP.Modules.Audit.csproj" />

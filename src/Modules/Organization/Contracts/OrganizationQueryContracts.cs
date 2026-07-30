@@ -94,6 +94,7 @@ public sealed record OrganizationCallerSnapshot(
 {
     public bool HasRole(string role) => Roles.Any(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase));
     public bool HasSiteScope(string siteId) => SiteScopes.Any(s => string.Equals(s, siteId, StringComparison.OrdinalIgnoreCase));
+    public bool HasAreaScope(string areaId) => AreaScopes.Any(s => string.Equals(s, areaId, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed record OrganizationAuthorizationDecision(bool IsAllowed, string Code, string? Error)

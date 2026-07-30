@@ -80,7 +80,7 @@ Harness Full: 10 PASS, 3 BLOCKED (database psql, CI, container)
 - Contract model: `ulong` accepting 0 through `UInt64.MaxValue`.
 - Event payload: `deterministicSeed` (invariant decimal string),
   `deterministicSeedHex` (lowercase 16-hex).
-- Tests: 0, 42, 123456789, `UInt64.MaxValue` accepted; historical immutable.
+- Tests: 0, 42, 987654321, `UInt64.MaxValue` accepted; historical immutable.
 - Already proven in prior baseline; no change required.
 
 ## 7. Source scope adapter result (CORR-B/C/J)
@@ -265,3 +265,9 @@ endpoints, or Phase 5 files in this invocation.
 - Harness Full: 10 PASS, 3 BLOCKED (expected env gaps).
 - Chronological RED captured with actual test output.
 - Working tree clean at baseline `8331b6f57512d205af6eecac8ffce212e5e364d8`.
+
+## 2026-07-30 runtime-resolution addendum
+
+T089 is now PASS with the Acquisition configuration adapter and API registration. T090 is
+`RUNNABLE_NOW` but remains unchecked because the full Mapping/readiness PostgreSQL suite was not
+executed. The migration chain itself passed clean and N-1 verification under T233.

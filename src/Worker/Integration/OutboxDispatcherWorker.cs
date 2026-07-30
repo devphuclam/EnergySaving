@@ -1,8 +1,12 @@
 using IUMP.Modules.Integration.Contracts;
+using IUMP.BuildingBlocks.Persistence;
 
 namespace IUMP.Worker.Integration;
 
-public sealed class OutboxDispatcherWorker(IIntegrationDeliveryRepository repository, RequiredConsumerRegistry registry)
+public sealed class OutboxDispatcherWorker(
+    IIntegrationDeliveryRepository repository,
+    RequiredConsumerRegistry registry,
+    IHostTransactionFactory? transactionFactory = null)
 {
     public static IReadOnlyList<TimeSpan> RetrySchedule { get; } = new[]
     {
@@ -40,9 +44,40 @@ public sealed class OutboxDispatcherWorker(IIntegrationDeliveryRepository reposi
                     }
                     throw new InvalidOperationException("CONSUMER_CLAIM_UNAVAILABLE");
                 }
-                var handled = await consumer.Handler(claimed);
-                if (!handled) throw new InvalidOperationException("CONSUMER_NOT_COMPLETE");
-                await repository.CompleteAsync(inbox, ct);
+                if (transactionFactory is not null &&
+                    repository is ITransactionalInboxRepository transactionalInbox)
+                {
+                    await using var transaction =
+                        await transactionFactory.BeginAsync(ct);
+                    try
+                    {
+                        var handled = await consumer.Handler(
+                            claimed, transaction, ct);
+                        if (!handled)
+                            throw new InvalidOperationException(
+                                "CONSUMER_NOT_COMPLETE");
+                        await transactionalInbox.CompleteAsync(
+                            inbox, transaction, ct);
+                        if (transaction is IHostTransactionController controller)
+                            await controller.CommitAsync(ct);
+                    }
+                    catch
+                    {
+                        if (transaction is IHostTransactionController controller)
+                            await controller.RollbackAsync(
+                                CancellationToken.None);
+                        throw;
+                    }
+                }
+                else
+                {
+                    var handled = await consumer.Handler(
+                        claimed, null, ct);
+                    if (!handled)
+                        throw new InvalidOperationException(
+                            "CONSUMER_NOT_COMPLETE");
+                    await repository.CompleteAsync(inbox, ct);
+                }
                 completedConsumers++;
             }
             if (completedConsumers != consumers.Count) throw new InvalidOperationException("CONSUMER_COMPLETION_INCOMPLETE");

@@ -39,7 +39,7 @@ public sealed class SimulatorRunCommandService
         {
             var pinnedPoints = await _runs.ListPointStatesAsync(existing.RunId, ct);
             var existingAuthorization = Authorize(
-                caller, pinnedPoints.Select(point => point.SiteId));
+                caller, pinnedPoints.Select(point => (point.SiteId, point.AreaId)));
             if (!existingAuthorization.Allowed)
                 return RunCommandResult.Failure(
                     existingAuthorization.Code, existingAuthorization.Message);
@@ -53,7 +53,8 @@ public sealed class SimulatorRunCommandService
         var snapshot = await _snapshots.ResolveAsync(command.SourceId, now, ct);
         if (snapshot is null || snapshot.SourceId != command.SourceId)
             return RunCommandResult.Failure("NOT_FOUND", "The target is not visible.");
-        var authorization = Authorize(caller, snapshot.Points.Select(point => point.SiteId));
+        var authorization = Authorize(
+            caller, snapshot.Points.Select(point => (point.SiteId, point.AreaId)));
         if (!authorization.Allowed)
             return RunCommandResult.Failure(authorization.Code, authorization.Message);
         var validation = ValidateStart(snapshot, now);
@@ -150,7 +151,8 @@ public sealed class SimulatorRunCommandService
         if (run is null) return RunCommandResult.Failure("NOT_FOUND", "The target is not visible.");
         var points = await _runs.ListPointStatesAsync(run.RunId, ct);
         var caller = await _callers.ResolveAsync(command.ActorUserId, ct);
-        var authorization = Authorize(caller, points.Select(point => point.SiteId));
+        var authorization = Authorize(
+            caller, points.Select(point => (point.SiteId, point.AreaId)));
         if (!authorization.Allowed)
             return RunCommandResult.Failure(authorization.Code, authorization.Message);
         if (run.Version != command.ExpectedVersion)
@@ -194,7 +196,8 @@ public sealed class SimulatorRunCommandService
         _runs.ListRunningAsync(ct);
 
     private static (bool Allowed, string Code, string Message) Authorize(
-        RunCallerSnapshot? caller, IEnumerable<string>? trustedSites)
+        RunCallerSnapshot? caller,
+        IEnumerable<(string SiteId, string? AreaId)>? trustedScopes)
     {
         if (caller is null || !caller.IsActive)
             return (false, "FORBIDDEN", "Caller is not authorized.");
@@ -202,8 +205,10 @@ public sealed class SimulatorRunCommandService
             return (true, "OK", string.Empty);
         if (!caller.HasRole("Engineer"))
             return (false, "FORBIDDEN", "Caller is not authorized.");
-        var sites = trustedSites?.Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
-        if (sites.Count == 0 || sites.Any(site => !caller.HasSiteScope(site)))
+        var scopes = trustedScopes?.Distinct().ToList() ??
+            new List<(string SiteId, string? AreaId)>();
+        if (scopes.Count == 0 ||
+            scopes.Any(scope => !caller.HasScope(scope.SiteId, scope.AreaId)))
             return (false, "NOT_FOUND", "The target is not visible.");
         return (true, "OK", string.Empty);
     }

@@ -34,7 +34,7 @@ Assert-Source 'src\Worker\Integration\OutboxDispatcherWorker.cs' `
     @('completedConsumers', 'RequiredConsumers', 'MarkPublishedAsync') 'no false Published evidence'
 Assert-Source 'src\Api\Infrastructure\IdempotentCommandExecutor.cs' `
     @('OriginalCorrelationId', 'IDEMPOTENCY_CONFLICT', 'OriginalResult') 'safe replay/error response'
-Assert-Source 'src\Api\Infrastructure\ApplicationPorts.cs' `
+Assert-Source 'src\Hosting\Abstractions\ApplicationPorts.cs' `
     @('ServerPrincipal', 'IServerPrincipalAccessor') 'server identity authority'
 Assert-Source 'tests\Unit\Acceptance\AuthorizationNegativeTests.cs' `
     @('client role, scope and capability headers must be ignored', 'filter', 'lookup', 'page') 'client identity rejection'

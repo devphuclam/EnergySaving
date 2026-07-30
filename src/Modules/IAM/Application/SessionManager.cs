@@ -123,7 +123,13 @@ public sealed class AuthHandler : IAuthService
             ?? Array.Empty<string>();
 
         var scopes = _eligibility.GetScopesForUser(user.Id)
-            .Select(s => s.SiteId?.ToString("D") ?? "")
+            .Where(s => s.SiteId.HasValue && !s.AreaId.HasValue)
+            .Select(s => s.SiteId!.Value.ToString("D"))
+            .ToList() as IReadOnlyList<string>
+            ?? Array.Empty<string>();
+        var areaScopes = _eligibility.GetScopesForUser(user.Id)
+            .Where(s => s.AreaId.HasValue)
+            .Select(s => s.AreaId!.Value.ToString("D"))
             .ToList() as IReadOnlyList<string>
             ?? Array.Empty<string>();
 
@@ -136,7 +142,8 @@ public sealed class AuthHandler : IAuthService
             user.Username,
             roles,
             scopes,
-            caps);
+            caps,
+            areaScopes);
     }
 
     public bool RevokeSession(string tokenHash, DateTime now)

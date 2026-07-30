@@ -27,7 +27,7 @@ public static class ActivateMeasurementPoint
         PointId pointId,
         long expectedVersion,
         OrganizationCommandContext ctx,
-        IOrganizationCommandRepository targetLookup,
+        IOrganizationActivationTargetQuery targetLookup,
         IActivationIdentityParticipant iam,
         IActivationOrganizationParticipant organization,
         IActivationCatalogParticipant catalog,
@@ -40,7 +40,9 @@ public static class ActivateMeasurementPoint
         if (caller is null || !caller.IsActive) return ActivationResult.Failure(ActivationOutcome.InactiveUser, "FORBIDDEN", "Caller is not authorized.");
         var scope = await targetLookup.GetPointScopeAsync(pointId, ct);
         if (scope is null) return ActivationResult.Failure(ActivationOutcome.NotFound, "NOT_FOUND", "The target is not visible.");
-        var allowed = await authorization.AuthorizeAsync(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var allowed = await authorization.AuthorizeTargetAsync(
+            ctx.ActorUserId, OrganizationResource.SiteChild,
+            scope.SiteId.ToString(), scope.AreaId?.ToString(), ct);
         if (!allowed.IsAllowed)
             return ActivationResult.Failure(allowed.Code.Equals("NotFound", StringComparison.OrdinalIgnoreCase) ? ActivationOutcome.NotFound : ActivationOutcome.Forbidden,
                 allowed.Code.Equals("NotFound", StringComparison.OrdinalIgnoreCase) ? "NOT_FOUND" : "FORBIDDEN", "The target is not visible.");

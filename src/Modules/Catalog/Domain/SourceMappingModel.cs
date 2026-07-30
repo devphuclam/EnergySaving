@@ -13,7 +13,7 @@ public sealed class DataSource
 {
     public DataSourceId Id { get; }
     public string Code { get; }
-    public string Name { get; }
+    public string Name { get; private set; }
     public SourceType SourceType { get; }
     public SourceStatus Status { get; private set; }
     public long Version { get; private set; }
@@ -51,6 +51,16 @@ public sealed class DataSource
     }
 
     public bool IsDecommissioned => Status == SourceStatus.Decommissioned;
+
+    public bool TryUpdate(string name)
+    {
+        if (IsDecommissioned) return false;
+        var normalized = Metric.RequireText(name, nameof(name), 200);
+        if (normalized == Name) return false;
+        Name = normalized;
+        Version++;
+        return true;
+    }
 }
 
 public readonly record struct MappingId(Guid Value)
@@ -67,7 +77,7 @@ public sealed class SourcePointMapping
     public DataSourceId DataSourceId { get; }
     public string PointId { get; }
     public MappingStatus Status { get; private set; }
-    public DateTime EffectiveFrom { get; }
+    public DateTime EffectiveFrom { get; private set; }
     public DateTime? EffectiveTo { get; private set; }
     public long Version { get; private set; }
 
@@ -101,6 +111,20 @@ public sealed class SourcePointMapping
     public bool TrySupersede() { if (Status is not (MappingStatus.Active or MappingStatus.Inactive)) return false; Status = MappingStatus.Superseded; Version++; return true; }
     public bool IsSuperseded => Status == MappingStatus.Superseded;
     public bool IsActive => Status == MappingStatus.Active;
+
+    public bool TryUpdatePeriod(DateTime effectiveFrom, DateTime? effectiveTo)
+    {
+        if (Status is MappingStatus.Active or MappingStatus.Superseded) return false;
+        var from = NormalizeUtc(effectiveFrom);
+        DateTime? to = effectiveTo.HasValue ? NormalizeUtc(effectiveTo.Value) : null;
+        if (to.HasValue && to.Value <= from)
+            throw new ArgumentException("EffectiveTo must be greater than EffectiveFrom.", nameof(effectiveTo));
+        if (from == EffectiveFrom && to == EffectiveTo) return false;
+        EffectiveFrom = from;
+        EffectiveTo = to;
+        Version++;
+        return true;
+    }
 
     public bool OverlapsWith(SourcePointMapping other)
     {

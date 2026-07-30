@@ -53,6 +53,27 @@ public static class ConfigurationEndpointTests
             new Guid(areaContext.Request.RouteValues["areaId"]!.ToString()!), areaContext.Request,
             commands, executor, accessor, transactionFactory, CancellationToken.None);
         assertions++; if (commands.MutationCalls != 2 || commands.LastExpectedVersion != 3) failures.Add("Area PUT must forward ExpectedVersion=3");
+        // JSON command fields are canonicalized into the fingerprint and forwarded to the runtime port.
+        var bodyContext = new DefaultHttpContext();
+        bodyContext.Request.Method = "POST";
+        bodyContext.Request.Headers["Idempotency-Key"] = "point-json-body";
+        var bodyJson = """
+            {"name":"Point One","metricId":"11111111-1111-4111-8111-111111111111",
+             "expectedIntervalSeconds":1,"enabled":true}
+            """;
+        bodyContext.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(bodyJson));
+        bodyContext.Request.ContentType = "application/json";
+        await ConfigurationEndpoints.ExecuteGenericAsync(
+            "Organization.CreatePoint.v1", Guid.NewGuid(), bodyContext.Request,
+            commands, executor, accessor, transactionFactory, CancellationToken.None);
+        assertions++;
+        if (!commands.LastFields.Any(field => field.Name == "metricId" &&
+                Equals(field.Value, Guid.Parse("11111111-1111-4111-8111-111111111111"))) ||
+            !commands.LastFields.Any(field => field.Name == "expectedIntervalSeconds" &&
+                Convert.ToInt64(field.Value) == 1) ||
+            !commands.LastFields.Any(field => field.Name == "enabled" &&
+                Equals(field.Value, true)))
+            failures.Add("JSON command body must be typed, fingerprinted and forwarded to the runtime port");
         // Missing If-Match on PUT
         var noIfMatchContext = new DefaultHttpContext();
         noIfMatchContext.Request.Method = "PUT";
@@ -75,7 +96,7 @@ public static class ConfigurationEndpointTests
         var sourceLifecycleResult = await ConfigurationEndpoints.ExecuteGenericAsync("Acquisition.SuspendSource.v1",
             new Guid(sourceContext.Request.RouteValues["sourceId"]!.ToString()!), sourceContext.Request,
             commands, executor, accessor, transactionFactory, CancellationToken.None);
-        assertions++; if (commands.MutationCalls != 3 || commands.LastTargetId != new Guid(sourceContext.Request.RouteValues["sourceId"]!.ToString()!) ||
+        assertions++; if (commands.MutationCalls != 4 || commands.LastTargetId != new Guid(sourceContext.Request.RouteValues["sourceId"]!.ToString()!) ||
             commands.LastExpectedVersion != 5)
             failures.Add("Source lifecycle must forward sourceId and ExpectedVersion");
         var mappingContext = new DefaultHttpContext();
@@ -86,7 +107,7 @@ public static class ConfigurationEndpointTests
         var mappingLifecycleResult = await ConfigurationEndpoints.ExecuteGenericAsync("Acquisition.ActivateMapping.v1",
             new Guid(mappingContext.Request.RouteValues["mappingId"]!.ToString()!), mappingContext.Request,
             commands, executor, accessor, transactionFactory, CancellationToken.None);
-        assertions++; if (commands.MutationCalls != 4 || commands.LastTargetId != new Guid(mappingContext.Request.RouteValues["mappingId"]!.ToString()!) ||
+        assertions++; if (commands.MutationCalls != 5 || commands.LastTargetId != new Guid(mappingContext.Request.RouteValues["mappingId"]!.ToString()!) ||
             commands.LastExpectedVersion != 2)
             failures.Add("Mapping lifecycle must forward mappingId and ExpectedVersion");
         var configContext = new DefaultHttpContext();
@@ -97,7 +118,7 @@ public static class ConfigurationEndpointTests
         var configLifecycleResult = await ConfigurationEndpoints.ExecuteGenericAsync("Acquisition.UpdateSimulatorConfiguration.v1",
             new Guid(configContext.Request.RouteValues["configurationId"]!.ToString()!), configContext.Request,
             commands, executor, accessor, transactionFactory, CancellationToken.None);
-        assertions++; if (commands.MutationCalls != 5 || commands.LastTargetId != new Guid(configContext.Request.RouteValues["configurationId"]!.ToString()!) ||
+        assertions++; if (commands.MutationCalls != 6 || commands.LastTargetId != new Guid(configContext.Request.RouteValues["configurationId"]!.ToString()!) ||
             commands.LastExpectedVersion != 1)
             failures.Add("SimulatorConfiguration update must forward configurationId and ExpectedVersion");
         // Every target-bearing configuration route binds and forwards its exact identifier.

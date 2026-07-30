@@ -30,7 +30,10 @@ public sealed class RealHostDelay : IHostDelay
     public Task DelayAsync(int milliseconds, CancellationToken ct = default) => Task.Delay(milliseconds, ct);
 }
 
-public sealed class HostTransactionCoordinator : IHostTransaction, IHostTransactionController
+public sealed class HostTransactionCoordinator :
+    IHostTransaction,
+    IHostTransactionController,
+    IHostTransactionAccessor
 {
     public static IReadOnlyList<LockTarget> RequiredTargets { get; } = Enum.GetValues<LockTarget>();
 
@@ -56,6 +59,8 @@ public sealed class HostTransactionCoordinator : IHostTransaction, IHostTransact
     public IReadOnlyList<LockRequest> LockTrace => _lockTrace.AsReadOnly();
     public bool IsCompleted => _completed;
     public bool IsBegun => _begun;
+    public IHostTransaction InnerTransaction =>
+        _innerTx ?? throw new InvalidOperationException("TRANSACTION_NOT_BEGUN");
 
     public void RegisterParticipant(LockTarget target, IHostTransactionParticipant participant)
     {

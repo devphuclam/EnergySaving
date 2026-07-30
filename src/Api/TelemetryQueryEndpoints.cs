@@ -5,9 +5,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using IUMP.Api.Infrastructure;
 
-public sealed record LatestQueryResult(Guid PointId, double? NumericValue, string? UnitCode, string Status, bool IsNoData,
-    string? ReasonCode = null);
-
 public static class TelemetryQueryEndpoints
 {
     public static bool UsesCommandRegistry => false;
@@ -17,19 +14,22 @@ public static class TelemetryQueryEndpoints
         IServerPrincipalAccessor principalAccessor, CancellationToken ct)
     {
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
-        return Results.Ok(await query.GetLatestAsync(pointId, principal, ct));
+        try { return Results.Ok(await query.GetLatestAsync(pointId, principal, ct)); }
+        catch (RuntimeScopeDeniedException) { return Results.NotFound(); }
     }
     public static async Task<IResult> HealthAsync(Guid pointId, ITelemetryQueryPort query,
         IServerPrincipalAccessor principalAccessor, CancellationToken ct)
     {
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
-        return Results.Ok(await query.GetSourceHealthAsync(pointId, principal, ct));
+        try { return Results.Ok(await query.GetSourceHealthAsync(pointId, principal, ct)); }
+        catch (RuntimeScopeDeniedException) { return Results.NotFound(); }
     }
     public static async Task<IResult> CurrentAsync(Guid siteId, ITelemetryQueryPort query,
         IServerPrincipalAccessor principalAccessor, CancellationToken ct)
     {
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
-        return Results.Ok(await query.GetCurrentAsync(siteId, principal, ct));
+        try { return Results.Ok(await query.GetCurrentAsync(siteId, principal, ct)); }
+        catch (RuntimeScopeDeniedException) { return Results.NotFound(); }
     }
     public static IEndpointRouteBuilder MapTelemetryQueryEndpoints(this IEndpointRouteBuilder endpoints)
     {

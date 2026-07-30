@@ -8,7 +8,22 @@ public interface IOrganizationTransaction
     Task RollbackAsync(CancellationToken ct = default);
 }
 
-public interface IOrganizationCommandRepository
+/// <summary>
+/// Public read seam for host orchestration that needs immutable Organization
+/// targeting facts without depending on the module's command repository.
+/// </summary>
+public interface IOrganizationActivationTargetQuery
+{
+    Task<MeasurementPoint?> GetPointAsync(
+        PointId id,
+        CancellationToken ct = default);
+
+    Task<OrganizationTargetScope?> GetPointScopeAsync(
+        PointId id,
+        CancellationToken ct = default);
+}
+
+public interface IOrganizationCommandRepository : IOrganizationActivationTargetQuery
 {
     Task<Site?> GetSiteAsync(SiteId id, CancellationToken ct = default);
     Task<Site?> FindSiteByCodeAsync(string code, CancellationToken ct = default);
@@ -31,8 +46,6 @@ public interface IOrganizationCommandRepository
     Task<IReadOnlyList<Asset>> GetAssetsForAreaAsync(AreaId areaId, CancellationToken ct = default);
     Task<IReadOnlyList<Asset>> GetAssetsForSiteAsync(SiteId siteId, CancellationToken ct = default);
 
-    Task<MeasurementPoint?> GetPointAsync(PointId id, CancellationToken ct = default);
-    Task<OrganizationTargetScope?> GetPointScopeAsync(PointId id, CancellationToken ct = default);
     Task<MeasurementPoint?> FindPointByCodeAsync(SiteId siteId, string code, CancellationToken ct = default);
     Task AddPointAsync(MeasurementPoint point, CancellationToken ct = default);
     Task UpdatePointAsync(MeasurementPoint point, CancellationToken ct = default);

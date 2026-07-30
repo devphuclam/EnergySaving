@@ -627,8 +627,9 @@ if ($isCanonicalModuleRoot) {
         $existingRunRead -gt $currentSnapshotRead) {
         $issues += 'T128 FAIL: Start must query an existing nonterminal Run before current snapshot resolution.'
     }
-    if ($runCommands -notmatch 'ListPointStatesAsync\(existing\.RunId[\s\S]*pinnedPoints\.Select\(point\s*=>\s*point\.SiteId\)') {
-        $issues += 'T128 FAIL: existing Run authorization must use distinct pinned Run-Point SiteIds.'
+    if ($runCommands -notmatch 'ListPointStatesAsync\(existing\.RunId[\s\S]*pinnedPoints\.Select\(point\s*=>\s*\(point\.SiteId,\s*point\.AreaId\)\)' -or
+        $runCommands -notmatch 'trustedScopes\?\.Distinct\(\)') {
+        $issues += 'T128 FAIL: existing Run authorization must use distinct pinned Run-Point Site/Area scopes.'
     }
     if ($runCommands -notmatch 'snapshot\.SourceId\s*!=\s*command\.SourceId') {
         $issues += 'T128 FAIL: new Start must reject a snapshot whose SourceId differs from the command.'
@@ -880,16 +881,16 @@ if ($isCanonicalModuleRoot) {
         $issues += 'T128 FAIL: Simulator owner-state contract must preserve Point isolation and Source-wide Stop only.'
     }
 
-    if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Acquisition\Infrastructure\PostgresRunRepositories.cs')) {
-        $issues += 'T128 FAIL: package-policy-blocked PostgreSQL Run adapter must not falsely exist.'
+    if (-not (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Acquisition\Infrastructure\PostgresRunRepositories.cs'))) {
+        $issues += 'T128 FAIL: resolved local Npgsql capability requires the PostgreSQL Run adapter.'
     }
     foreach ($compositionRoot in @(
         (Join-Path $repoRoot 'src\Api\Program.cs'),
         (Join-Path $repoRoot 'src\Worker\Program.cs')
     )) {
         $composition = Get-Content -LiteralPath $compositionRoot -Raw
-        if ($composition -match 'PostgresRunRepositories|SimulatorProductionWorker|ProductionAttemptService') {
-            $issues += "T128 FAIL: blocked Phase 6 runtime registration detected in $compositionRoot."
+        if ($composition -notmatch 'AddIumpPostgresModules') {
+            $issues += "T128 FAIL: PostgreSQL module registration is missing from $compositionRoot."
         }
     }
 
@@ -1221,16 +1222,16 @@ if ($isCanonicalModuleRoot) {
         $migration8 -match '(?i)CREATE\s+EXTENSION|point_latest|point_source_status') {
         $issues += 'T149 FAIL: migration 0008 has a cross-schema FK, extension, or Phase 8 table.'
     }
-    if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Telemetry\Infrastructure\PostgresTelemetryRepositories.cs')) {
-        $issues += 'T149 FAIL: package-policy-blocked PostgreSQL Telemetry adapter must not falsely exist.'
+    if (-not (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Telemetry\Infrastructure\PostgresTelemetryRepositories.cs'))) {
+        $issues += 'T149 FAIL: resolved local Npgsql capability requires the PostgreSQL Telemetry adapter.'
     }
     foreach ($compositionRoot in @(
         (Join-Path $repoRoot 'src\Api\Program.cs'),
         (Join-Path $repoRoot 'src\Worker\Program.cs')
     )) {
         $composition = Get-Content -LiteralPath $compositionRoot -Raw
-        if ($composition -match 'PostgresTelemetryRepositories|IngestMeasurement|TelemetryPersistenceService') {
-            $issues += "T149 FAIL: blocked Phase 7 runtime registration detected in $compositionRoot."
+        if ($composition -notmatch 'AddIumpPostgresModules') {
+            $issues += "T149 FAIL: PostgreSQL module registration is missing from $compositionRoot."
         }
     }
 
@@ -1312,16 +1313,16 @@ if ($isCanonicalModuleRoot) {
             }
         }
     }
-    if (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Operations\Infrastructure\PostgresJobRepositories.cs')) {
-        $issues += 'T167 FAIL: package-policy-blocked PostgreSQL Operations adapter must remain absent.'
+    if (-not (Test-Path -LiteralPath (Join-Path $ModuleRoot 'Operations\Infrastructure\PostgresJobRepositories.cs'))) {
+        $issues += 'T167 FAIL: resolved local Npgsql capability requires the PostgreSQL Operations adapter.'
     }
     foreach ($compositionRoot in @(
         (Join-Path $repoRoot 'src\Api\Program.cs'),
         (Join-Path $repoRoot 'src\Worker\Program.cs')
     )) {
         $composition = Get-Content -LiteralPath $compositionRoot -Raw
-        if ($composition -match 'SourceHealthJobs|PostgresJobRepositories|PointLatestService') {
-            $issues += "T167 FAIL: Phase 8 runtime registration detected in $compositionRoot."
+        if ($composition -notmatch 'AddIumpPostgresModules') {
+            $issues += "T167 FAIL: PostgreSQL module registration is missing from $compositionRoot."
         }
     }
     if (Test-Path -LiteralPath (Join-Path $repoRoot 'database\migrations\0001_r0_foundation.sql')) {
@@ -1361,10 +1362,12 @@ if ($isCanonicalModuleRoot) {
     if (Test-Path -LiteralPath $duplicateFingerprintPath) {
         $issues += 'T221 FAIL: duplicated CommandFingerprintV1 implementation remains under Integration.Application.'
     }
-    foreach ($blockedAdapter in @(
+    foreach ($requiredAdapter in @(
         (Join-Path $ModuleRoot 'Integration\Infrastructure\PostgresIntegrationRepositories.cs'),
         (Join-Path $ModuleRoot 'Audit\Infrastructure\PostgresAuditRepositories.cs'))) {
-        if (Test-Path -LiteralPath $blockedAdapter) { $issues += "T221 FAIL: package-policy-blocked adapter must remain absent: $blockedAdapter." }
+        if (-not (Test-Path -LiteralPath $requiredAdapter)) {
+            $issues += "T221 FAIL: resolved local Npgsql capability requires adapter: $requiredAdapter."
+        }
     }
     $phase9Ports = @(
         (Join-Path $ModuleRoot 'Integration\Contracts\CommandIdempotencyContracts.cs'),
@@ -1377,8 +1380,8 @@ if ($isCanonicalModuleRoot) {
         (Join-Path $repoRoot 'src\Api\Program.cs'),
         (Join-Path $repoRoot 'src\Worker\Program.cs'))) {
         $composition = Get-Content -LiteralPath $compositionRoot -Raw
-        if ($composition -match 'PostgresIntegration|PostgresAudit|IdempotentCommandExecutor|AuditDeliveryHandler') {
-            $issues += "T221 FAIL: blocked Phase 9 composition registration detected in $compositionRoot."
+        if ($composition -notmatch 'AddIumpPostgresModules') {
+            $issues += "T221 FAIL: PostgreSQL module registration is missing from $compositionRoot."
         }
     }
     $migration10 = Get-Content -LiteralPath (Join-Path $repoRoot 'database\migrations\0010_audit_event.sql') -Raw

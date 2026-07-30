@@ -143,3 +143,10 @@ Final Phase 6 ledger: **PASS 20, BLOCKED 3, FAIL 0, runnable NOT_RUN 0**.
 - Release-ready: **NO**.
 
 Stop after T130.
+
+## 2026-07-30 runtime-resolution addendum
+
+T125 and T126 are now PASS with Run/attempt adapters, API/Worker registration, build, and runtime
+resolution. T127 is `RUNNABLE_NOW` but remains unchecked because its full unique-slot,
+lease-reclaim, and cursor/PRNG/counter atomicity PostgreSQL suite was not executed. Basic Run
+persistence passed in the local runtime verifier; that narrower evidence is not treated as T127.

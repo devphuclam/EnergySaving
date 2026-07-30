@@ -1,0 +1,146 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "iump.api": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Composition.Postgres": "[1.0.0, )",
+          "IUMP.Hosting.Abstractions": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Acquisition": "[1.0.0, )",
+          "IUMP.Modules.Audit": "[1.0.0, )",
+          "IUMP.Modules.Catalog": "[1.0.0, )",
+          "IUMP.Modules.IAM": "[1.0.0, )",
+          "IUMP.Modules.Integration": "[1.0.0, )",
+          "IUMP.Modules.Operations": "[1.0.0, )",
+          "IUMP.Modules.Organization": "[1.0.0, )",
+          "IUMP.Modules.Telemetry": "[1.0.0, )"
+        }
+      },
+      "iump.buildingblocks": {
+        "type": "Project"
+      },
+      "iump.composition.postgres": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Hosting.Abstractions": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Acquisition": "[1.0.0, )",
+          "IUMP.Modules.Audit": "[1.0.0, )",
+          "IUMP.Modules.Catalog": "[1.0.0, )",
+          "IUMP.Modules.IAM": "[1.0.0, )",
+          "IUMP.Modules.Integration": "[1.0.0, )",
+          "IUMP.Modules.Operations": "[1.0.0, )",
+          "IUMP.Modules.Organization": "[1.0.0, )",
+          "IUMP.Modules.Telemetry": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.hosting.abstractions": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Modules.Integration": "[1.0.0, )"
+        }
+      },
+      "iump.infrastructure.postgres": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.acquisition": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Catalog": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.audit": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.catalog": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Organization": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.iam": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Organization": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.integration": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.operations": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.organization": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Integration": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.modules.telemetry": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "iump.worker": {
+        "type": "Project",
+        "dependencies": {
+          "IUMP.BuildingBlocks": "[1.0.0, )",
+          "IUMP.Composition.Postgres": "[1.0.0, )",
+          "IUMP.Infrastructure.Postgres": "[1.0.0, )",
+          "IUMP.Modules.Acquisition": "[1.0.0, )",
+          "IUMP.Modules.Audit": "[1.0.0, )",
+          "IUMP.Modules.Catalog": "[1.0.0, )",
+          "IUMP.Modules.IAM": "[1.0.0, )",
+          "IUMP.Modules.Integration": "[1.0.0, )",
+          "IUMP.Modules.Operations": "[1.0.0, )",
+          "IUMP.Modules.Organization": "[1.0.0, )",
+          "IUMP.Modules.Telemetry": "[1.0.0, )"
+        }
+      },
+      "Npgsql": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.3, )",
+        "resolved": "10.0.3",
+        "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w=="
+      }
+    }
+  }
+}

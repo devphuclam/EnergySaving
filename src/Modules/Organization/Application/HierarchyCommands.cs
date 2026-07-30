@@ -57,6 +57,14 @@ public interface IOrganizationAuthorization
         string? targetSiteId = null,
         CancellationToken ct = default);
 
+    Task<OrganizationAuthorizationDecision> AuthorizeTargetAsync(
+        string requestedByUserId,
+        OrganizationResource resource,
+        string? targetSiteId,
+        string? targetAreaId,
+        CancellationToken ct = default) =>
+        AuthorizeAsync(requestedByUserId, resource, targetSiteId, ct);
+
     Task<OrganizationCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default);
 }
 
@@ -68,6 +76,15 @@ public sealed class OrganizationRoleScopeAuthorization : IOrganizationAuthorizat
 
     public async Task<OrganizationAuthorizationDecision> AuthorizeAsync(
         string requestedByUserId, OrganizationResource resource, string? targetSiteId = null, CancellationToken ct = default)
+        => await AuthorizeTargetAsync(
+            requestedByUserId, resource, targetSiteId, null, ct);
+
+    public async Task<OrganizationAuthorizationDecision> AuthorizeTargetAsync(
+        string requestedByUserId,
+        OrganizationResource resource,
+        string? targetSiteId,
+        string? targetAreaId,
+        CancellationToken ct = default)
     {
         var caller = await _provider.ResolveAsync(requestedByUserId, ct);
         if (caller is null || !caller.IsActive) return OrganizationAuthorizationDecision.Forbidden();
@@ -79,8 +96,16 @@ public sealed class OrganizationRoleScopeAuthorization : IOrganizationAuthorizat
             return OrganizationAuthorizationDecision.Forbidden("Engineers cannot create root Sites.");
 
         if (string.IsNullOrWhiteSpace(targetSiteId))
-            return caller.SiteScopes.Count > 0 ? OrganizationAuthorizationDecision.Allowed() : OrganizationAuthorizationDecision.Forbidden();
-        return caller.HasSiteScope(targetSiteId) ? OrganizationAuthorizationDecision.Allowed() : OrganizationAuthorizationDecision.NotFound();
+            return caller.SiteScopes.Count > 0 || caller.AreaScopes.Count > 0
+                ? OrganizationAuthorizationDecision.Allowed()
+                : OrganizationAuthorizationDecision.Forbidden();
+        if (!string.IsNullOrWhiteSpace(targetAreaId))
+            return caller.HasSiteScope(targetSiteId) || caller.HasAreaScope(targetAreaId)
+                ? OrganizationAuthorizationDecision.Allowed()
+                : OrganizationAuthorizationDecision.NotFound();
+        return caller.HasSiteScope(targetSiteId)
+            ? OrganizationAuthorizationDecision.Allowed()
+            : OrganizationAuthorizationDecision.NotFound();
     }
 
     public Task<OrganizationCallerSnapshot?> ResolveCallerAsync(string requestedByUserId, CancellationToken ct = default) =>
@@ -224,7 +249,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetAreaScopeAsync(cmd.AreaId, ct);
         if (scope is null) return Result.Failure("NotFound", "Area not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Area not found.");
@@ -262,7 +287,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetAreaScopeAsync(cmd.AreaId, ct);
         if (scope is null) return Result.Failure("NotFound", "Area not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Area not found.");
@@ -286,7 +311,7 @@ public sealed class OrganizationCommandHandler
     {
         var areaScope = await _repo.GetAreaScopeAsync(cmd.AreaId, ct);
         if (areaScope is null) return Result.Failure("NotFound", "Parent Area not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, areaScope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, areaScope.SiteId.ToString(), ct, areaScope.AreaId?.ToString());
         if (denied is not null) return denied;
         var area = await _repo.GetAreaAsync(cmd.AreaId, ct);
         if (area is null) return Result.Failure("NotFound", "Parent Area not found.");
@@ -315,7 +340,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
         if (scope is null) return Result.Failure("NotFound", "Asset not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
@@ -352,7 +377,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
         if (scope is null) return Result.Failure("NotFound", "Asset not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
@@ -376,7 +401,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
         if (scope is null) return Result.Failure("NotFound", "Asset not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Asset not found.");
@@ -406,7 +431,7 @@ public sealed class OrganizationCommandHandler
     {
         var assetScope = await _repo.GetAssetScopeAsync(cmd.AssetId, ct);
         if (assetScope is null) return Result.Failure("NotFound", "Parent Asset not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, assetScope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, assetScope.SiteId.ToString(), ct, assetScope.AreaId?.ToString());
         if (denied is not null) return denied;
         var asset = await _repo.GetAssetAsync(cmd.AssetId, ct);
         if (asset is null) return Result.Failure("NotFound", "Parent Asset not found.");
@@ -440,7 +465,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetPointScopeAsync(cmd.PointId, ct);
         if (scope is null) return Result.Failure("NotFound", "Point not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
@@ -478,7 +503,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetPointScopeAsync(cmd.PointId, ct);
         if (scope is null) return Result.Failure("NotFound", "Point not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
@@ -521,7 +546,7 @@ public sealed class OrganizationCommandHandler
     {
         var scope = await _repo.GetPointScopeAsync(cmd.PointId, ct);
         if (scope is null) return Result.Failure("NotFound", "Point not found.");
-        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct);
+        var denied = await Authorize(ctx.ActorUserId, OrganizationResource.SiteChild, scope.SiteId.ToString(), ct, scope.AreaId?.ToString());
         if (denied is not null) return denied;
         var point = await _repo.GetPointAsync(cmd.PointId, ct);
         if (point is null) return Result.Failure("NotFound", "Point not found.");
@@ -544,9 +569,15 @@ public sealed class OrganizationCommandHandler
         catch (InvalidOperationException ex) { return Result.Failure("VERSION_CONFLICT", ex.Message); }
     }
 
-    private async Task<Result?> Authorize(string userId, OrganizationResource resource, string? siteId, CancellationToken ct)
+    private async Task<Result?> Authorize(
+        string userId,
+        OrganizationResource resource,
+        string? siteId,
+        CancellationToken ct,
+        string? areaId = null)
     {
-        var decision = await _auth.AuthorizeAsync(userId, resource, siteId, ct);
+        var decision = await _auth.AuthorizeTargetAsync(
+            userId, resource, siteId, areaId, ct);
         _currentCaller = decision.IsAllowed ? await _auth.ResolveCallerAsync(userId, ct) : null;
         return decision.IsAllowed ? null : Result.Failure(decision.Code, decision.Error);
     }

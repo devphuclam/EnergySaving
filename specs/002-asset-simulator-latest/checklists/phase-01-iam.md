@@ -70,3 +70,11 @@
 ## 7. Explicit stop
 
 Phase 1 implementation is complete. This checkpoint is the required stop between phases. No Phase 2 (Catalog primitives) work has been started. A separate `/speckit.implement Phase 2` invocation is required before any Phase 2 task may execute.
+
+## 2026-07-30 runtime-resolution addendum
+
+T029 and T030 are now PASS with the approved local Npgsql package, PostgreSQL IAM adapter, API
+registration, build, runtime resolution, and real login evidence. T031 is reclassified
+`RUNNABLE_NOW` but remains unchecked because its complete IAM-specific PostgreSQL
+uniqueness/revocation/rollback+outbox suite was not executed. T034 remains company-approval
+blocked. Historical evidence above is not rewritten.

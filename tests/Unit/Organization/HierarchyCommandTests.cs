@@ -63,6 +63,8 @@ public static class HierarchyCommandTests
         failures.AddRange(AuthorizeRootSiteOnly());
         // Scoped Engineer lower-hierarchy mutation
         failures.AddRange(ScopedEngineerCanMutate());
+        // Area scope must not widen to every Area in the same Site
+        failures.AddRange(AreaScopedEngineerCannotCrossArea());
         // Unscoped/out-of-scope Engineer denial
         failures.AddRange(NoScopeEngineerDenied());
         // Operator/Manager/Viewer denial
@@ -90,6 +92,47 @@ public static class HierarchyCommandTests
         failures.AddRange(ActiveInactivationAppendsLifecycleHistory());
 
         return failures;
+    }
+
+    private static IEnumerable<string> AreaScopedEngineerCannotCrossArea()
+    {
+        var failures = new List<string>();
+        var siteId = Guid.NewGuid().ToString("D");
+        var allowedAreaId = Guid.NewGuid().ToString("D");
+        var siblingAreaId = Guid.NewGuid().ToString("D");
+        var caller = new OrganizationCallerSnapshot(
+            "area-engineer", "Area Engineer", true, ["Engineer"],
+            Array.Empty<string>(), [allowedAreaId]);
+        var authorization = new OrganizationRoleScopeAuthorization(
+            new SingleCallerProvider(caller));
+
+        var allowed = authorization.AuthorizeTargetAsync(
+            caller.UserId, OrganizationResource.SiteChild,
+            siteId, allowedAreaId).GetAwaiter().GetResult();
+        var sibling = authorization.AuthorizeTargetAsync(
+            caller.UserId, OrganizationResource.SiteChild,
+            siteId, siblingAreaId).GetAwaiter().GetResult();
+        var siteWide = authorization.AuthorizeTargetAsync(
+            caller.UserId, OrganizationResource.SiteChild,
+            siteId, null).GetAwaiter().GetResult();
+
+        if (!allowed.IsAllowed)
+            failures.Add("Area-scoped Engineer must be authorized inside the assigned Area.");
+        if (sibling.IsAllowed || sibling.Code != "NotFound")
+            failures.Add("Area-scoped Engineer must not access a sibling Area in the same Site.");
+        if (siteWide.IsAllowed || siteWide.Code != "NotFound")
+            failures.Add("Area-scoped Engineer must not receive Site-wide mutation authority.");
+        return failures;
+    }
+
+    private sealed class SingleCallerProvider(
+        OrganizationCallerSnapshot caller) : IOrganizationCallerSnapshotProvider
+    {
+        public Task<OrganizationCallerSnapshot?> ResolveAsync(
+            string userId,
+            CancellationToken ct = default) =>
+            Task.FromResult<OrganizationCallerSnapshot?>(
+                userId == caller.UserId ? caller : null);
     }
 
     private static List<string> AuthorizeRootSiteOnly()

@@ -215,9 +215,9 @@ public sealed class ConfigurationRepositoryContractRunner
     private async Task SeedMidValueAcceptedAsync()
     {
         var repo = _factory.Create(); var id = Guid.NewGuid(); var source = Guid.NewGuid();
-        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 0, 0, 123456789, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
+        var tx = await repo.BeginTransactionAsync(); await repo.CreateAsync(new SimulatorConfigurationHead(id, source, 1, 1), Version(id, 1, 60, 0, 0, 987654321, SimulatorScenario.Constant)); await tx.CommitAsync(); tx.Dispose();
         _testCount++;
-        Assert((await repo.GetVersionAsync(id, 1))?.DeterministicSeed == 123456789, "seed mid-value accepted");
+        Assert((await repo.GetVersionAsync(id, 1))?.DeterministicSeed == 987654321, "seed mid-value accepted");
     }
 
     private async Task ActorUsernameSnapshotAsync()

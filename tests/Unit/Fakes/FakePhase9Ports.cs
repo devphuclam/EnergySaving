@@ -1,6 +1,7 @@
 using IUMP.Api;
 using IUMP.Api.Infrastructure;
 using IUMP.BuildingBlocks.Persistence;
+using IUMP.Modules.Integration.Contracts;
 
 namespace IUMP.Tests.Unit.Fakes;
 
@@ -33,6 +34,8 @@ public sealed class FakeConfigurationPorts : IConfigurationCommandPort, IConfigu
     public long? LastExpectedVersion { get; private set; }
     public Guid? LastTargetId { get; private set; }
     public ServerPrincipal? LastPrincipal { get; private set; }
+    public IReadOnlyList<CommandFingerprintField> LastFields { get; private set; } =
+        Array.Empty<CommandFingerprintField>();
     public List<string> Queries { get; } = new();
 
     public Task<CommandExecutionResult> CreateSiteAsync(ConfigurationCommandRequest request, ServerPrincipal principal,
@@ -62,6 +65,7 @@ public sealed class FakeConfigurationPorts : IConfigurationCommandPort, IConfigu
         LastExpectedVersion = request.ExpectedVersion;
         LastTargetId = request.TargetId;
         LastPrincipal = principal;
+        LastFields = request.Fields;
         return Task.FromResult(CommandExecutionResult.Ok(201, $"{{\"operation\":\"{operation}\"}}", "resource-1",
             "/api/v1/resource-1", "\"1\"", "corr-phase9"));
     }
@@ -72,14 +76,17 @@ public sealed class FakeSimulatorPorts : ISimulatorCommandPort, ISimulatorQueryP
     public int MutationCalls { get; private set; }
     public Guid LastRunId { get; private set; }
     public string? LastOperationCode { get; private set; }
+    public long? LastExpectedVersion { get; private set; }
     public Guid LastTransactionId { get; private set; }
     public ServerPrincipal? LastPrincipal { get; private set; }
-    public Task<CommandExecutionResult> ExecuteAsync(string operationCode, Guid targetId, ServerPrincipal principal,
+    public Task<CommandExecutionResult> ExecuteAsync(string operationCode, Guid targetId,
+        long? expectedVersion, ServerPrincipal principal,
         IHostTransaction transaction, CancellationToken ct = default)
     {
         MutationCalls++;
         LastRunId = targetId;
         LastOperationCode = operationCode;
+        LastExpectedVersion = expectedVersion;
         LastTransactionId = transaction.TransactionId;
         LastPrincipal = principal;
         return Task.FromResult(CommandExecutionResult.Ok(202, "{\"status\":\"accepted\"}", targetId.ToString("D"),

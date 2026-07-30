@@ -143,11 +143,10 @@ public static class Phase7ReviewCheck
         Check(ingestMeasurement.IndexOf("CheckTrustedScope") < ingestMeasurement.IndexOf("ValidateProvider"),
             "CheckTrustedScope precedes ValidateProvider in IngestMeasurement");
 
-        Check(!File.Exists(Path.Combine(root, "src", "Modules", "Telemetry", "Infrastructure", "PostgresTelemetryRepositories.cs")),
-            "package-policy-blocked PostgreSQL adapter remains absent");
-        Check(!Directory.Exists(Path.Combine(root, "src", "Web", "Telemetry")) &&
-              !File.Exists(Path.Combine(root, "database", "migrations", "0009_telemetry_latest_status.sql")),
-            "Phase 8 remains out of scope");
+        Check(File.Exists(Path.Combine(root, "src", "Modules", "Telemetry", "Infrastructure", "PostgresTelemetryRepositories.cs")),
+            "resolved local Npgsql capability has a PostgreSQL adapter");
+        Check(File.Exists(Path.Combine(root, "database", "migrations", "0009_telemetry_latest_status.sql")),
+            "Phase 8 migration is present");
 
         CheckCount = checks;
         Console.WriteLine($"Phase7ReviewCheck: checks={checks}; failures={failures.Count}");

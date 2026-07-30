@@ -70,7 +70,9 @@ public static class SimulatorEndpoints
             operation, principal.UserId, "SimulatorRun", target, "SimulatorRun", target,
             requiresExpectedVersion ? expectedVersion : null, fields));
         var response = await executor.ExecuteTransactionalAsync(identity, fingerprint, transactionFactory,
-            (transaction, token) => commands.ExecuteAsync(operation, target, principal, transaction, token), ct);
+            (transaction, token) => commands.ExecuteAsync(
+                operation, target, requiresExpectedVersion ? expectedVersion : null,
+                principal, transaction, token), ct);
         return new IdempotentHttpResult(response);
     }
 }

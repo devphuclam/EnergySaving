@@ -104,3 +104,10 @@ file remain ignored and untracked; no secret value is recorded.
 - Demo readiness: **YES** for provider-neutral Latest/Health/Operations behavior.
 - Release-ready: **NO**. PostgreSQL adapter/runtime and database-backed evidence remain blocked by package policy; Full harness remains non-zero and is recorded as blocked.
 - Explicit stop: **T169 complete; do not execute T170 or later in this task.**
+
+## 2026-07-30 runtime-resolution addendum
+
+T164 and T165 are now PASS with the Operations adapter and Worker registration. Basic PostgreSQL
+Latest no-regression, Source Health, job enqueue/claim/complete, and Worker startup passed. T166 is
+`RUNNABLE_NOW` but remains unchecked because its complete concurrent Latest and lease/retry/reclaim
+suite was not executed. Release readiness remains NO.

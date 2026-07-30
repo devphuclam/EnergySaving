@@ -26,7 +26,12 @@ public static class AuthEndpointHandlers
     public const string XsrfCookie = ".IUMP.Xsrf";
     public const string XsrfHeader = "X-XSRF-TOKEN";
 
-    public static IResult HandleLogin(LoginRequest request, IAuthService auth, HttpContext ctx, AuthenticationPolicy policy)
+    public static IResult HandleLogin(
+        LoginRequest request,
+        IAuthService auth,
+        HttpContext ctx,
+        AuthenticationPolicy policy,
+        bool allowInsecureDevelopment = false)
     {
         var normalized = request.Username?.ToLowerInvariant() ?? "";
         var now = DateTime.UtcNow;
@@ -54,7 +59,7 @@ public static class AuthEndpointHandlers
         ctx.Response.Cookies.Append(AuthCookie, result.TokenCookieValue!, new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
+            Secure = !allowInsecureDevelopment,
             SameSite = SameSiteMode.Lax,
             Expires = result.ExpiresAt
         });
@@ -80,7 +85,10 @@ public static class AuthEndpointHandlers
         return Results.Ok(new { message = "Logged out." });
     }
 
-    public static IResult HandleAntiforgery(HttpContext ctx, IAntiforgery antiforgery)
+    public static IResult HandleAntiforgery(
+        HttpContext ctx,
+        IAntiforgery antiforgery,
+        bool allowInsecureDevelopment = false)
     {
         var tokens = antiforgery.GetAndStoreTokens(ctx);
         var token = tokens.RequestToken;
@@ -89,7 +97,7 @@ public static class AuthEndpointHandlers
             ctx.Response.Cookies.Append(XsrfCookie, token, new CookieOptions
             {
                 HttpOnly = false,
-                Secure = true,
+                Secure = !allowInsecureDevelopment,
                 SameSite = SameSiteMode.Lax
             });
         }
@@ -131,16 +139,25 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/api/v1/auth");
 
-        group.MapPost("/login", (LoginRequest request, IAuthService auth, HttpContext ctx) =>
-            AuthEndpointHandlers.HandleLogin(request, auth, ctx, _authPolicy));
+        group.MapPost("/login", (
+            LoginRequest request,
+            IAuthService auth,
+            HttpContext ctx,
+            IHostEnvironment environment) =>
+            AuthEndpointHandlers.HandleLogin(
+                request, auth, ctx, _authPolicy, environment.IsDevelopment()));
 
         group.MapPost("/logout", (HttpContext ctx, IAuthService auth, IAntiforgery af) =>
             AuthEndpointHandlers.HandleLogout(ctx, auth, af))
             .RequireAuthorization()
             .WithMetadata(new RequireAntiforgeryCheckAttribute());
 
-        group.MapGet("/antiforgery", (HttpContext ctx, IAntiforgery antiforgery) =>
-            AuthEndpointHandlers.HandleAntiforgery(ctx, antiforgery));
+        group.MapGet("/antiforgery", (
+            HttpContext ctx,
+            IAntiforgery antiforgery,
+            IHostEnvironment environment) =>
+            AuthEndpointHandlers.HandleAntiforgery(
+                ctx, antiforgery, environment.IsDevelopment()));
 
         app.MapGet("/api/v1/me", (HttpContext ctx, IAuthService auth) =>
             AuthEndpointHandlers.HandleMe(ctx, auth));

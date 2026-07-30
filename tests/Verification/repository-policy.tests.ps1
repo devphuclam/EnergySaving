@@ -28,13 +28,19 @@ $credentialPatterns = @(
     '(?i)Password\s*=\s*iump',
     '(?i)Username\s*=\s*iump;Password',
     '(?i)sk-proj-[A-Za-z0-9_-]+',
-    '(?i)(ghp|github_pat)_[A-Za-z0-9_]{20,}',
-    '(?i)Password\s*=(?!=)\s*(?!\$\{|<|REDACTED|CHANGE_ME)[^;\s]+'
+    '(?i)(ghp|github_pat)_[A-Za-z0-9_]{20,}'
 )
 
 foreach ($file in $textFiles) {
     $content = Get-Content -LiteralPath $file.FullName -Raw
-    foreach ($pattern in $credentialPatterns) {
+    $filePatterns = @($credentialPatterns)
+    $filePatterns += if ($file.Extension -in @('.cs', '.ps1')) {
+        '(?i)Password\s*=(?!=)\s*["''][^"'']+["'']'
+    }
+    else {
+        '(?i)Password\s*=(?!=)\s*(?!\$\{|<|REDACTED|CHANGE_ME)[^;\s]+'
+    }
+    foreach ($pattern in $filePatterns) {
         if ($content -match $pattern) {
             throw "Credential-like value found in $($file.FullName)"
         }

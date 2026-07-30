@@ -247,7 +247,7 @@ public static class ProductionAttemptTests
             "reservation rollback leaves cursor unchanged", failures);
 
         TestCount++;
-        var finalizeRunId = Guid.Parse("12345678-1234-4234-8234-123456789012");
+        var finalizeRunId = Guid.Parse("87654321-4321-4321-8321-210987654321");
         var finalizeRepositories = new FakeAcquisitionRunRepositories();
         finalizeRepositories.Seed(Phase6Fixtures.Run(finalizeRunId),
             Phase6Fixtures.Point(finalizeRunId));

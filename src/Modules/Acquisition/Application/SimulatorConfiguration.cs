@@ -90,7 +90,8 @@ public sealed class SimulatorConfigurationService
             return (false, "FORBIDDEN", "Caller is not authorized.", caller, null);
         if (trustedSiteIds.Count == 0)
             return (false, "NOT_FOUND", "The target is not visible in the caller scope.", caller, null);
-        if (!trustedSiteIds.All(s => caller.HasSiteScope(s)))
+        if (!scope.MappedScopes.All(mapped =>
+                caller.HasScope(mapped.SiteId, mapped.AreaId)))
             return (false, "NOT_FOUND", "The target is not visible in the caller scope.", caller, null);
         return (true, "OK", null, caller, trustedSiteIds);
     }

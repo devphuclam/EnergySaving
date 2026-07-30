@@ -362,7 +362,7 @@ public static class ProductionDispatchTests
             "Paused and Stopped counters remain unchanged", failures);
 
         TestCount++;
-        var ownerRunId = Guid.Parse("12345678-1234-4234-8234-123456789012");
+        var ownerRunId = Guid.Parse("87654321-4321-4321-8321-210987654321");
         var ownerRepositories = new FakeAcquisitionRunRepositories();
         var sourceInactivePointA = Phase6Fixtures.Point(ownerRunId);
         var sourceInactivePointBId = Guid.Parse("99999999-4444-4444-8444-555555555555");

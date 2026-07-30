@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\Modules\Integration\IUMP.Modules.Integration.csproj" />
+  </ItemGroup>
+</Project>

@@ -81,13 +81,22 @@ public sealed record RunCallerSnapshot(
     string Username,
     bool IsActive,
     IReadOnlyCollection<string> Roles,
-    IReadOnlyCollection<string> SiteScopes)
+    IReadOnlyCollection<string> SiteScopes,
+    IReadOnlyCollection<string>? AreaScopes = null)
 {
     public bool HasRole(string role) =>
         Roles.Any(candidate => string.Equals(candidate, role, StringComparison.OrdinalIgnoreCase));
 
     public bool HasSiteScope(string siteId) =>
         SiteScopes.Any(candidate => string.Equals(candidate, siteId, StringComparison.OrdinalIgnoreCase));
+
+    public bool HasAreaScope(string areaId) =>
+        (AreaScopes ?? Array.Empty<string>()).Any(candidate =>
+            string.Equals(candidate, areaId, StringComparison.OrdinalIgnoreCase));
+
+    public bool HasScope(string siteId, string? areaId) =>
+        HasSiteScope(siteId) ||
+        (!string.IsNullOrWhiteSpace(areaId) && HasAreaScope(areaId));
 }
 
 public sealed record SimulatorStartPointSnapshot(

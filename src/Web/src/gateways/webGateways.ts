@@ -172,9 +172,35 @@ export const webGateways: WebGateways = {
         const points = await request<Array<{ id?: string; pointId?: string }>>('/api/v1/points')
         const pointId = points[0]?.pointId ?? points[0]?.id
         if (!pointId) return { state: 'no-data', value: null, health: 'No Data' }
-        const latest = await request<LatestSnapshot>(`/api/v1/points/${pointId}/latest`)
+        const latest = await request<{
+          numericValue: number | null
+          unitCode?: string
+          status: string
+          isNoData: boolean
+          reasonCode?: string
+          sourceTimestampUtc?: string
+          receivedAtUtc?: string
+          runStatus?: string
+          generated?: number
+          accepted?: number
+          rejected?: number
+        }>(`/api/v1/points/${pointId}/latest`)
         const health = await request<{ status?: string }>(`/api/v1/points/${pointId}/source-health`)
-        return { ...latest, pointId, health: health.status ?? latest.health }
+        return {
+          state: latest.isNoData ? 'no-data' : 'ready',
+          value: latest.numericValue,
+          unit: latest.unitCode,
+          quality: latest.status,
+          health: health.status ?? (latest.isNoData ? 'No Data' : 'Unavailable'),
+          pointId,
+          sourceTimestamp: latest.sourceTimestampUtc,
+          receivedTimestamp: latest.receivedAtUtc,
+          reason: latest.reasonCode,
+          runStatus: latest.runStatus,
+          generated: latest.generated,
+          accepted: latest.accepted,
+          rejected: latest.rejected,
+        } satisfies LatestSnapshot
       } catch (error) { return { state: stateFromError(error), value: null, health: 'Unavailable' } }
     },
   },

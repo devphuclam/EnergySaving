@@ -42,24 +42,30 @@ public static class SimulatorEndpointTests
         pauseContext.Request.Headers["If-Match"] = "\"2\"";
         var pauseResult = await SimulatorEndpoints.ExecuteAsync(runId, CommandOperationCodes.PauseSimulator, pauseContext.Request,
             commands, executor, principal, transactionFactory, CancellationToken.None);
-        assertions++; if (commands.MutationCalls != 2 || commands.LastOperationCode != "Simulator.Pause.v1")
-            failures.Add("Simulator Pause must invoke correct operation code");
+        assertions++; if (commands.MutationCalls != 2 ||
+            commands.LastOperationCode != "Simulator.Pause.v1" ||
+            commands.LastExpectedVersion != 2)
+            failures.Add("Simulator Pause must invoke correct operation code and forward If-Match");
         // Resume
         var resumeContext = new DefaultHttpContext();
         resumeContext.Request.Headers["Idempotency-Key"] = "simulator-resume-1";
         resumeContext.Request.Headers["If-Match"] = "\"3\"";
         var resumeResult = await SimulatorEndpoints.ExecuteAsync(runId, CommandOperationCodes.ResumeSimulator, resumeContext.Request,
             commands, executor, principal, transactionFactory, CancellationToken.None);
-        assertions++; if (commands.MutationCalls != 3 || commands.LastOperationCode != "Simulator.Resume.v1")
-            failures.Add("Simulator Resume must invoke correct operation code");
+        assertions++; if (commands.MutationCalls != 3 ||
+            commands.LastOperationCode != "Simulator.Resume.v1" ||
+            commands.LastExpectedVersion != 3)
+            failures.Add("Simulator Resume must invoke correct operation code and forward If-Match");
         // Stop
         var stopContext = new DefaultHttpContext();
         stopContext.Request.Headers["Idempotency-Key"] = "simulator-stop-1";
         stopContext.Request.Headers["If-Match"] = "\"4\"";
         var stopResult = await SimulatorEndpoints.ExecuteAsync(runId, CommandOperationCodes.StopSimulator, stopContext.Request,
             commands, executor, principal, transactionFactory, CancellationToken.None);
-        assertions++; if (commands.MutationCalls != 4 || commands.LastOperationCode != "Simulator.Stop.v1")
-            failures.Add("Simulator Stop must invoke correct operation code");
+        assertions++; if (commands.MutationCalls != 4 ||
+            commands.LastOperationCode != "Simulator.Stop.v1" ||
+            commands.LastExpectedVersion != 4)
+            failures.Add("Simulator Stop must invoke correct operation code and forward If-Match");
         // Run query
         var query = await commands.GetRunAsync(runId, principal.Current!, CancellationToken.None);
         assertions++; if (query is not null && query.ToString()!.Contains("Running", StringComparison.Ordinal)) { } else failures.Add("Simulator query must return status");

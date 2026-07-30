@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Continue'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'common\Verification.ps1')
 . (Join-Path $PSScriptRoot 'common\Harness.ps1')
+. (Join-Path $PSScriptRoot 'common\PostgresRuntime.ps1')
 
 $results = [System.Collections.Generic.List[object]]::new()
 $featureResolution = Resolve-HarnessFeature -RepoRoot $repoRoot -Feature $Feature
@@ -103,24 +104,34 @@ if ($Mode -eq 'Full') {
             -Command 'npm run lint; npm run build' -Action $frontendAction))
     }
 
-    if (-not (Test-CommandAvailable -Name 'psql')) {
+    $databaseRuntime = Resolve-IumpPostgresCliRuntime -RepoRoot $repoRoot -Purpose Application
+    if (-not $databaseRuntime.Available -and
+        $databaseRuntime.Classification -eq 'BLOCKED_BY_MISSING_TOOL') {
         $results.Add((New-VerificationResult -CheckId 'database' `
-            -Classification 'BLOCKED_BY_MISSING_TOOL' -Command 'psql service=<configured> SELECT 1' `
-            -Mandatory $true -Evidence 'psql executable is missing.' -BlockerId 'BLK-ENV-002'))
+            -Classification 'BLOCKED_BY_MISSING_TOOL' `
+            -Command 'PostgreSQL 18 psql against approved local target' `
+            -Mandatory $true -Evidence $databaseRuntime.Evidence -BlockerId 'BLK-ENV-002'))
     }
-    elseif ([string]::IsNullOrWhiteSpace($env:PGSERVICE)) {
+    elseif (-not $databaseRuntime.Available) {
         $results.Add((New-VerificationResult -CheckId 'database' `
-            -Classification 'BLOCKED_BY_DATABASE_ACCESS' `
-            -Command 'psql service=<configured> SELECT 1' -Mandatory $true `
-            -Evidence 'PGSERVICE is not configured.' -BlockerId 'BLK-ENV-002'))
+            -Classification 'FAIL' `
+            -Command 'PostgreSQL 18 psql against approved local target' -Mandatory $true `
+            -Evidence $databaseRuntime.Evidence))
     }
     else {
+        $postgresHelperPath = Join-Path $PSScriptRoot 'common\PostgresRuntime.ps1'
         $databaseAction = {
-            & psql "service=$env:PGSERVICE" --no-psqlrc --tuples-only --no-align --command 'SELECT 1'
-        }
+            . $postgresHelperPath
+            Invoke-IumpPsql -Runtime $databaseRuntime -Arguments @(
+                '--set', 'ON_ERROR_STOP=1',
+                '--tuples-only', '--no-align',
+                '--command',
+                "SELECT CASE WHEN current_database()='iump_dev' AND inet_server_port()=5433 AND current_user='iump_app' THEN 'database target=PASS' ELSE 'database target=FAIL' END"
+            )
+        }.GetNewClosure()
         $results.Add((Invoke-HarnessCheck -CheckId 'database' `
-            -Command 'psql service=<configured> SELECT 1' -Action $databaseAction `
-            -BlockedClassification 'BLOCKED_BY_DATABASE_ACCESS' -BlockerId 'BLK-ENV-002'))
+            -Command 'PostgreSQL 18 psql target/readiness check (credential redacted)' `
+            -Action $databaseAction))
     }
 
     $approvedCi = $env:CI -eq 'true' -and $env:IUMP_COMPANY_CI_APPROVED -eq 'true'
@@ -148,4 +159,5 @@ $groups = @($results | Group-Object classification | Sort-Object Name)
 $summary = ($groups | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ', '
 Write-Output "Harness $Mode summary: $summary"
 
-exit (Get-VerificationExitCode -Results @($results))
+$harnessExitCode = Get-VerificationExitCode -Results @($results)
+exit $harnessExitCode

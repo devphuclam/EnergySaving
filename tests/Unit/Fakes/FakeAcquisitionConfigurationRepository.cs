@@ -18,6 +18,12 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
     public Task<SimulatorConfigurationVersion?> GetVersionAsync(Guid configurationId, long configurationVersion, CancellationToken ct = default) =>
         Task.FromResult(_versions.GetValueOrDefault((configurationId, configurationVersion)) is { } v ? Clone(v) : null);
 
+    public Task<IReadOnlyList<SimulatorConfigurationHead>> ListHeadsAsync(
+        CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SimulatorConfigurationHead>>(
+            _heads.Values.OrderBy(value => value.ConfigurationId)
+                .Select(Clone).ToArray());
+
     public Task<IReadOnlyList<SimulatorConfigurationVersion>> ListVersionsAsync(Guid configurationId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<SimulatorConfigurationVersion>>(_versions.Values
             .Where(v => v.ConfigurationId == configurationId).OrderBy(v => v.ConfigurationVersion).Select(Clone).ToList());

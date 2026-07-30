@@ -218,3 +218,97 @@ runtime, PostgreSQL E2E, timed and approval evidence remains blocked.
 
 **STOP AT T247.** No Phase 11, T248+, database execution, package acquisition, public CI, container
 or release action is authorized or performed.
+
+## 2026-07-30 blocked-runtime resolution addendum
+
+This is an explicit addendum; the historical Phase 10 checkpoint above is not rewritten.
+
+- Database connection information: PROVIDED.
+- PostgreSQL target, absolute CLI, Npgsql 10.0.3, adapters, registration, roles, migrations,
+  readiness, and basic API/Worker/Web smoke: PASS.
+- T233, T243, and T244: PASS.
+- T234: FAIL / incomplete accepted quickstart.
+- T236: NOT_RUN / runnable PostgreSQL E2E implementation gap.
+- T235: BLOCKED / NOT_EXECUTED; no timing values exist.
+- T218 and T034: blocked by package policy and company approval respectively.
+- T245: BLOCKED_BY_COMPANY_APPROVAL.
+- Full: non-passing while mandatory company and acceptance blockers remain.
+- Release-ready: NO.
+
+No Phase 11 or T248+ was created.
+
+## 2026-07-30 final exact-coverage state
+
+Regardless of earlier addendum ordering, the authoritative final state is: T219, T220, and T236
+are `NOT_RUN / runnable`, and T242 is unchecked because T236 is incomplete. The implemented
+PostgreSQL runner passes its covered cases, and the Full database target check passes; neither
+fact supplies the omitted exact task coverage. T234 remains PASS.
+
+## 2026-07-30 exact-coverage correction
+
+The later executable-runner PASS statements for T219, T220, T236, and T242 are superseded.
+The runner passes all cases it implements, but review against the exact task wording found:
+
+- T219 does not yet exercise the complete HTTP executor path and both crash windows.
+- T220 does not yet exercise the complete owner/outbox/dispatcher/inbox chain, both crash
+  windows, and retry exhaustion.
+- T236 does not yet execute the complete T226-T229 configuration-race and health/restart matrix.
+- T242 remains unchecked because T236 is an explicit incomplete dependency, although the Full
+  harness database target check itself passes.
+
+These tasks are `NOT_RUN / runnable`; no database-access or package-policy blocker is asserted.
+
+## 2026-07-30 post-review evidence correction
+
+The six-scenario recovery probe does not execute the complete T226-T229 PostgreSQL suite.
+Accordingly, T236 and dependency-bound T242 remain unchecked and runnable. Their earlier PASS
+statements are superseded; the Full database check itself remains PASS.
+
+## 2026-07-30 functional and recovery closure addendum
+
+This later addendum supersedes only the stale T234/T236/T242 states in the prior addendum:
+
+- T234: **PASS**. API/Worker/Web startup, readiness, authentication, HTTP mutation, real
+  PostgreSQL functional journey, and Web Latest/Health display passed.
+- T236: **PASS**. The approved PostgreSQL runner completed six recovery/race scenarios with zero
+  failures: Pending-before-Telemetry, crash-before-Telemetry recovery, terminal-before-Acquisition
+  recovery with exact duplicate replay, Latest no-regression, duplicate Simulator Start, and
+  Audit deduplication.
+- T242: **PASS**. The final Full database check reported `database target=PASS`; Full overall
+  remains non-passing with exit 20 because two mandatory company-approval checks are blocked.
+- T235 remains **BLOCKED / NOT_EXECUTED** solely because T034 still lacks approved Data
+  Protection provisioning. No timing PASS is inferred.
+- T218 remains `BLOCKED_BY_PACKAGE_POLICY`; T245 remains
+  `BLOCKED_BY_COMPANY_APPROVAL`; release-ready remains **NO**.
+
+No Phase 11 or T248+ was created.
+
+## 2026-07-30 authoritative final exact-coverage state
+
+T219, T220, and T236 are `NOT_RUN / runnable`; T242 is unchecked because T236 is incomplete.
+The executable PostgreSQL runner passes its implemented cases and the Full database target check
+passes, but those results do not supply the omitted exact task coverage. T234 remains PASS.
+
+T233 migration execution itself passed, but T233 is unchecked because its declared runnable
+task dependencies T031/T052/T074/T090/T127/T148/T166/T206 remain incomplete.
+
+## 2026-07-30 final executable runtime closure
+
+This final addendum supersedes the earlier incomplete task states:
+
+- T031/T052/T074/T090/T104/T127/T148/T166/T206: **PASS** from the focused PostgreSQL
+  leaf suite and task-specific migration evidence.
+- T219: **PASS** for the real HTTP-result executor path, exact replay headers/body/status,
+  concurrency, Pending lease/reclaim, both crash windows, one mutation/outbox, and cleanup.
+- T220: **PASS** for owner/outbox dispatch, transactional Audit/inbox completion, both crash
+  windows, dedup/hash conflict, exhaustion, replay identity, and visibility.
+- T233: **PASS**; all declared dependencies and ordered clean/N-1/forward migration evidence pass.
+- T236: **PASS**; configuration/Mapping/Point/start races, Simulator/Telemetry crash recovery,
+  Latest/Health restart, and Audit/idempotency E2E run against approved PostgreSQL.
+- T242 database check: **PASS**.
+- Fresh Full: numeric exit **20**, `PASS=11`, `BLOCKED_BY_COMPANY_APPROVAL=2`, `FAIL=0`.
+- T034, T235, and T245: **BLOCKED_BY_COMPANY_APPROVAL**.
+- T218: **BLOCKED_BY_PACKAGE_POLICY**.
+- Release-ready: **NO**.
+
+No Phase 11 or T248+ was created. No secret was emitted and port 5432 was not contacted.

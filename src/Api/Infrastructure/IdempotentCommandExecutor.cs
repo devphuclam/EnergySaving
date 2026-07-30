@@ -4,14 +4,6 @@ using Microsoft.AspNetCore.Http;
 
 namespace IUMP.Api.Infrastructure;
 
-public sealed record CommandExecutionResult(int StatusCode, string Body, string? ResourceReference,
-    string? Location = null, string? ETag = null, string? CorrelationId = null)
-{
-    public static CommandExecutionResult Ok(int statusCode, string body, string? resourceReference,
-        string? location = null, string? etag = null, string? correlationId = null) =>
-        new(statusCode, body, resourceReference, location, etag, correlationId);
-}
-
 public sealed record IdempotentCommandResponse(int StatusCode, string Body, string Code, bool IsReplay,
     string? ResourceReference = null, string? Location = null, string? ETag = null, string? CorrelationId = null);
 
