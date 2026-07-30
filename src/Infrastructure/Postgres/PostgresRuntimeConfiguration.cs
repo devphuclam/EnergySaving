@@ -16,7 +16,7 @@ public sealed record PostgresRuntimeConfiguration(
     public const string ApprovedLocalHost = "127.0.0.1";
     public const string ApprovedLocalDatabase = "iump_dev";
     public const string RuntimeRole = "iump_app";
-    public const int RequiredMigrationLevel = 13;
+    public const int RequiredMigrationLevel = 14;
 
     public string SafeTarget => $"{Host}:{Port}/{Database} as {Username}";
 

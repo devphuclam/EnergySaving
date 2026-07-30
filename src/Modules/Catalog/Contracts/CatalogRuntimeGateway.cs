@@ -25,7 +25,8 @@ public sealed class CatalogRuntimeGateway(ICatalogCommandRepository repository)
         (await repository.GetAllDataSourcesAsync(ct))
             .Select(value => new CatalogRuntimeDataSource(
                 value.Id.Value, value.Code, value.Name,
-                value.SourceType.ToString(), value.Status.ToString(), value.Version))
+                value.SourceType.ToString(), value.Status.ToString(), value.Version,
+                value.SiteId))
             .ToArray();
 
     public async Task<IReadOnlyList<CatalogRuntimeMapping>> GetMappingSnapshotsAsync(
@@ -46,12 +47,19 @@ public sealed class CatalogRuntimeGateway(ICatalogCommandRepository repository)
         (await repository.GetCompatibilitiesForMetricAsync(new MetricId(metricId), ct))
             .Cast<object>().ToArray();
 
-    public async Task<object?> GetDataSourceAsync(Guid sourceId, CancellationToken ct = default)
+    public async Task<object?> GetDataSourceAsync(
+        Guid sourceId,
+        CancellationToken ct = default) =>
+        await GetDataSourceSnapshotAsync(sourceId, ct);
+
+    public async Task<CatalogRuntimeDataSource?> GetDataSourceSnapshotAsync(
+        Guid sourceId,
+        CancellationToken ct = default)
     {
         var value = await repository.GetDataSourceAsync(new DataSourceId(sourceId), ct);
         return value is null ? null : new CatalogRuntimeDataSource(
             value.Id.Value, value.Code, value.Name, value.SourceType.ToString(),
-            value.Status.ToString(), value.Version);
+            value.Status.ToString(), value.Version, value.SiteId);
     }
 
     public async Task<object?> GetMappingAsync(Guid mappingId, CancellationToken ct = default)
@@ -85,10 +93,14 @@ public sealed class CatalogRuntimeGateway(ICatalogCommandRepository repository)
     }
 
     public async Task<CatalogRuntimeMutation> CreateSourceAsync(
-        string code, string name, CancellationToken ct = default)
+        string code,
+        string name,
+        CancellationToken ct = default,
+        Guid? siteId = null)
     {
         var source = new DataSource(
-            DataSourceId.New(), code, name, SourceType.Simulator, SourceStatus.Draft, 1);
+            DataSourceId.New(), code, name, SourceType.Simulator,
+            SourceStatus.Draft, 1, siteId);
         await repository.AddDataSourceAsync(source, ct);
         return new("DataSource", source.Id.Value, source.Version);
     }
@@ -266,7 +278,8 @@ public sealed record CatalogRuntimeDataSource(
     string Name,
     string SourceType,
     string Status,
-    long Version);
+    long Version,
+    Guid? SiteId);
 public sealed record CatalogRuntimeMapping(
     Guid Id,
     Guid DataSourceId,

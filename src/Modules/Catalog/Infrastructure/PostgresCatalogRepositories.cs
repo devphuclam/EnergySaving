@@ -165,27 +165,28 @@ public sealed class PostgresCatalogRepositories :
 
     public Task<DataSource?> GetDataSourceAsync(DataSourceId id, CancellationToken ct = default) =>
         QuerySingleAsync("""
-            SELECT id, code, name, source_type, status, version
+            SELECT id, code, name, source_type, status, version, site_id
             FROM catalog.data_sources WHERE id=@value
             """, command => command.Parameters.AddWithValue("value", id.Value), MapSource, ct);
 
     public Task<DataSource?> FindDataSourceByCodeAsync(string code, CancellationToken ct = default) =>
         QuerySingleAsync("""
-            SELECT id, code, name, source_type, status, version
+            SELECT id, code, name, source_type, status, version, site_id
             FROM catalog.data_sources WHERE code=upper(@value)
             """, command => command.Parameters.AddWithValue("value", code), MapSource, ct);
 
     public Task AddDataSourceAsync(DataSource source, CancellationToken ct = default) =>
         InsertAsync("""
-            INSERT INTO catalog.data_sources (id, code, name, source_type, status, version)
-            VALUES (@id, @code, @name, @source_type, @status, @version)
+            INSERT INTO catalog.data_sources
+                (id, code, name, source_type, status, version, site_id)
+            VALUES (@id, @code, @name, @source_type, @status, @version, @site_id)
             """, command => BindSource(command, source), ct);
 
     public Task UpdateDataSourceAsync(DataSource source, CancellationToken ct = default) =>
         OptimisticUpdateAsync("""
             UPDATE catalog.data_sources
             SET code=@code, name=@name, source_type=@source_type, status=@status,
-                version=@version, updated_at=now()
+                version=@version, site_id=@site_id, updated_at=now()
             WHERE id=@id AND version=@expected_version
             """, command =>
         {
@@ -195,7 +196,7 @@ public sealed class PostgresCatalogRepositories :
 
     public async Task<IReadOnlyList<DataSource>> GetAllDataSourcesAsync(CancellationToken ct = default) =>
         await QueryAsync("""
-            SELECT id, code, name, source_type, status, version
+            SELECT id, code, name, source_type, status, version, site_id
             FROM catalog.data_sources ORDER BY code
             """, null, MapSource, ct);
 
@@ -696,7 +697,8 @@ public sealed class PostgresCatalogRepositories :
         reader.GetString(2),
         Enum.Parse<SourceType>(reader.GetString(3), false),
         Enum.Parse<SourceStatus>(reader.GetString(4), false),
-        reader.GetInt64(5));
+        reader.GetInt64(5),
+        reader.IsDBNull(6) ? null : reader.GetGuid(6));
 
     private static SourcePointMapping MapMapping(NpgsqlDataReader reader) => new(
         new MappingId(reader.GetGuid(0)),
@@ -723,6 +725,8 @@ public sealed class PostgresCatalogRepositories :
         command.Parameters.AddWithValue("source_type", value.SourceType.ToString());
         command.Parameters.AddWithValue("status", value.Status.ToString());
         command.Parameters.AddWithValue("version", value.Version);
+        command.Parameters.AddWithValue(
+            "site_id", (object?)value.SiteId ?? DBNull.Value);
     }
 
     private static void BindMapping(NpgsqlCommand command, SourcePointMapping value)

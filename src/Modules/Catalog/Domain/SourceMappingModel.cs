@@ -17,8 +17,16 @@ public sealed class DataSource
     public SourceType SourceType { get; }
     public SourceStatus Status { get; private set; }
     public long Version { get; private set; }
+    public Guid? SiteId { get; }
 
-    public DataSource(DataSourceId id, string code, string name, SourceType sourceType, SourceStatus status, long version)
+    public DataSource(
+        DataSourceId id,
+        string code,
+        string name,
+        SourceType sourceType,
+        SourceStatus status,
+        long version,
+        Guid? siteId = null)
     {
         if (id.Value == Guid.Empty) throw new ArgumentException("Data source ID is required.", nameof(id));
         if (!Enum.IsDefined(sourceType)) throw new ArgumentOutOfRangeException(nameof(sourceType));
@@ -30,6 +38,7 @@ public sealed class DataSource
         SourceType = sourceType;
         Status = status;
         Version = version;
+        SiteId = siteId;
     }
 
     public bool TryTransitionTo(SourceStatus target)

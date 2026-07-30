@@ -1,4 +1,5 @@
 using IUMP.BuildingBlocks.Persistence;
+using IUMP.Api.Infrastructure;
 using IUMP.Infrastructure.Postgres;
 using IUMP.Modules.Acquisition.Contracts;
 using IUMP.Modules.Audit.Contracts;
@@ -40,6 +41,12 @@ public static class PostgresModuleRegistration
                 services.AddScoped(serviceType, provider =>
                     provider.GetRequiredService(binding.ImplementationType));
         }
+        services.AddScoped<IWorkspaceSiteExistence, PostgresWorkspaceSiteExistence>();
+        services.AddScoped<PostgresOperationalWorkspacePorts>();
+        services.AddScoped<IOperationalWorkspaceQueryPort>(provider =>
+            provider.GetRequiredService<PostgresOperationalWorkspacePorts>());
+        services.AddScoped<IOperationalWorkspaceCommandPort>(provider =>
+            provider.GetRequiredService<PostgresOperationalWorkspacePorts>());
         services.AddIumpPostgresRuntimeProviders();
         return services;
     }

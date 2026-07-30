@@ -43,6 +43,7 @@ public static class CommandOperationCodes
     public const string CreateSimulatorConfiguration = "Acquisition.CreateSimulatorConfiguration.v1";
     public const string UpdateSimulatorConfiguration = "Acquisition.UpdateSimulatorConfiguration.v1";
     public const string ValidateSimulatorConfiguration = "Acquisition.ValidateSimulatorConfiguration.v1";
+    public const string AssignEngineerSiteScope = "IAM.AssignEngineerSiteScope.v1";
     public const string StartSimulator = "Simulator.Start.v1";
     public const string PauseSimulator = "Simulator.Pause.v1";
     public const string ResumeSimulator = "Simulator.Resume.v1";
@@ -56,7 +57,8 @@ public static class CommandOperationCodes
         CreateMetric, UpdateMetric, CreateUnit, UpdateUnit, SetMetricCompatibleUnits, CreateSource, UpdateSource,
         CreateMapping, UpdateMapping, ActivateMapping, InactivateMapping, SupersedeMapping, SuspendSource,
         DecommissionSource, CreateSimulatorConfiguration, UpdateSimulatorConfiguration,
-        ValidateSimulatorConfiguration, StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator
+        ValidateSimulatorConfiguration, AssignEngineerSiteScope,
+        StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator
     };
 
     public static bool IsKnown(string operationCode) => AllCodes.Contains(operationCode);

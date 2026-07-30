@@ -5,6 +5,7 @@ using IUMP.Modules.Acquisition.Contracts;
 using IUMP.Modules.Audit.Application;
 using IUMP.Modules.Audit.Contracts;
 using IUMP.Modules.Catalog.Contracts;
+using IUMP.Modules.IAM.Contracts;
 using IUMP.Modules.Integration.Contracts;
 using IUMP.Modules.Organization.Application;
 using IUMP.Modules.Organization.Contracts;
@@ -154,6 +155,7 @@ public sealed class PostgresConfigurationCommandPort(
     IActivationOrganizationParticipant activationOrganization,
     IActivationCatalogParticipant activationCatalog,
     IOrganizationAuthorization organizationAuthorization,
+    IEngineerScopeAssignmentService engineerScopes,
     ITransactionalOutboxWriter outbox,
     IHostTransactionBackend transactionBackend) : IConfigurationCommandPort
 {
@@ -194,6 +196,14 @@ public sealed class PostgresConfigurationCommandPort(
             var result = await organizationCommands.CreateAreaAsync(
                 siteId, request.Name, principal.UserId.ToString("D"), ct);
             if (!result.IsSuccess) return OrganizationFailure(result);
+            if (!principal.IsAdministrator && result.AreaId is { } createdAreaId)
+            {
+                var scope = await engineerScopes.EnsureAreaScopeAsync(
+                    siteId, createdAreaId, principal.UserId, ct);
+                if (!scope.IsSuccess)
+                    return Failure(
+                        scope.Code == "FORBIDDEN" ? 403 : 422, scope.Code);
+            }
             await StageEventAsync("Organization.AreaCreated.v1", "Area", result.Id!.Value,
                 result.Version!.Value, "Create", principal, transaction, ct,
                 result.SiteId, result.AreaId);
@@ -249,10 +259,15 @@ public sealed class PostgresConfigurationCommandPort(
         }
         if (operationCode == "Acquisition.CreateSource.v1")
         {
-            if (await DeniedAsync(principal, OrganizationResource.SiteChild, null, ct) is { } denied)
+            var sourceSiteId = GuidField(request, "siteId");
+            if (sourceSiteId is null)
+                return Failure(400, "SITE_ID_REQUIRED");
+            if (await DeniedAsync(
+                principal, OrganizationResource.SiteChild, sourceSiteId, ct) is { } denied)
                 return denied;
             var source = await catalog.CreateSourceAsync(
-                Code(request.Name, "SOURCE"), Text(request.Name, "Source"), ct);
+                Code(request.Name, "SOURCE"), Text(request.Name, "Source"),
+                ct, sourceSiteId);
             return Created(source.EntityType, source.Id, source.Version);
         }
         if (operationCode == "Catalog.SetMetricCompatibleUnits.v1")
@@ -279,6 +294,13 @@ public sealed class PostgresConfigurationCommandPort(
                 return Failure(400, "MAPPING_IDS_REQUIRED");
             var pointScope = await organization.GetPointScopeAsync(new PointId(mappedPointId.Value), ct);
             if (pointScope is null) return Failure(404, "NOT_FOUND");
+            var source = await catalog.GetDataSourceSnapshotAsync(
+                sourceId.Value, ct);
+            if (source is null || source.SiteId != pointScope.SiteId ||
+                (!principal.IsAdministrator &&
+                 !principal.SiteIds.Contains(
+                     pointScope.SiteId.ToString("D"))))
+                return Failure(404, "NOT_FOUND");
             if (await DeniedAsync(
                 principal, OrganizationResource.SiteChild, pointScope.SiteId,
                 ct, pointScope.AreaId) is { } denied)

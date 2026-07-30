@@ -143,7 +143,7 @@ public sealed class PostgresIamRepositories :
         return ExecuteAsync("""
             INSERT INTO iam.user_scope (scope_id, user_id, site_id, area_id)
             VALUES (@id, @user_id, @site_id, @area_id)
-            ON CONFLICT (user_id, site_id, area_id) DO NOTHING
+            ON CONFLICT DO NOTHING
             """, command =>
         {
             command.Parameters.AddWithValue("id", scope.Id.Value);

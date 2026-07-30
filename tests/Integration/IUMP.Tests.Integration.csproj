@@ -25,5 +25,6 @@
     <Compile Include="Acceptance\AcceptancePostgresTests.cs" />
     <Compile Include="Runtime\PostgresRuntimeLeafTests.cs" />
     <Compile Include="Operations\OperationsJobRepositoryTests.cs" />
+    <Compile Include="OperationalWorkspace\OperationalSetupJourneyTests.cs" />
   </ItemGroup>
 </Project>

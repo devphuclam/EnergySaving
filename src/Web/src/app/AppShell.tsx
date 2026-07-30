@@ -2,10 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useWebGateways } from '../gateways/GatewayContext'
 import type { AuthSession } from '../gateways/webGateways'
 
-export type WebRoute = 'configuration' | 'simulator' | 'telemetry' | 'audit'
+export type WebRoute = 'setup' | 'dashboard' | 'configuration' | 'simulator' | 'telemetry' | 'audit'
 
 export type AppShellProps = {
-  children: (route: WebRoute) => ReactNode
+  children: (route: WebRoute, navigate: (route: WebRoute) => void) => ReactNode
 }
 
 export type AppShellState = {
@@ -38,16 +38,16 @@ export function transitionAppShell(state: AppShellState, event: AppShellTransiti
     session: event.session,
     submitting: false,
     feedback: event.session.state === 'ready'
-      ? 'Signed in. Your authorized scope is ready.'
+      ? 'Đăng nhập thành công. Phạm vi được cấp đã sẵn sàng.'
       : event.session.state === 'invalid-credentials'
-        ? 'Invalid username or password.'
-        : 'Sign-in could not be completed.',
+        ? 'Tên đăng nhập hoặc mật khẩu không đúng.'
+        : 'Không thể hoàn tất đăng nhập.',
   }
   if (event.type === 'signed-out') return {
     ...state,
     session: { state: 'expired' },
     submitting: false,
-    feedback: 'Signed out.',
+    feedback: 'Đã đăng xuất.',
   }
   return { ...state, route: event.route }
 }
@@ -63,6 +63,14 @@ export function AppShell({ children }: AppShellProps) {
       .then(session => setState(current => transitionAppShell(current, { type: 'session', session })))
       .catch(() => setState(current => transitionAppShell(current, { type: 'session', session: { state: 'error' } })))
   }, [gateways.auth])
+
+  useEffect(() => {
+    if (state.session.state !== 'ready') return
+    void gateways.workspace.getStatus().then(workspace => {
+      const route: WebRoute = workspace.landing === 'Dashboard' ? 'dashboard' : 'setup'
+      setState(current => transitionAppShell(current, { type: 'navigate', route }))
+    }).catch(() => setState(current => transitionAppShell(current, { type: 'navigate', route: 'setup' })))
+  }, [gateways.workspace, state.session.state])
 
   async function signIn() {
     if (!username.trim() || !password) {
@@ -89,8 +97,8 @@ export function AppShell({ children }: AppShellProps) {
 
   const authenticated = state.session.state === 'ready'
   const scope = authenticated
-    ? state.session.scopeLabel ?? 'Authorized scope'
-    : state.session.state === 'loading' ? 'Loading scope' : 'No authorized scope'
+    ? state.session.scopeLabel ?? 'Phạm vi được cấp'
+    : state.session.state === 'loading' ? 'Đang tải phạm vi' : 'Chưa có phạm vi'
 
   return (
     <div className="app-shell">
@@ -100,49 +108,49 @@ export function AppShell({ children }: AppShellProps) {
           <span>IDEA Utility Monitoring</span>
         </a>
         <div className="session-controls">
-          <span className="scope-pill" aria-label="Current scope">{scope}</span>
+          <span className="scope-pill" aria-label="Phạm vi hiện tại">{scope}</span>
           {authenticated ? <>
-            <span className="session-user" aria-label="Signed-in user">
-              {state.session.username ?? 'User'} · {state.session.scopeLabel ?? 'scope'}
+            <span className="session-user" aria-label="Người dùng đã đăng nhập">
+              {state.session.username ?? 'Người dùng'} · {state.session.scopeLabel ?? 'phạm vi'}
               {state.session.isAdministrator ? ' · Admin' : ''}
             </span>
-            <button className="button button-quiet" type="button" onClick={() => void signOut()}>Sign out</button>
+            <button className="button button-quiet" type="button" onClick={() => void signOut()}>Đăng xuất</button>
           </> : <div className="sign-in-form">
-            <input className="text-input sign-in-input" type="text" placeholder="Username" value={username}
-              onChange={event => setUsername(event.target.value)} aria-label="Username" />
-            <input className="text-input sign-in-input" type="password" placeholder="Password" value={password}
-              onChange={event => setPassword(event.target.value)} aria-label="Password" />
+            <input className="text-input sign-in-input" type="text" placeholder="Tên đăng nhập" value={username}
+              onChange={event => setUsername(event.target.value)} aria-label="Tên đăng nhập" />
+            <input className="text-input sign-in-input" type="password" placeholder="Mật khẩu" value={password}
+              onChange={event => setPassword(event.target.value)} aria-label="Mật khẩu" />
             <button className="button button-primary" type="button" onClick={() => void signIn()}
               disabled={state.session.state === 'loading' || state.submitting}>
-              {state.submitting ? 'Signing in…' : 'Sign in'}
+              {state.submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
             </button>
           </div>}
         </div>
       </header>
       <div className="layout">
         <nav className="sidebar" aria-label="Primary navigation">
-          <p className="nav-heading">Workspace</p>
-          {(['configuration', 'simulator', 'telemetry', 'audit'] as WebRoute[]).map(item =>
+          <p className="nav-heading">Không gian làm việc</p>
+          {(['setup', 'dashboard', 'configuration', 'simulator', 'telemetry', 'audit'] as WebRoute[]).map(item =>
             <button className={`nav-link${state.route === item ? ' active' : ''}`} type="button" key={item}
               aria-current={state.route === item ? 'page' : undefined} onClick={() => navigate(item)}>
-              {item === 'configuration' ? 'Configuration' : item === 'simulator' ? 'Simulator' : item === 'telemetry' ? 'Latest & health' : 'Audit review'}
+              {item === 'setup' ? 'Thiết lập' : item === 'dashboard' ? 'Vận hành' : item === 'configuration' ? 'Cấu hình' : item === 'simulator' ? 'Mô phỏng' : item === 'telemetry' ? 'Dữ liệu & tình trạng' : 'Nhật ký'}
             </button>)}
-          <div className="sidebar-note"><span className="status-dot" aria-hidden="true" /><span>Provider-neutral mode</span></div>
+          <div className="sidebar-note"><span className="status-dot" aria-hidden="true" /><span>Chế độ độc lập nhà cung cấp</span></div>
         </nav>
         <main className="content" id="main-content">
           <div className="feedback" role="status" aria-live="polite">{state.feedback}</div>
           {!authenticated && <section className="notice notice-info" aria-label="Authentication notice">
-            <strong>{state.session.state === 'loading' ? 'Loading your session.'
-              : state.session.state === 'submitting' ? 'Signing in.'
-                : state.session.state === 'error' ? 'Could not reach the server.'
-                  : 'Sign in to manage this workspace.'}</strong>
-            <span>Queries and mutations are scope-checked server-side.</span>
+            <strong>{state.session.state === 'loading' ? 'Đang tải phiên làm việc.'
+              : state.session.state === 'submitting' ? 'Đang đăng nhập.'
+                : state.session.state === 'error' ? 'Không thể kết nối máy chủ.'
+                  : 'Đăng nhập để quản lý không gian làm việc.'}</strong>
+            <span>Mọi truy vấn và thay đổi đều được kiểm tra phạm vi tại máy chủ.</span>
           </section>}
-          {state.session.state === 'invalid-credentials' && <section className="notice notice-warning" role="alert">Invalid username or password.</section>}
-          {state.session.state === 'forbidden' && <section className="notice notice-warning" role="alert">Your session is forbidden. Sign in again to continue.</section>}
-          {state.session.state === 'expired' && <section className="notice notice-warning" role="alert">Your session is expired. Sign in again to continue.</section>}
-          {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Session error. Check your connection and sign in again.</section>}
-          {children(state.route)}
+          {state.session.state === 'invalid-credentials' && <section className="notice notice-warning" role="alert">Tên đăng nhập hoặc mật khẩu không đúng.</section>}
+          {state.session.state === 'forbidden' && <section className="notice notice-warning" role="alert">Phiên không được phép. Hãy đăng nhập lại.</section>}
+          {state.session.state === 'expired' && <section className="notice notice-warning" role="alert">Phiên đã hết hạn. Hãy đăng nhập lại.</section>}
+          {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Lỗi phiên. Kiểm tra kết nối rồi đăng nhập lại.</section>}
+          {authenticated ? children(state.route, navigate) : null}
         </main>
       </div>
     </div>

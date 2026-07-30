@@ -35,6 +35,31 @@ function createFakeWebGateways(
       },
       signOut: async () => { observations.signedOut = true },
     },
+    workspace: {
+      getStatus: async () => ({
+        landing: 'ContinueSetup',
+        roleMode: 'Engineer',
+        authorizedSites: [],
+        completedSteps: [],
+        nextStep: 'Area',
+        validationFailures: [],
+        operationalChainCount: 0,
+        incompleteChainCount: 1,
+        simulatorAutoStart: false,
+        dependencyStatus: 'Available',
+      }),
+      listEngineers: async () => [],
+      assignEngineer: async () => ({ ok: true, status: 200 }),
+      mutate: async () => ({ ok: true, status: 200 }),
+      listOptions: async () => [],
+      validate: async () => ({
+        valid: true,
+        failures: [],
+        versions: {},
+        activationSteps: [],
+        simulatorAutoStart: false,
+      }),
+    },
     configuration: {
       getSummary: async () => ({
         state: 'ready',
@@ -111,7 +136,7 @@ export async function runAppShellBehaviorScenarios(): Promise<string[]> {
 
   await fake.auth.signOut()
   state = transitionAppShell(state, { type: 'signed-out' })
-  if (!observations.signedOut || state.session.state !== 'expired' || state.feedback !== 'Signed out.')
+  if (!observations.signedOut || state.session.state !== 'expired' || state.feedback !== 'Đã đăng xuất.')
     failures.push('logout state must be observable')
 
   return failures

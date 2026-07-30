@@ -17,6 +17,7 @@ using IUMP.Tests.Unit.Operations;
 using IUMP.Tests.Integration.Operations;
 using IUMP.Tests.Unit.Audit;
 using IUMP.Tests.Unit.Acceptance;
+using IUMP.Tests.Unit.OperationalWorkspace;
 
 var failures = new List<string>();
 
@@ -28,6 +29,15 @@ failures.AddRange(SessionPolicyTests.Run());
 failures.AddRange(await PocIdentityFixtureTests.Run());
 failures.AddRange(AuthSecurityPolicyTests.Run());
 failures.AddRange(AuthEndpointTests.Run());
+failures.AddRange(await EngineerScopeAssignmentTests.Run());
+failures.AddRange(OperationalWorkspaceStatusTests.Run());
+var operationalWorkspaceEndpointFailures =
+    await OperationalWorkspaceEndpointTests.Run();
+Console.WriteLine(
+    $"T013: cases={OperationalWorkspaceEndpointTests.TestCount}; " +
+    $"assertions={OperationalWorkspaceEndpointTests.AssertionCount}; " +
+    $"failures={OperationalWorkspaceEndpointTests.FailureCount}");
+failures.AddRange(operationalWorkspaceEndpointFailures);
 
 // Phase 2 — Catalog RED tests
 failures.AddRange(MetricUnitTests.Run());

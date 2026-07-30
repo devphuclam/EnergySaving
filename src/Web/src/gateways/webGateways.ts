@@ -85,6 +85,7 @@ export type WebGateways = {
   simulator: SimulatorGateway
   latest: LatestGateway
   audit: AuditGateway
+  workspace: WorkspaceGateway
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -108,6 +109,7 @@ function stateFromError(error: unknown): GatewayState {
 }
 
 export const webGateways: WebGateways = {
+  workspace: setupGateway,
   auth: {
     getSession: async () => {
       try {
@@ -213,3 +215,5 @@ export const webGateways: WebGateways = {
     },
   },
 }
+import { setupGateway } from '../features/setup/setupGateway'
+import type { WorkspaceGateway } from '../features/setup/setupTypes'
