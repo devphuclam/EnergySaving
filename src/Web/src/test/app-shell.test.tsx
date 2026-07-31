@@ -11,6 +11,7 @@ import type {
   SimulatorSnapshot,
   WebGateways,
 } from '../gateways/webGateways'
+import { deriveSiteAndEngineerState } from '../features/setup/setupTypes'
 
 type FakeObservations = {
   credentials?: { username: string; password: string }
@@ -146,5 +147,40 @@ export function runAppShellChecks(): string[] {
   const failures: string[] = []
   const routes: WebRoute[] = ['configuration', 'simulator', 'telemetry', 'audit']
   if (!routes.includes('audit')) failures.push('Audit route must be present')
+  const baseStatus = {
+    landing: 'ContinueSetup' as const,
+    roleMode: 'Administrator' as const,
+    authorizedSites: [],
+    completedSteps: [],
+    nextStep: 'SiteAndEngineer' as const,
+    validationFailures: [],
+    operationalChainCount: 0,
+    incompleteChainCount: 1,
+    simulatorAutoStart: false as const,
+    dependencyStatus: 'Available',
+    chain: {},
+  }
+  if (deriveSiteAndEngineerState(baseStatus) !== 'NoSite')
+    failures.push('Administrator wizard must distinguish missing Site')
+  const draft = {
+    ...baseStatus,
+    authorizedSites: [{ siteId: 'site-a', code: 'S-A', name: 'Site A', status: 'Draft', version: 1 }],
+    selectedSiteId: 'site-a',
+    chain: { siteId: 'site-a' },
+  }
+  if (deriveSiteAndEngineerState(draft) !== 'DraftSite')
+    failures.push('Administrator wizard must activate persisted Draft Site without another name')
+  const active = {
+    ...draft,
+    authorizedSites: [{ ...draft.authorizedSites[0], status: 'Active' }],
+  }
+  if (deriveSiteAndEngineerState(active) !== 'ActiveWithoutEngineer')
+    failures.push('Administrator wizard must request only Engineer assignment for an Active Site')
+  if (deriveSiteAndEngineerState({
+    ...active,
+    completedSteps: ['SiteAndEngineer'],
+    nextStep: 'Area',
+  }) !== 'EngineerAssigned')
+    failures.push('Administrator wizard must derive completed handoff from server state')
   return failures
 }

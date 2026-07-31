@@ -45,6 +45,35 @@ public static class OperationalSetupJourneyTests
 
             var organization =
                 services.GetRequiredService<OrganizationRuntimeGateway>();
+            var incompleteSite = await organization.CreateSiteAsync(
+                $"Phase 1 Incomplete Site {suffix}", admin.Id.ToString());
+            Check(
+                incompleteSite.IsSuccess &&
+                incompleteSite.Id is not null &&
+                incompleteSite.Version is not null,
+                "T014 could not create the earlier incomplete Site.",
+                failures);
+            if (!incompleteSite.IsSuccess ||
+                incompleteSite.Id is null ||
+                incompleteSite.Version is null)
+                return failures;
+            var activatedIncompleteSite = await organization.TransitionSiteAsync(
+                incompleteSite.Id.Value,
+                incompleteSite.Version.Value,
+                "activate",
+                admin.Id.ToString());
+            var incompleteAssignment =
+                await services.GetRequiredService<EngineerScopeAssignmentService>()
+                    .AssignSiteAsync(
+                        incompleteSite.Id.Value,
+                        engineer.Id.Value,
+                        admin.Id.Value);
+            Check(
+                activatedIncompleteSite.IsSuccess &&
+                incompleteAssignment.IsSuccess,
+                "T014 could not prepare the earlier incomplete authorized Site.",
+                failures);
+
             var site = await organization.CreateSiteAsync(
                 $"Phase 1 Site {suffix}", admin.Id.ToString());
             Check(site.IsSuccess, "T014 Administrator could not create Site.", failures);
@@ -72,7 +101,11 @@ public static class OperationalSetupJourneyTests
 
             var engineerPrincipal = new ServerPrincipal(
                 engineer.Id.Value, engineer.Username,
-                new HashSet<string> { site.Id.Value.ToString("D") },
+                new HashSet<string>
+                {
+                    incompleteSite.Id.Value.ToString("D"),
+                    site.Id.Value.ToString("D")
+                },
                 new HashSet<string>(), false,
                 new HashSet<string> { "Engineer" });
 
@@ -121,6 +154,19 @@ public static class OperationalSetupJourneyTests
                 beforeMapping.Chain?.SourceId == sourceId,
                 "T014 persisted resume did not retain the pre-Mapping Data Source.",
                 failures);
+            var areaOnlyPrincipal = new ServerPrincipal(
+                engineer.Id.Value,
+                engineer.Username,
+                new HashSet<string>(),
+                new HashSet<string> { areaId.ToString("D") },
+                false,
+                new HashSet<string> { "Engineer" });
+            var areaBeforeMapping = await ReloadStatusAsync(root, areaOnlyPrincipal);
+            Check(
+                areaBeforeMapping.NextStep == WorkspaceStep.DataSource &&
+                areaBeforeMapping.Chain?.SourceId is null,
+                "T014 Area-only scope exposed a Site-wide Source before a Mapping relationship authorized it.",
+                failures);
 
             var mapping = await ExecuteAsync(
                 services, engineerPrincipal, "Acquisition.CreateMapping.v1", null,
@@ -154,6 +200,20 @@ public static class OperationalSetupJourneyTests
             if (!Guid.TryParse(
                 configuration.ResourceReference, out var configurationId))
                 return failures;
+
+            var areaValidation = await services
+                .GetRequiredService<IOperationalWorkspaceQueryPort>()
+                .ValidateChainAsync(
+                    new WorkspaceChainSelection(
+                        site.Id.Value, null, areaId, null,
+                        asset.Id.Value, null, point.Id.Value, null,
+                        sourceId, null, mappingId, null,
+                        configurationId, null),
+                    areaOnlyPrincipal);
+            Check(
+                areaValidation.Valid,
+                "T014 Area-only scope could not validate its persisted mapped chain.",
+                failures);
 
             var readyToActivate = await ReloadStatusAsync(root, engineerPrincipal);
             Check(
@@ -210,8 +270,11 @@ public static class OperationalSetupJourneyTests
                 .Count(value => value.SourceId == sourceId);
             Check(
                 completed.Landing == WorkspaceLanding.Dashboard &&
-                completed.CompletedSteps.Count == 8,
-                "T014 completed chain did not route to Dashboard after restart.",
+                completed.CompletedSteps.Count == 8 &&
+                completed.Chain?.SiteId == site.Id.Value &&
+                completed.OperationalChainCount == 1 &&
+                completed.IncompleteChainCount == 1,
+                "T014 multi-Site status did not select the later operational chain and count both authorized chains.",
                 failures);
             Check(
                 runningBefore == 0 && runningAfter == 0 &&
@@ -224,6 +287,74 @@ public static class OperationalSetupJourneyTests
                 replayStatus.Landing == completed.Landing &&
                 replayStatus.CompletedSteps.SequenceEqual(completed.CompletedSteps),
                 "T014 status retry/restart changed the persisted result.", failures);
+
+            var overlappingMapping = await ExecuteAsync(
+                services, engineerPrincipal, "Acquisition.CreateMapping.v1", null,
+                $"Phase 1 Overlapping Mapping {suffix}", null,
+                [
+                    CommandFingerprintField.Uuid("sourceId", sourceId),
+                    CommandFingerprintField.Uuid("pointId", point.Id.Value),
+                    CommandFingerprintField.Timestamp(
+                        "effectiveFromUtc", DateTime.UtcNow.AddMinutes(-2))
+                ]);
+            Check(
+                overlappingMapping.StatusCode == 201 &&
+                Guid.TryParse(
+                    overlappingMapping.ResourceReference,
+                    out var overlappingMappingId),
+                "T014 could not prepare the overlapping Mapping regression.",
+                failures);
+            if (Guid.TryParse(
+                overlappingMapping.ResourceReference,
+                out overlappingMappingId))
+            {
+                var conflictIdentity = new CommandIdentity(
+                    engineerPrincipal.UserId,
+                    "Acquisition.ActivateMapping.v1",
+                    $"phase1-overlap-{Guid.NewGuid():N}");
+                var conflictExecutor = new IdempotentCommandExecutor(
+                    services.GetRequiredService<ICommandIdempotencyStore>());
+                var mutationCount = 0;
+                var conflict = await conflictExecutor.ExecuteTransactionalAsync(
+                    conflictIdentity, new byte[32],
+                    services.GetRequiredService<IHostTransactionFactory>(),
+                    async (transaction, ct) =>
+                    {
+                        mutationCount++;
+                        var commands =
+                            ActivatorUtilities.CreateInstance<
+                                PostgresConfigurationCommandPort>(services);
+                        return await commands.ExecuteAsync(
+                            "Acquisition.ActivateMapping.v1",
+                            new ConfigurationCommandRequest(
+                                overlappingMappingId,
+                                string.Empty,
+                                1,
+                                []),
+                            engineerPrincipal,
+                            transaction,
+                            ct);
+                    });
+                var conflictReplay =
+                    await conflictExecutor.ExecuteTransactionalAsync(
+                        conflictIdentity, new byte[32],
+                        services.GetRequiredService<IHostTransactionFactory>(),
+                        (_, _) =>
+                        {
+                            mutationCount++;
+                            return Task.FromResult(
+                                CommandExecutionResult.Ok(
+                                    500, "must-not-run", null));
+                        });
+                Check(
+                    conflict.StatusCode == 409 &&
+                    conflictReplay.IsReplay &&
+                    conflictReplay.StatusCode == 409 &&
+                    conflictReplay.Body == conflict.Body &&
+                    mutationCount == 1,
+                    "T014 overlapping Mapping activation must return and replay an exact 409 without aborting idempotency completion.",
+                    failures);
+            }
         }
         catch (Exception exception)
         {

@@ -1,5 +1,6 @@
 export type WorkspaceLanding = 'SetupWizard' | 'ContinueSetup' | 'Dashboard' | 'NoAuthorizedScope' | 'DependencyError'
 export type WorkspaceStep = 'SiteAndEngineer' | 'Area' | 'Asset' | 'MeasurementPoint' | 'DataSource' | 'Mapping' | 'SimulatorConfiguration' | 'ValidateAndActivate'
+export type SiteAndEngineerState = 'NoSite' | 'DraftSite' | 'ActiveWithoutEngineer' | 'EngineerAssigned'
 
 export type WorkspaceChain = {
   siteId?: string
@@ -34,6 +35,18 @@ export type OperationalWorkspaceStatus = {
   chain?: WorkspaceChain
   activationSteps?: string[]
   currentUserId?: string
+}
+
+export function deriveSiteAndEngineerState(
+  status: OperationalWorkspaceStatus,
+): SiteAndEngineerState {
+  const siteId = status.chain?.siteId ?? status.selectedSiteId
+  const site = status.authorizedSites.find(value => value.siteId === siteId)
+  if (!site) return 'NoSite'
+  if (site.status !== 'Active') return 'DraftSite'
+  return status.nextStep === 'SiteAndEngineer'
+    ? 'ActiveWithoutEngineer'
+    : 'EngineerAssigned'
 }
 
 export type EngineerCandidate = {

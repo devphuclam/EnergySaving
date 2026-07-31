@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWebGateways } from '../../gateways/GatewayContext'
-import type { EngineerCandidate, OperationalWorkspaceStatus, WorkspaceStep } from './setupTypes'
+import {
+  deriveSiteAndEngineerState,
+  type EngineerCandidate,
+  type OperationalWorkspaceStatus,
+  type WorkspaceStep,
+} from './setupTypes'
 
 const stepLabels: Record<WorkspaceStep, string> = {
   SiteAndEngineer: 'Site và phân quyền Engineer',
@@ -21,6 +26,7 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
   const [name, setName] = useState('')
   const [fields, setFields] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
+  const [dependencyError, setDependencyError] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [retryKey, setRetryKey] = useState(crypto.randomUUID())
   const [reviewStep, setReviewStep] = useState<WorkspaceStep>()
@@ -31,28 +37,39 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
   const activationKeys = useRef<Record<string, string>>({})
 
   const reload = useCallback(async () => {
-    const next = await gateway.getStatus()
-    setStatus(next)
-    setReviewStep(undefined)
-    if (next.roleMode === 'Administrator') {
-      const candidates = await gateway.listEngineers()
-      setEngineers(candidates)
-      if (!engineerId && candidates[0]) setEngineerId(candidates[0].userId)
-    }
-    if (next.nextStep === 'MeasurementPoint') {
-      const [metricOptions, unitOptions] = await Promise.all([
-        gateway.listOptions('metrics'),
-        gateway.listOptions('units'),
-      ])
-      setMetrics(metricOptions)
-      setUnits(unitOptions)
-      setFields(current => ({
-        ...current,
-        metricId: current.metricId || metricOptions[0]?.id || '',
-        unitId: current.unitId || unitOptions[0]?.id || '',
-        dataOwnerUserId: current.dataOwnerUserId ||
-          next.currentUserId || engineerId,
-      }))
+    setDependencyError(false)
+    try {
+      const next = await gateway.getStatus()
+      setStatus(next)
+      setReviewStep(undefined)
+      if (next.roleMode === 'Administrator' &&
+        next.nextStep === 'SiteAndEngineer' &&
+        deriveSiteAndEngineerState(next) === 'ActiveWithoutEngineer') {
+        const candidates = await gateway.listEngineers()
+        setEngineers(candidates)
+        if (!engineerId && candidates[0]) setEngineerId(candidates[0].userId)
+      }
+      if (next.nextStep === 'MeasurementPoint') {
+        const [metricOptions, unitOptions] = await Promise.all([
+          gateway.listOptions('metrics'),
+          gateway.listOptions('units'),
+        ])
+        setMetrics(metricOptions)
+        setUnits(unitOptions)
+        setFields(current => ({
+          ...current,
+          metricId: current.metricId || metricOptions[0]?.id || '',
+          unitId: current.unitId || unitOptions[0]?.id || '',
+          dataOwnerUserId: current.dataOwnerUserId ||
+            next.currentUserId || engineerId,
+        }))
+      }
+    } catch (error) {
+      setEngineers([])
+      setMetrics([])
+      setUnits([])
+      setDependencyError(true)
+      throw error
     }
   }, [engineerId, gateway])
 
@@ -62,6 +79,11 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
   const step = status?.nextStep
   const displayStep = reviewStep ?? step
   const editingStep = reviewStep ? undefined : step
+  const selectedSite = status?.authorizedSites.find(value =>
+    value.siteId === (status.chain?.siteId ?? status.selectedSiteId))
+  const siteAndEngineerState = status
+    ? deriveSiteAndEngineerState(status)
+    : undefined
 
   async function run(action: () => Promise<{
     ok: boolean
@@ -90,8 +112,16 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
 
   async function saveCurrent() {
     if (!status || !step) return
-    if (step !== 'ValidateAndActivate' && !name.trim() &&
-      step !== 'MeasurementPoint') {
+    if (step === 'SiteAndEngineer' && status.roleMode !== 'Administrator') {
+      setFeedback('Site được Administrator cấp và chỉ đọc đối với Engineer.')
+      return
+    }
+    const requiresName =
+      (step === 'SiteAndEngineer' && siteAndEngineerState === 'NoSite') ||
+      step === 'Area' ||
+      step === 'Asset' ||
+      step === 'DataSource'
+    if (requiresName && !name.trim()) {
       setFeedback('Vui lòng nhập tên trước khi tiếp tục.')
       ;(nameInput.current ?? pointSelect.current)?.focus()
       return
@@ -101,11 +131,13 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
       await run(() => gateway.mutate(`sites?name=${encodeURIComponent(name)}`, 'POST', undefined, undefined, retryKey))
       return
     }
-    if (step === 'SiteAndEngineer' && chain.siteId && status.authorizedSites[0]?.status !== 'Active') {
+    if (step === 'SiteAndEngineer' && chain.siteId &&
+      siteAndEngineerState === 'DraftSite') {
       await run(() => gateway.mutate(`sites/${chain.siteId}/activate`, 'POST', undefined, chain.siteVersion, retryKey))
       return
     }
-    if (step === 'SiteAndEngineer' && chain.siteId && engineerId) {
+    if (step === 'SiteAndEngineer' && chain.siteId &&
+      siteAndEngineerState === 'ActiveWithoutEngineer' && engineerId) {
       await run(() => gateway.assignEngineer(chain.siteId!, engineerId, retryKey))
       return
     }
@@ -197,6 +229,7 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
     } finally { setSubmitting(false) }
   }
 
+  if (dependencyError) return <section className="notice notice-warning"><strong>Không thể tải dữ liệu phụ thuộc.</strong><span>Vui lòng thử lại khi API và PostgreSQL sẵn sàng. Không có dữ liệu thay thế được hiển thị.</span><button className="button button-quiet" type="button" onClick={() => void reload().catch(() => undefined)}>Thử lại</button></section>
   if (!status) return <section className="setup-card"><p>Đang tải trạng thái thiết lập…</p></section>
   if (status.landing === 'DependencyError') return <section className="notice notice-warning"><strong>Không thể kết nối dịch vụ phụ thuộc.</strong><span>Không có dữ liệu mẫu thay thế.</span></section>
   if (status.landing === 'NoAuthorizedScope') return <section className="notice notice-warning"><strong>Bạn chưa được cấp phạm vi truy cập.</strong><span>Vui lòng liên hệ Administrator.</span></section>
@@ -214,9 +247,17 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
         <h2>{displayStep ? stepLabels[displayStep] : 'Hoàn tất'}</h2>
         {reviewStep && <p>Bước đã lưu được hiển thị chỉ đọc. Chọn Tải lại để quay về bước tiếp theo trên máy chủ.</p>}
         {editingStep === 'SiteAndEngineer' && status.roleMode === 'Engineer' && <p>Site được Administrator cấp và chỉ đọc tại bước này.</p>}
-        {editingStep === 'SiteAndEngineer' && status.roleMode === 'Administrator' && status.chain?.siteId && status.authorizedSites[0]?.status === 'Active' &&
-          <label>Engineer<select value={engineerId} onChange={event => setEngineerId(event.target.value)}>{engineers.map(item => <option key={item.userId} value={item.userId}>{item.username}</option>)}</select></label>}
-        {editingStep && editingStep !== 'ValidateAndActivate' && !(editingStep === 'SiteAndEngineer' && status.roleMode === 'Engineer') &&
+        {editingStep === 'SiteAndEngineer' && status.roleMode === 'Administrator' && siteAndEngineerState === 'NoSite' &&
+          <label>Tên Site<input ref={nameInput} value={name} onChange={event => setName(event.target.value)} /></label>}
+        {editingStep === 'SiteAndEngineer' && status.roleMode === 'Administrator' && siteAndEngineerState === 'DraftSite' &&
+          <div className="notice"><strong>Site đã được tạo</strong><span>{selectedSite?.name} ({selectedSite?.code}) — trạng thái {selectedSite?.status}</span></div>}
+        {editingStep === 'SiteAndEngineer' && status.roleMode === 'Administrator' && siteAndEngineerState === 'ActiveWithoutEngineer' && <>
+          <div className="notice"><strong>Site đang hoạt động</strong><span>{selectedSite?.name} ({selectedSite?.code})</span></div>
+          {engineers.length > 0
+            ? <label>Engineer<select value={engineerId} onChange={event => setEngineerId(event.target.value)}>{engineers.map(item => <option key={item.userId} value={item.userId}>{item.username}</option>)}</select></label>
+            : <div className="notice notice-warning"><strong>Chưa có tài khoản Engineer phù hợp.</strong><span>Cần ít nhất một tài khoản Engineer đang hoạt động trước khi cấp quyền Site.</span></div>}
+        </>}
+        {editingStep && editingStep !== 'ValidateAndActivate' && editingStep !== 'SiteAndEngineer' &&
           <label>Tên hiển thị<input ref={nameInput} value={name} onChange={event => setName(event.target.value)} /></label>}
         {editingStep === 'MeasurementPoint' && <>
           <label>Metric<select ref={pointSelect} value={fields.metricId ?? ''} onChange={event => setFields(current => ({ ...current, metricId: event.target.value }))}>{metrics.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
@@ -236,9 +277,23 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
               setReviewStep(status.completedSteps[Math.max(0, currentIndex)])
               setFeedback('Đang xem bước đã lưu ở chế độ chỉ đọc.')
             }}>Quay lại</button>
-          {editingStep && editingStep !== 'ValidateAndActivate' && <button className="button button-primary" disabled={submitting} onClick={() => void saveCurrent()}>Lưu và tiếp tục</button>}
+          {editingStep && editingStep !== 'ValidateAndActivate' &&
+            (editingStep !== 'SiteAndEngineer' || status.roleMode === 'Administrator') &&
+            <button className="button button-primary"
+            disabled={submitting || (editingStep === 'SiteAndEngineer' &&
+              siteAndEngineerState === 'ActiveWithoutEngineer' && engineers.length === 0)}
+            onClick={() => void saveCurrent()}>
+            {editingStep === 'SiteAndEngineer'
+              ? siteAndEngineerState === 'NoSite'
+                ? 'Tạo Site'
+                : siteAndEngineerState === 'DraftSite'
+                  ? 'Kích hoạt Site'
+                  : 'Cấp quyền và tiếp tục'
+              : 'Lưu và tiếp tục'}
+          </button>}
           {editingStep === 'ValidateAndActivate' && <button className="button button-primary" disabled={submitting} onClick={() => void validateAndActivate()}>Kiểm tra và kích hoạt</button>}
-          <button className="button button-quiet" type="button" onClick={() => void reload()}>Tải lại</button>
+          <button className="button button-quiet" type="button"
+            onClick={() => void reload().catch(() => undefined)}>Tải lại</button>
           <button className="button button-quiet" type="button" disabled={submitting} onClick={() => {
             setName('')
             setFields({})
@@ -248,7 +303,7 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
         </div>
         <p role="status" aria-live="polite">{submitting ? 'Đang xử lý…' : feedback}</p>
       </div>
-      <aside className="setup-card setup-summary"><h2>Tóm tắt</h2><p>{status.completedSteps.length}/8 bước hoàn tất</p><p>Site: {status.authorizedSites[0]?.name ?? 'Chưa có'}</p><p>Simulator tự khởi động: Không</p></aside>
+      <aside className="setup-card setup-summary"><h2>Tóm tắt</h2><p>{status.completedSteps.length}/8 bước hoàn tất</p><p>Site: {selectedSite?.name ?? 'Chưa có'}</p><p>Simulator tự khởi động: Không</p></aside>
     </div>
   </section>
 }

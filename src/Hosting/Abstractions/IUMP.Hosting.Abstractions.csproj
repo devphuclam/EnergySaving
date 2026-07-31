@@ -3,4 +3,12 @@
     <ProjectReference Include="..\..\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\Modules\Integration\IUMP.Modules.Integration.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>IUMP.Composition.Postgres</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>IUMP.Tests.Unit</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

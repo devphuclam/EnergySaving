@@ -35,7 +35,6 @@ appsettings.Development.*
 .env.local
 IUMP_Local_Database_Connection_Info.md
 *.rar
-*.txt
 
 # Business Docs images (ignore prototype screenshots)
 Business Docs/**/*.png

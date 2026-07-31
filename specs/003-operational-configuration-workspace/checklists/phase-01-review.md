@@ -1,34 +1,37 @@
-# Phase 1 Standards and Specification Review
+# Phase 1 Corrective Standards and Specification Review
 
-Date: 2026-07-30
-Baseline: `8ff3d398e4c1358238ae9044962a40813a7374f1`
+Date: 2026-07-31
+Baseline: `0165719c0ee9f8477efd336c16b5887c58ae3a8f`
 
-Two independent read-only reviews were run in parallel. `.gitignore` and
-`src/Web/vite.config.ts` were explicitly excluded as pre-existing user changes.
+Two independent read-only reviews were run in parallel over the complete corrective
+implementation diff.
 
 ## Final severity
 
-| Axis | Critical | High | Medium |
-|---|---:|---:|---:|
-| Standards | 0 | 0 | 0 |
-| Specification | 0 | 0 | 0 |
+| Axis | Critical | High | Medium actionable | Low |
+|---|---:|---:|---:|---:|
+| Standards | 0 | 0 | 0 | 0 |
+| Specification | 0 | 0 | 0 | 0 |
 
-## Closed findings
+## Corrective findings closed
 
-- Persisted `DataSource.SiteId` through forward migration 0014; removed global Draft fallback and
-  required Site-scope authorization when a Source is bound to a Point.
-- Replaced caller-boolean IAM authorization with active Administrator lookup by actor ID.
-- Added atomic root Site-scope uniqueness and conflict-safe insert outcome detection so only the
-  insert winner emits an assignment event.
-- Replaced count-only validation with exact requested-chain loading, scope, ancestry, Source Site,
-  configuration identity, lifecycle, versions, and pending activation steps.
-- Made activation resume state-derived, skip committed transitions, retain per-step idempotency
-  keys for uncertain outcomes, and reload after each success.
-- Added read-only Back navigation, Cancel for unsaved form state, conflict focus/preservation, and
-  persisted Metric/Unit/Data Owner selections.
-- Added safe 503 dependency outcomes for status, Engineer listing, and validation.
-- Completed Vietnamese shell/wizard visible copy.
-- Added PostgreSQL evidence that a partial restart skips an already committed transition.
+- Replaced list-position derivation with relationship-owned evaluation of all authorized chains,
+  operational landing precedence, highest-completion resume, and stable-identity tie-breaking.
+- Filtered Site/Area scope before Source/Mapping loading and before chain counts; an Area-only
+  principal cannot observe an unrelated Site-wide unmapped Source.
+- Kept persisted reconstruction records internal to the hosting/composition implementation
+  boundary instead of adding public hosting contracts.
+- Implemented the four Administrator Site/Engineer substates, removed unrelated name input from
+  activation/assignment, disabled assignment when no active Engineer exists, and kept the
+  Engineer Site step read-only.
+- Propagated Engineer/options dependency failures instead of converting them into successful
+  empty data.
+- Added server-owned session authentication, explicit authentication/authorization/antiforgery
+  middleware ordering, and fail-closed invalid-cookie behavior.
+- Restored the Mapping activation savepoint before translating a PostgreSQL exclusion conflict
+  to a replayable 409, preserving the outer idempotency transaction.
+- Preserved the no-auto-start invariant and stopped before all Phase 2 tasks.
 
-Low-level refactoring suggestions about splitting the wizard dispatcher are non-blocking and are
-not required to satisfy Phase 1 behavior.
+T035 is complete: both implementation review axes contain no Critical, High, or actionable Medium
+finding. Verification/checkpoint evidence is assessed separately and does not convert an unrun
+manual acceptance step into PASS.

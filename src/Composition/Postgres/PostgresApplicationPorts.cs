@@ -699,6 +699,15 @@ public sealed class PostgresConfigurationCommandPort(
                 ct, pointScope.AreaId) is { } denied)
                 return denied;
             CatalogRuntimeMutation? mapping;
+            await using var mutationSavepoint =
+                await transactionBackend.BeginAsync(ct);
+            if (mutationSavepoint.TransactionId != transaction.TransactionId)
+            {
+                await transactionBackend.RollbackAsync(
+                    mutationSavepoint, CancellationToken.None);
+                throw new InvalidOperationException(
+                    "MAPPING_SAVEPOINT_OUTSIDE_OWNER_TRANSACTION");
+            }
             try
             {
                 mapping = await catalog.TransitionMappingAsync(
@@ -709,9 +718,12 @@ public sealed class PostgresConfigurationCommandPort(
                         "Acquisition.InactivateMapping.v1" => "inactivate",
                         _ => "supersede"
                     }, ct);
+                await transactionBackend.CommitAsync(mutationSavepoint, ct);
             }
             catch (InvalidOperationException exception)
             {
+                await transactionBackend.RollbackAsync(
+                    mutationSavepoint, CancellationToken.None);
                 return Failure(409, exception.Message);
             }
             if (mapping is null) return Failure(404, "NOT_FOUND");

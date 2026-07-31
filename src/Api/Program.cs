@@ -32,6 +32,7 @@ builder.Services.AddScoped<IAuditQueryPort, PostgresAuditQueryPort>();
 builder.Services.AddScoped<IdempotentCommandExecutor>();
 builder.Services.AddSingleton<IUtcClock, SystemUtcClock>();
 builder.Services.AddAuthAntiforgery(builder.Environment.IsDevelopment());
+builder.Services.AddIumpSessionAuthentication();
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -50,6 +51,9 @@ app.Use(async (context, next) =>
         await next(context);
     }
 });
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
 
 app.MapGet("/health/live", () => Results.Ok(new
 {

@@ -1,52 +1,85 @@
-# Phase 1 Verification
+# Phase 1 Corrective Verification
 
-Date: 2026-07-30
-Target: `127.0.0.1:5433/iump_dev` only
-Secret handling: PASS; no credential value is recorded here.
+Date: 2026-07-31
+Baseline: `0165719c0ee9f8477efd336c16b5887c58ae3a8f`
+Database target: `127.0.0.1:5433/iump_dev` only
+Secret handling: PASS; credentials and `.env` values are not recorded.
 
-## Automated evidence
+## Fresh automated evidence
 
 | Check | Result | Exit / evidence |
 |---|---|---:|
-| Solution build | PASS | `dotnet build .\IUMP.slnx --no-restore` → exit 0, 0 warnings, 0 errors |
-| Unit runner | PASS | `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` → exit 0; T013 9/9; all suites PASS |
+| Solution build | PASS | `dotnet build .\IUMP.slnx --no-restore` → exit 0; 0 warnings, 0 errors |
+| Unit runner | PASS | `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` → exit 0; all suites PASS |
 | PostgreSQL integration | PASS | `dotnet run --project .\tests\Integration\IUMP.Tests.Integration.csproj --no-restore` → exit 0; 14 suites, 0 failures |
-| Forward migration 0014 | PASS | approved PostgreSQL helper, target recheck `iump_dev|5433`, `ON_ERROR_STOP=1` → exit 0 |
-| Web lint | PASS | `npm run lint` in `src/Web` → exit 0; three non-blocking pre-existing Fast Refresh warnings |
+| Web lint | PASS | `npm run lint` in `src/Web` → exit 0; three pre-existing Fast Refresh warnings |
 | Web production build | PASS | `npm run build` in `src/Web` → exit 0 |
-| Runtime readiness | PASS | `GET http://localhost:5000/health/ready` → HTTP 200 |
-| Anonymous workspace safety | PASS | `GET /api/v1/operational-workspace/status` without a session → HTTP 401 |
+| Runtime auth/session | PASS | real API `ready=200 login=200 me=200 logout=200`; no credential recorded |
+| Architecture | PASS | `.\tests\Verification\architecture.tests.ps1` → exit 0 |
+| Repository policy | PASS | `.\tests\Verification\repository-policy.tests.ps1` → exit 0 |
+| Observability | PASS | `.\tests\Verification\observability.tests.ps1` → exit 0; 12 checks, 0 failures |
 | Fast harness | PASS | `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` → exit 0; PASS 8 |
-| Full harness | BLOCKED | same command with `-Mode Full` → exit 20; PASS 11, `BLK-ENV-003` and `BLK-ENV-004` blocked by company approval |
+| Full harness | BLOCKED | `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` → exit 20; PASS 11 and 2 company-approval blockers |
 
-The PostgreSQL T014 journey created an isolated unique chain through real repositories, proved
-Administrator Site activation and duplicate-safe Engineer handoff, Engineer continuation,
-server-derived resume before Mapping and before activation, partial restart that skips the already
-committed Area transition, the legal Area → Asset → Source → Mapping → Point activation order, a
-stable post-restart Dashboard landing, and zero Simulator Runs for the new Source.
+The Vite proxy remains `http://localhost:5000` because the repository API startup contract uses
+`AllowedHosts=localhost` and `launchSettings.json` binds `http://localhost:5000`. This is the
+HTTP loopback host only; the PostgreSQL target remains the approved
+`127.0.0.1:5433/iump_dev`.
 
-## Manual browser acceptance
+## Corrective red/green evidence
 
-The local Web application was exercised through the in-app browser against the running API:
+- The new PostgreSQL overlapping-Mapping/idempotency regression failed before the savepoint fix:
+  integration exit 1 with one `25P02` transaction-aborted failure.
+- After rolling a rejected Mapping transition back to its nested savepoint, the same integration
+  runner exited 0 with 14 suites and 0 failures. The rejected activation now returns and exactly
+  replays `409 CATALOG_CONFLICT` instead of becoming HTTP 500.
+- Unit status coverage proves an operational Site need not be first, reversing repository order
+  does not change selection, ties use stable identity, unrelated hierarchy branches are not
+  combined, scope filtering happens before counts, and an unmapped Source is not attached to an
+  arbitrary one of multiple Points.
+- The Area-only mapped-chain regression failed before authorization repair (integration exit 1)
+  and passes afterward; Area scope hides a pre-Mapping Site-wide Source but permits validation
+  once a persisted Mapping relates the Source to the authorized Point.
+- Session unit coverage fails closed for malformed cookies and proves the request-scoped principal
+  reuses server-resolved role, Site, Area, and capability claims without a second IAM lookup.
+- PostgreSQL T014 evaluates two authorized Sites, selects the later operational chain, reports one
+  operational and one incomplete chain, completes the legal
+  Area → Asset → Source → Mapping → Point activation sequence, reconstructs persisted state, and
+  creates no Simulator Run.
 
-- an authenticated Engineer landed on the server-selected operational Dashboard;
-- opening Setup displayed all eight steps as complete and the assigned Site;
-- the summary displayed `8/8 bước hoàn tất`;
-- the summary explicitly displayed `Simulator tự khởi động: Không`;
-- refreshing the browser returned to the Dashboard from persisted server state;
-- browser console errors: 0.
+## Manual browser evidence
 
-The Administrator handoff mutation and Engineer continuation are exercised end-to-end by the
-PostgreSQL T014 journey. No real credential is copied into this evidence.
+The in-app browser used the real local Web/API/PostgreSQL runtime:
+
+- Administrator sign-in: PASS. The server returned a persisted operational Dashboard.
+- Administrator Setup view: PASS for persisted reconstruction; it visibly showed `8/8` and
+  `Simulator tự khởi động: Không`.
+- Administrator create/activate/assign journey: **NOT RUN to completion**. The persistent
+  development database already contained 59 Sites and at least one operational chain. Landing
+  precedence therefore selected the operational chain and the Setup view exposed no `Tạo Site`
+  action. No destructive database cleanup was authorized or performed.
+- Administrator logout: PASS after registering server-owned session authentication; the browser
+  returned to the sign-in state.
+- Engineer sign-in and continuation: PASS. The Engineer resumed the selected persisted chain at
+  Data Source, created a Source, Mapping, and Simulator Configuration, and reached `7/8`.
+- Browser refresh: PASS. Refresh reconstructed `7/8` and `Kiểm tra và kích hoạt` from server state.
+- Ordered activation on that pre-existing Point: safely stopped with visible
+  `CATALOG_CONFLICT` because the Point already had a different active open-ended Mapping. The same
+  conflict previously produced HTTP 500 and now remains a replayable HTTP 409.
+- Simulator auto-started: **NO**. The newest browser-created Source has zero Runs.
+- Browser console errors: **0**.
+
+Because the exact Administrator create/activate/assign browser journey could not be run against
+the non-empty persistent database, T033 remains unchecked. The complete isolated Administrator
+handoff, duplicate-safe assignment, Engineer continuation, resume, activation, and zero-Run
+journey is green in PostgreSQL T014, but automated evidence is not substituted for the required
+manual browser evidence.
 
 ## Frontend behavior runner
 
-Status: **BLOCKED**
-Classification: `BLOCKED_BY_PACKAGE_POLICY`
+Status: **BLOCKED_BY_PACKAGE_POLICY**
 Blocker ID: `BLK-003-PH1-WEB-RUNNER`
 
-`src/Web/package.json` has no approved frontend behavior-test runner script. The existing
-`src/Web/src/test/app-shell.test.tsx` source is type-checked by the production build, but it cannot
-truthfully be described as executed. Per repository policy, no package was installed or
-downloaded. This separate optional evidence blocker does not replace or invalidate the passing
-Web build, browser acceptance, Unit suites, PostgreSQL journey, or repository harness.
+`src/Web/package.json` has no approved frontend behavior-test runner. The source
+`src/Web/src/test/app-shell.test.tsx` is type-checked by the production build but was not executed
+as a behavior suite. No package was installed or downloaded, so T034 remains unchecked.

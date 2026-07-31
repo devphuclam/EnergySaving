@@ -41,12 +41,14 @@ async function mutation(path: string, method: 'POST' | 'PUT' | 'DELETE',
 export const setupGateway: WorkspaceGateway = {
   async getStatus() {
     const response = await fetch('/api/v1/operational-workspace/status', { headers: { Accept: 'application/json' } })
-    if (!response.ok && response.status !== 503) throw new Error(`WORKSPACE_${response.status}`)
+    if (!response.ok) throw new Error(
+      response.status === 503 ? 'DEPENDENCY_UNAVAILABLE' : `WORKSPACE_${response.status}`)
     return json<OperationalWorkspaceStatus>(response)
   },
   async listEngineers() {
     const response = await fetch('/api/v1/operational-workspace/engineers', { headers: { Accept: 'application/json' } })
-    if (!response.ok) return []
+    if (!response.ok) throw new Error(
+      response.status === 503 ? 'DEPENDENCY_UNAVAILABLE' : `ENGINEERS_${response.status}`)
     return (await json<{ items: EngineerCandidate[] }>(response)).items
   },
   assignEngineer(siteId, engineerId, retryKey) {
@@ -55,7 +57,8 @@ export const setupGateway: WorkspaceGateway = {
   mutate: mutation,
   async listOptions(resource) {
     const response = await fetch(`/api/v1/${resource}`, { headers: { Accept: 'application/json' } })
-    if (!response.ok) return []
+    if (!response.ok) throw new Error(
+      response.status === 503 ? 'DEPENDENCY_UNAVAILABLE' : `OPTIONS_${response.status}`)
     const values = await json<Array<Record<string, unknown>>>(response)
     return values.map(value => ({
       id: String(value.id ?? value.metricId ?? value.unitId ?? ''),

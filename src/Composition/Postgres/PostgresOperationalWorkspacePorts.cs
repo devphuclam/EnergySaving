@@ -33,117 +33,105 @@ public sealed class PostgresOperationalWorkspacePorts(
             ? OrganizationQueryScope.Global()
             : new OrganizationQueryScope(false,
                 Parse(principal.SiteIds), Parse(principal.AreaIds));
-        var sites = (await organization.GetSitesAsync(scope, new ScopeFilter(1, 100), ct)).Items;
-        var summaries = sites.Select(site => new WorkspaceSiteSummary(
-            site.Id, site.Code, site.Name, site.Status.ToString(), site.Version)).ToArray();
         var hasScope = principal.IsAdministrator ||
             principal.SiteIds.Count > 0 || principal.AreaIds.Count > 0;
-        if (sites.Count == 0)
-            return OperationalWorkspaceStatusBuilder.Build(
-                principal.IsAdministrator, hasScope, false, 0, 0, true, summaries);
-
-        var selectedSite = sites[0];
-        var completed = 0;
-        var eligibleEngineers = await engineers.ListEligibleEngineersAsync(ct);
-        if (!principal.IsAdministrator ||
-            eligibleEngineers.Any(value => value.AssignedSiteIds.Contains(selectedSite.Id)))
-            completed = 1;
-
-        var areas = (await organization.GetAreasForSiteAsync(
-            selectedSite.Id, scope, new ScopeFilter(1, 100), ct)).Items;
-        if (completed == 1 && areas.Count > 0) completed = 2;
-        var area = areas.FirstOrDefault();
-        var assets = area is null
-            ? Array.Empty<AssetSnapshot>()
-            : (await organization.GetAssetsForAreaAsync(
-                area.Id, scope, new ScopeFilter(1, 100), ct)).Items.ToArray();
-        if (completed == 2 && assets.Length > 0) completed = 3;
-        var asset = assets.FirstOrDefault();
-        var points = asset is null
-            ? Array.Empty<PointSnapshot>()
-            : (await organization.GetPointsForAssetAsync(
-                asset.Id, scope, new ScopeFilter(1, 100), ct)).Items.ToArray();
-        if (completed == 3 && points.Length > 0) completed = 4;
-        var point = points.FirstOrDefault();
-
-        var mappings = point is null
-            ? Array.Empty<CatalogRuntimeMapping>()
-            : (await catalog.GetMappingSnapshotsAsync(ct))
-                .Where(value => value.PointId == point.Id).ToArray();
-        var sources = await catalog.GetDataSourceSnapshotsAsync(ct);
-        var source = mappings.Select(mapping =>
-            sources.FirstOrDefault(value => value.Id == mapping.DataSourceId))
-            .FirstOrDefault(value =>
-                value is not null && value.SiteId == selectedSite.Id)
-            ?? sources.FirstOrDefault(value =>
-                value.SiteId == selectedSite.Id &&
-                value.Status.Equals("Draft", StringComparison.OrdinalIgnoreCase));
-        if (completed == 4 && source is not null) completed = 5;
-        var mapping = mappings.FirstOrDefault();
-        if (completed == 5 && mapping is not null) completed = 6;
-        var configuration = source is null ? null :
-            await configurations.GetBySourceIdAsync(source.Id, ct);
-        if (completed == 6 && configuration is not null) completed = 7;
-
-        var operational = selectedSite.Status == SiteStatus.Active &&
-            area?.Status == AreaStatus.Active &&
-            asset?.Status == AssetStatus.Active &&
-            point?.Status == PointStatus.Active &&
-            source?.Status == "Active" &&
-            mapping?.Status == "Active" &&
-            configuration is not null;
-        if (completed == 7 && operational) completed = 8;
-
-        var status = OperationalWorkspaceStatusBuilder.Build(
-            principal.IsAdministrator, hasScope, true, completed,
-            operational ? 1 : 0, true, summaries);
-        var validationFailures = new List<WorkspaceValidationFailure>();
-        if (source?.Status == "Decommissioned")
-            validationFailures.Add(new WorkspaceValidationFailure(
-                WorkspaceStep.DataSource, "sourceId",
-                "SOURCE_TERMINAL", "setup.source.terminal"));
-        if (mapping?.Status is "Inactive" or "Superseded")
-            validationFailures.Add(new WorkspaceValidationFailure(
-                WorkspaceStep.Mapping, "mappingId",
-                "MAPPING_INELIGIBLE", "setup.mapping.ineligible"));
-        if (point?.Status == PointStatus.Decommissioned)
-            validationFailures.Add(new WorkspaceValidationFailure(
-                WorkspaceStep.MeasurementPoint, "pointId",
-                "POINT_TERMINAL", "setup.point.terminal"));
-        if (area?.Status == AreaStatus.Inactive)
-            validationFailures.Add(new WorkspaceValidationFailure(
-                WorkspaceStep.Area, "areaId",
-                "AREA_INELIGIBLE", "setup.area.ineligible"));
-        if (asset?.Status is AssetStatus.Inactive or AssetStatus.Decommissioned)
-            validationFailures.Add(new WorkspaceValidationFailure(
-                WorkspaceStep.Asset, "assetId",
-                "ASSET_INELIGIBLE", "setup.asset.ineligible"));
-        if (point?.Status == PointStatus.Inactive)
-            validationFailures.Add(new WorkspaceValidationFailure(
-                WorkspaceStep.MeasurementPoint, "pointId",
-                "POINT_INELIGIBLE", "setup.point.ineligible"));
-        return status with
+        var sites = await All(
+            filter => organization.GetSitesAsync(scope, filter, ct));
+        var authorizedSiteIds = sites.Select(value => value.Id).ToHashSet();
+        var areas = new List<AreaSnapshot>();
+        var assets = new List<AssetSnapshot>();
+        var points = new List<PointSnapshot>();
+        foreach (var site in sites)
         {
-            Chain = new WorkspaceChainSelection(
-                selectedSite.Id, selectedSite.Version,
-                area?.Id, area?.Version,
-                asset?.Id, asset?.Version,
-                point?.Id, point?.Version,
-                source?.Id, source?.Version,
-                mapping?.Id, mapping?.Version,
-                configuration?.ConfigurationId, configuration?.Version),
-            ActivationSteps = new[]
+            var siteAreas = await All(
+                filter => organization.GetAreasForSiteAsync(
+                    site.Id, scope, filter, ct));
+            areas.AddRange(siteAreas);
+            foreach (var area in siteAreas)
             {
-                (Name: "site", Pending: selectedSite.Status != SiteStatus.Active),
-                (Name: "area", Pending: area?.Status != AreaStatus.Active),
-                (Name: "asset", Pending: asset?.Status != AssetStatus.Active),
-                (Name: "data-source", Pending: source?.Status != "Active"),
-                (Name: "mapping", Pending: mapping?.Status != "Active"),
-                (Name: "measurement-point", Pending: point?.Status != PointStatus.Active)
-            }.Where(value => value.Pending).Select(value => value.Name).ToArray(),
-            CurrentUserId = principal.UserId,
-            ValidationFailures = validationFailures
+                var areaAssets = await All(
+                    filter => organization.GetAssetsForAreaAsync(
+                        area.Id, scope, filter, ct));
+                assets.AddRange(areaAssets);
+                foreach (var asset in areaAssets)
+                    points.AddRange(await All(
+                        filter => organization.GetPointsForAssetAsync(
+                            asset.Id, scope, filter, ct)));
+            }
+        }
+
+        var assignedSiteIds = principal.IsAdministrator
+            ? (await engineers.ListEligibleEngineersAsync(ct))
+                .SelectMany(value => value.AssignedSiteIds)
+                .ToHashSet()
+            : [];
+        var pointIds = points.Select(value => value.Id).ToHashSet();
+        var directSiteIds = Parse(principal.SiteIds).ToHashSet();
+        var allMappings = await catalog.GetMappingSnapshotsAsync(ct);
+        var sources = (await catalog.GetDataSourceSnapshotsAsync(ct))
+            .Where(value =>
+                value.SiteId.HasValue &&
+                authorizedSiteIds.Contains(value.SiteId.Value) &&
+                (principal.IsAdministrator ||
+                 directSiteIds.Contains(value.SiteId.Value) ||
+                 allMappings.Any(mapping =>
+                     mapping.DataSourceId == value.Id &&
+                     pointIds.Contains(mapping.PointId))))
+            .ToArray();
+        var sourceIds = sources.Select(value => value.Id).ToHashSet();
+        var mappings = allMappings
+            .Where(value =>
+                sourceIds.Contains(value.DataSourceId) &&
+                pointIds.Contains(value.PointId))
+            .ToArray();
+        var configurationValues = new List<WorkspacePersistedConfiguration>();
+        foreach (var source in sources)
+        {
+            var value = await configurations.GetBySourceIdAsync(source.Id, ct);
+            if (value is not null)
+                configurationValues.Add(new WorkspacePersistedConfiguration(
+                    value.ConfigurationId, value.SourceId, value.Version));
+        }
+
+        var snapshot = new WorkspacePersistedSnapshot(
+            sites.Select(value => new WorkspacePersistedSite(
+                value.Id, value.Code, value.Name, value.Status.ToString(),
+                value.Version, assignedSiteIds.Contains(value.Id), true)).ToArray(),
+            areas.Select(value => new WorkspacePersistedArea(
+                value.Id, value.SiteId, value.Status.ToString(), value.Version)).ToArray(),
+            assets.Select(value => new WorkspacePersistedAsset(
+                value.Id, value.SiteId, value.AreaId, value.Status.ToString(),
+                value.Version)).ToArray(),
+            points.Select(value => new WorkspacePersistedPoint(
+                value.Id, value.SiteId, value.AreaId, value.AssetId,
+                value.Status.ToString(), value.Version)).ToArray(),
+            sources.Select(value => new WorkspacePersistedSource(
+                value.Id, value.SiteId!.Value, value.Status, value.Version)).ToArray(),
+            mappings.Select(value => new WorkspacePersistedMapping(
+                value.Id, value.DataSourceId, value.PointId, value.Status,
+                value.Version)).ToArray(),
+            configurationValues);
+        return OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
+            principal.IsAdministrator, hasScope, true, snapshot) with
+        {
+            CurrentUserId = principal.UserId
         };
+
+        static async Task<IReadOnlyList<T>> All<T>(
+            Func<ScopeFilter, Task<PagedResult<T>>> query)
+        {
+            const int pageSize = 200;
+            var values = new List<T>();
+            var page = 1;
+            while (true)
+            {
+                var result = await query(new ScopeFilter(page, pageSize));
+                values.AddRange(result.Items);
+                if (values.Count >= result.TotalCount || result.Items.Count == 0)
+                    return values;
+                page++;
+            }
+        }
     }
 
     public async Task<WorkspaceChainValidation> ValidateChainAsync(
@@ -162,9 +150,7 @@ public sealed class PostgresOperationalWorkspacePorts(
                 ConfigurationId: { } configurationId
             } ||
             !principal.HasScope(
-                siteId.ToString("D"), areaId.ToString("D")) ||
-            (!principal.IsAdministrator &&
-             !principal.SiteIds.Contains(siteId.ToString("D"))))
+                siteId.ToString("D"), areaId.ToString("D")))
             return new WorkspaceChainValidation(
                 false,
                 [Failure(WorkspaceStep.SiteAndEngineer, null, "NOT_FOUND")],

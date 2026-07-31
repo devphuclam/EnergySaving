@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.AspNetCore.Builder;
 using IUMP.Api;
+using IUMP.Api.Infrastructure;
 
 namespace IUMP.Tests.Unit.Api;
 
@@ -65,6 +66,8 @@ public static class AuthEndpointTests
 
         RouteMetadataTests(failures);
         AntiforgeryOptionsTests(failures);
+        AntiforgeryPipelineTests(failures);
+        SessionAuthenticationTests(failures);
         LoginHandlerTests(failures);
         LogoutHandlerTests(failures);
         LogoutAntiforgeryFailureTests(failures);
@@ -72,6 +75,54 @@ public static class AuthEndpointTests
         AntiforgeryHandlerTests(failures);
 
         return failures;
+    }
+
+    private static void AntiforgeryPipelineTests(List<string> failures)
+    {
+        var root = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var program = File.ReadAllText(Path.Combine(root, "src", "Api", "Program.cs"));
+        if (!program.Contains(
+                "builder.Services.AddIumpSessionAuthentication();",
+                StringComparison.Ordinal))
+            failures.Add(
+                "T032-RED: API pipeline must register the IUMP session authentication scheme.");
+        if (!program.Contains("app.UseAntiforgery();", StringComparison.Ordinal))
+            failures.Add(
+                "T032-RED: API pipeline must register antiforgery middleware before executing protected endpoints.");
+    }
+
+    private static void SessionAuthenticationTests(List<string> failures)
+    {
+        const string cookie =
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1";
+        var principal = IumpSessionAuthentication.TryCreatePrincipal(
+            cookie, new TestAuthService());
+        if (principal?.Identity?.IsAuthenticated != true ||
+            principal.Identity.Name != "testuser" ||
+            !principal.IsInRole("Engineer"))
+            failures.Add(
+                "T032-RED: IUMP session cookie authentication must resolve the server-owned user and roles.");
+        var context = new DefaultHttpContext { User = principal! };
+        var accessor = new HttpServerPrincipalAccessor(
+            new HttpContextAccessor { HttpContext = context });
+        var serverPrincipal = accessor.Current;
+        if (serverPrincipal is null)
+        {
+            failures.Add(
+                "T032-RED: HTTP principal access must reuse the authenticated principal.");
+        }
+        else if (!serverPrincipal.SiteIds.Contains(
+                "00000000-0000-0000-0000-000000000002") ||
+            !serverPrincipal.AreaIds.Contains(
+                "00000000-0000-0000-0000-000000000003") ||
+            !serverPrincipal.HasCapability("CONFIG_WRITE"))
+            failures.Add(
+                "T032-RED: HTTP principal access must reuse server-owned authenticated scope and capability claims.");
+        if (IumpSessionAuthentication.TryCreatePrincipal(
+                "not-a-hex-token", new TestAuthService()) is not null)
+            failures.Add(
+                "T032-RED: malformed IUMP session cookies must fail closed.");
     }
 
     private static IAuthService CreateAuthService()
@@ -91,7 +142,13 @@ public static class AuthEndpointTests
         public LoginResult Login(LoginRequest request, DateTime now) =>
             new(true, null, "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1", now.AddHours(8));
         public MeSnapshot? ResolveMe(string tokenHash) =>
-            new("uid", "testuser", new[] { "Engineer" }, Array.Empty<string>(), Array.Empty<string>());
+            new(
+                "00000000-0000-0000-0000-000000000001",
+                "testuser",
+                new[] { "Engineer" },
+                new[] { "00000000-0000-0000-0000-000000000002" },
+                new[] { "CONFIG_WRITE" },
+                new[] { "00000000-0000-0000-0000-000000000003" });
         public bool RevokeSession(string tokenHash, DateTime now) => true;
     }
 

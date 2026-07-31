@@ -1,40 +1,45 @@
-using IUMP.Modules.IAM.Contracts;
+using System.Security.Claims;
 
 namespace IUMP.Api.Infrastructure;
 
 public sealed class HttpServerPrincipalAccessor(
-    IHttpContextAccessor contexts,
-    IAuthService auth) : IServerPrincipalAccessor
+    IHttpContextAccessor contexts) : IServerPrincipalAccessor
 {
     public ServerPrincipal? Current
     {
         get
         {
-            var raw = contexts.HttpContext?.Request.Cookies[AuthEndpointHandlers.AuthCookie];
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-            try
-            {
-                var bytes = Convert.FromHexString(raw);
-                var hash = Convert.ToHexString(
-                    System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
-                var me = auth.ResolveMe(hash);
-                if (me is null || !Guid.TryParse(me.UserId, out var userId)) return null;
-                var siteIds = me.Scopes
-                    .Where(value => Guid.TryParse(value, out _))
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var areaIds = (me.AreaScopes ?? Array.Empty<string>())
-                    .Where(value => Guid.TryParse(value, out _))
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                return new ServerPrincipal(
-                    userId, me.Username, siteIds, areaIds,
-                    me.Roles.Contains("Administrator", StringComparer.OrdinalIgnoreCase),
-                    me.Roles.ToHashSet(StringComparer.OrdinalIgnoreCase),
-                    me.Capabilities.ToHashSet(StringComparer.OrdinalIgnoreCase));
-            }
-            catch (FormatException)
-            {
+            var authenticated = contexts.HttpContext?.User;
+            if (authenticated?.Identity?.IsAuthenticated != true ||
+                !Guid.TryParse(
+                    authenticated.FindFirstValue(ClaimTypes.NameIdentifier),
+                    out var userId))
                 return null;
-            }
+            var roles = authenticated.FindAll(ClaimTypes.Role)
+                .Select(claim => claim.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var siteIds = authenticated
+                .FindAll(IumpSessionAuthentication.SiteScopeClaim)
+                .Select(claim => claim.Value)
+                .Where(value => Guid.TryParse(value, out _))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var areaIds = authenticated
+                .FindAll(IumpSessionAuthentication.AreaScopeClaim)
+                .Select(claim => claim.Value)
+                .Where(value => Guid.TryParse(value, out _))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var capabilities = authenticated
+                .FindAll(IumpSessionAuthentication.CapabilityClaim)
+                .Select(claim => claim.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new ServerPrincipal(
+                userId,
+                authenticated.Identity.Name ?? userId.ToString("D"),
+                siteIds,
+                areaIds,
+                roles.Contains("Administrator"),
+                roles,
+                capabilities);
         }
     }
 }
