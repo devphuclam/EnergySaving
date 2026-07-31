@@ -18,6 +18,8 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         _hostTransactions = hostTransactions ?? throw new ArgumentNullException(nameof(hostTransactions));
     }
 
+    public bool HasAmbientTransaction => _hostTransactions.Current is { IsCompleted: false };
+
     public Task<SimulatorConfigurationHead?> GetBySourceIdAsync(
         Guid sourceId,
         CancellationToken ct = default) =>
@@ -59,6 +61,95 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
             ORDER BY configuration_version
             """, command => command.Parameters.AddWithValue("id", configurationId), MapVersion, ct);
 
+    public async Task<SimulatorConfigurationReceipt?> GetReceiptAsync(
+        Guid configurationId,
+        long draftConfigurationVersion,
+        CancellationToken ct = default)
+    {
+        var values = await QueryAsync("""
+            SELECT configuration_id,draft_configuration_version,source_id,relationship_fingerprint,
+                   reviewed_by_user_id,reviewed_at_utc,validated_payload_fingerprint,
+                   validated_by_user_id,validated_at_utc
+            FROM acquisition.simulator_configuration_receipt
+            WHERE configuration_id=@id AND draft_configuration_version=@version
+            """, command =>
+        {
+            command.Parameters.AddWithValue("id", configurationId);
+            command.Parameters.AddWithValue("version", draftConfigurationVersion);
+        }, MapReceipt, ct);
+        return values.SingleOrDefault();
+    }
+
+    public async Task SaveRelationshipReviewAsync(
+        SimulatorConfigurationReceipt receipt,
+        CancellationToken ct = default)
+    {
+        await ExecuteAsync("""
+            INSERT INTO acquisition.simulator_configuration_receipt
+                (configuration_id,draft_configuration_version,source_id,relationship_fingerprint,
+                 reviewed_by_user_id,reviewed_at_utc,validated_payload_fingerprint,
+                 validated_by_user_id,validated_at_utc)
+            VALUES
+                (@id,@version,@source,@relationship,@reviewed_by,@reviewed_at,NULL,NULL,NULL)
+            ON CONFLICT (configuration_id,draft_configuration_version) DO UPDATE SET
+                source_id=EXCLUDED.source_id,
+                relationship_fingerprint=EXCLUDED.relationship_fingerprint,
+                reviewed_by_user_id=EXCLUDED.reviewed_by_user_id,
+                reviewed_at_utc=EXCLUDED.reviewed_at_utc,
+                validated_payload_fingerprint=NULL,
+                validated_by_user_id=NULL,
+                validated_at_utc=NULL
+            """, command =>
+        {
+            command.Parameters.AddWithValue("id", receipt.ConfigurationId);
+            command.Parameters.AddWithValue("version", receipt.DraftConfigurationVersion);
+            command.Parameters.AddWithValue("source", receipt.SourceId);
+            command.Parameters.AddWithValue("relationship", receipt.RelationshipFingerprint);
+            command.Parameters.AddWithValue("reviewed_by", receipt.ReviewedByUserId);
+            command.Parameters.AddWithValue("reviewed_at", receipt.ReviewedAtUtc);
+        }, ct);
+    }
+
+    public async Task InvalidateReceiptAsync(
+        Guid configurationId,
+        long draftConfigurationVersion,
+        CancellationToken ct = default) =>
+        await ExecuteAsync("""
+            DELETE FROM acquisition.simulator_configuration_receipt
+            WHERE configuration_id=@id AND draft_configuration_version=@version
+            """, command =>
+        {
+            command.Parameters.AddWithValue("id", configurationId);
+            command.Parameters.AddWithValue("version", draftConfigurationVersion);
+        }, ct);
+
+    public async Task<bool> SaveValidationReceiptAsync(
+        Guid configurationId,
+        long draftConfigurationVersion,
+        Guid sourceId,
+        string payloadFingerprint,
+        string validatedByUserId,
+        DateTime validatedAtUtc,
+        CancellationToken ct = default)
+    {
+        var affected = await ExecuteAsync("""
+            UPDATE acquisition.simulator_configuration_receipt
+            SET validated_payload_fingerprint=@payload,
+                validated_by_user_id=@validated_by,
+                validated_at_utc=@validated_at
+            WHERE configuration_id=@id AND draft_configuration_version=@version AND source_id=@source
+            """, command =>
+        {
+            command.Parameters.AddWithValue("id", configurationId);
+            command.Parameters.AddWithValue("version", draftConfigurationVersion);
+            command.Parameters.AddWithValue("source", sourceId);
+            command.Parameters.AddWithValue("payload", payloadFingerprint);
+            command.Parameters.AddWithValue("validated_by", validatedByUserId);
+            command.Parameters.AddWithValue("validated_at", validatedAtUtc);
+        }, ct);
+        return affected == 1;
+    }
+
     public async Task<IReadOnlyList<SimulatorConfigurationHead>> ListHeadsAsync(
         CancellationToken ct = default) =>
         await QueryAsync("""
@@ -74,7 +165,8 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         SimulatorConfigurationVersion firstVersion,
         CancellationToken ct = default)
     {
-        var ownsTransaction = _state.Value?.Current is null;
+        var ownsTransaction = _state.Value?.Current is null &&
+            _hostTransactions.Current is not { IsCompleted: false };
         IConfigurationTransaction? transaction = null;
         if (ownsTransaction) transaction = await BeginTransactionAsync(ct);
         try
@@ -118,7 +210,8 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         SimulatorConfigurationVersion nextVersion,
         CancellationToken ct = default)
     {
-        var ownsTransaction = _state.Value?.Current is null;
+        var ownsTransaction = _state.Value?.Current is null &&
+            _hostTransactions.Current is not { IsCompleted: false };
         IConfigurationTransaction? transaction = null;
         if (ownsTransaction) transaction = await BeginTransactionAsync(ct);
         try
@@ -152,7 +245,8 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         SimulatorConfigurationVersion draftVersion,
         CancellationToken ct = default)
     {
-        var ownsTransaction = _state.Value?.Current is null;
+        var ownsTransaction = _state.Value?.Current is null &&
+            _hostTransactions.Current is not { IsCompleted: false };
         IConfigurationTransaction? transaction = null;
         if (ownsTransaction) transaction = await BeginTransactionAsync(ct);
         try
@@ -184,7 +278,8 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         long draftConfigurationVersion,
         CancellationToken ct = default)
     {
-        var ownsTransaction = _state.Value?.Current is null;
+        var ownsTransaction = _state.Value?.Current is null &&
+            _hostTransactions.Current is not { IsCompleted: false };
         IConfigurationTransaction? transaction = null;
         if (ownsTransaction) transaction = await BeginTransactionAsync(ct);
         try
@@ -291,6 +386,13 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         reader.GetDateTime(11).ToUniversalTime(),
         reader.IsDBNull(12) ? null : reader.GetString(12),
         reader.IsDBNull(13) ? null : reader.GetString(13));
+
+    private static SimulatorConfigurationReceipt MapReceipt(NpgsqlDataReader reader) =>
+        new(reader.GetGuid(0), reader.GetInt64(1), reader.GetGuid(2), reader.GetString(3),
+            reader.GetString(4), reader.GetDateTime(5).ToUniversalTime(),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(8) ? null : reader.GetDateTime(8).ToUniversalTime());
 
     private async Task<int> ExecuteAsync(
         string sql,

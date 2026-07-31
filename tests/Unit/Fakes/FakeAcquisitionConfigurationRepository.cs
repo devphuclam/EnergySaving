@@ -7,7 +7,10 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
 {
     private Dictionary<Guid, SimulatorConfigurationHead> _heads = new();
     private Dictionary<(Guid Id, long Version), SimulatorConfigurationVersion> _versions = new();
+    private Dictionary<(Guid Id, long Version), SimulatorConfigurationReceipt> _receipts = new();
     private Transaction? _transaction;
+
+    public bool HasAmbientTransaction => false;
 
     public Task<SimulatorConfigurationHead?> GetBySourceIdAsync(Guid sourceId, CancellationToken ct = default) =>
         Task.FromResult(_heads.Values.FirstOrDefault(h => h.SourceId == sourceId));
@@ -27,6 +30,40 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
     public Task<IReadOnlyList<SimulatorConfigurationVersion>> ListVersionsAsync(Guid configurationId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<SimulatorConfigurationVersion>>(_versions.Values
             .Where(v => v.ConfigurationId == configurationId).OrderBy(v => v.ConfigurationVersion).Select(Clone).ToList());
+
+    public Task<SimulatorConfigurationReceipt?> GetReceiptAsync(Guid configurationId, long draftConfigurationVersion, CancellationToken ct = default) =>
+        Task.FromResult(_receipts.GetValueOrDefault((configurationId, draftConfigurationVersion)));
+
+    public Task SaveRelationshipReviewAsync(SimulatorConfigurationReceipt receipt, CancellationToken ct = default)
+    {
+        _receipts[(receipt.ConfigurationId, receipt.DraftConfigurationVersion)] = receipt with
+        {
+            ValidatedPayloadFingerprint = null,
+            ValidatedByUserId = null,
+            ValidatedAtUtc = null
+        };
+        return Task.CompletedTask;
+    }
+
+    public Task InvalidateReceiptAsync(Guid configurationId, long draftConfigurationVersion, CancellationToken ct = default)
+    {
+        _receipts.Remove((configurationId, draftConfigurationVersion));
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> SaveValidationReceiptAsync(Guid configurationId, long draftConfigurationVersion, Guid sourceId,
+        string payloadFingerprint, string validatedByUserId, DateTime validatedAtUtc, CancellationToken ct = default)
+    {
+        if (!_receipts.TryGetValue((configurationId, draftConfigurationVersion), out var receipt) || receipt.SourceId != sourceId)
+            return Task.FromResult(false);
+        _receipts[(configurationId, draftConfigurationVersion)] = receipt with
+        {
+            ValidatedPayloadFingerprint = payloadFingerprint,
+            ValidatedByUserId = validatedByUserId,
+            ValidatedAtUtc = validatedAtUtc
+        };
+        return Task.FromResult(true);
+    }
 
     public Task CreateAsync(SimulatorConfigurationHead head, SimulatorConfigurationVersion firstVersion, CancellationToken ct = default)
     {
@@ -88,10 +125,12 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
     }
 
     private void Restore(Dictionary<Guid, SimulatorConfigurationHead> heads,
-        Dictionary<(Guid Id, long Version), SimulatorConfigurationVersion> versions)
+        Dictionary<(Guid Id, long Version), SimulatorConfigurationVersion> versions,
+        Dictionary<(Guid Id, long Version), SimulatorConfigurationReceipt> receipts)
     {
         _heads = heads.ToDictionary(x => x.Key, x => Clone(x.Value));
         _versions = versions.ToDictionary(x => x.Key, x => Clone(x.Value));
+        _receipts = receipts.ToDictionary(x => x.Key, x => x.Value);
     }
 
     private static SimulatorConfigurationHead Clone(SimulatorConfigurationHead h) =>
@@ -107,6 +146,7 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
         private readonly FakeAcquisitionConfigurationRepository _owner;
         private readonly Dictionary<Guid, SimulatorConfigurationHead> _heads;
         private readonly Dictionary<(Guid Id, long Version), SimulatorConfigurationVersion> _versions;
+        private readonly Dictionary<(Guid Id, long Version), SimulatorConfigurationReceipt> _receipts;
         private bool _committed;
         private bool _disposed;
 
@@ -117,13 +157,14 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
             _owner = owner;
             _heads = heads.ToDictionary(x => x.Key, x => Clone(x.Value));
             _versions = versions.ToDictionary(x => x.Key, x => Clone(x.Value));
+            _receipts = owner._receipts.ToDictionary(x => x.Key, x => x.Value);
         }
 
         public Task CommitAsync(CancellationToken ct = default) { _committed = true; _owner._transaction = null; return Task.CompletedTask; }
 
         public Task RollbackAsync(CancellationToken ct = default)
         {
-            if (!_committed) _owner.Restore(_heads, _versions);
+            if (!_committed) _owner.Restore(_heads, _versions, _receipts);
             _owner._transaction = null;
             return Task.CompletedTask;
         }
@@ -132,7 +173,7 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
         {
             if (_disposed) return;
             _disposed = true;
-            if (!_committed) _owner.Restore(_heads, _versions);
+            if (!_committed) _owner.Restore(_heads, _versions, _receipts);
             _owner._transaction = null;
         }
     }

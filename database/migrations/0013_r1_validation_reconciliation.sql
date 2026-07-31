@@ -121,7 +121,8 @@ WITH expected_migrations(ordinal, filename) AS (
       (7,'0007_acquisition_run.sql'), (8,'0008_telemetry_measurement.sql'),
       (9,'0009_telemetry_latest_status.sql'), (10,'0010_audit_event.sql'),
       (11,'0011_r1_infrastructure_expand.sql'), (12,'0012_r1_idempotent_seeds.sql'),
-      (13,'0013_r1_validation_reconciliation.sql')
+      (13,'0013_r1_validation_reconciliation.sql'), (14,'0014_operational_workspace_scope.sql'),
+      (15,'0015_acquisition_simulator_configuration_receipts.sql')
 ), schema_signature AS (
     SELECT md5(string_agg(
         n.nspname || '.' || c.relname || ':' || a.attname || ':' ||

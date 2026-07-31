@@ -50,6 +50,8 @@ export function ConfigurationManagementRoutes() {
   const [items, setItems] = useState<ManagementItem[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [sites, setSites] = useState<Array<{ id: string; label: string }>>([])
+  const [sources, setSources] = useState<Array<{ id: string; label: string }>>([])
+  const [points, setPoints] = useState<Array<{ id: string; label: string }>>([])
   const [busyItem, setBusyItem] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<ManagementFeedback>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
@@ -58,7 +60,8 @@ export function ConfigurationManagementRoutes() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [editor, setEditor] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
-  const [review, setReview] = useState<{ id: string; relationships: string[]; excluded: string[]; reviewed: boolean } | null>(null)
+  const [review, setReview] = useState<{ id: string; draftVersion: number; relationships: string[]; excluded: string[]; reviewed: boolean } | null>(null)
+  const [duplicateSourceId, setDuplicateSourceId] = useState('')
   const [validated, setValidated] = useState<Set<string>>(new Set())
   const search = useDebouncedSearch(filter.search ?? '')
 
@@ -86,6 +89,21 @@ export function ConfigurationManagementRoutes() {
       .catch(() => { if (!cancelled) setSites([]) })
     return () => { cancelled = true }
   }, [gateways.management, refreshNonce])
+
+  useEffect(() => {
+    if (!['source-point-mappings', 'simulator-configurations'].includes(resource) ||
+      (editor !== 'create' && resource !== 'simulator-configurations')) return
+    let cancelled = false
+    void Promise.all([
+      gateways.management.list('data-sources', { page: 1, pageSize: 200, status: 'Active' }),
+      gateways.management.list('points', { page: 1, pageSize: 200 }),
+    ]).then(([sourcePage, pointPage]) => {
+      if (cancelled) return
+      setSources(sourcePage.items.map(value => ({ id: textValue(value.id), label: `${textValue(value.code)} – ${textValue(value.name)}` })).filter(value => value.id))
+      setPoints(pointPage.items.map(value => ({ id: textValue(value.id), label: `${textValue(value.code)} – ${textValue(value.name)}` })).filter(value => value.id))
+    }).catch(() => { if (!cancelled) { setSources([]); setPoints([]) } })
+    return () => { cancelled = true }
+  }, [editor, resource, gateways.management])
 
   async function openDetail(item: ManagementItem) {
     const id = idOf(item)
@@ -119,7 +137,9 @@ export function ConfigurationManagementRoutes() {
 
   async function submitEditor() {
     const body = normalizedForm(resource, form)
-    if (!body.name && resource !== 'source-point-mappings' && resource !== 'simulator-configurations') {
+    if ((!body.name && resource !== 'source-point-mappings' && resource !== 'simulator-configurations') ||
+      (editor === 'create' && resource === 'source-point-mappings' && (!body.sourceId || !body.pointId)) ||
+      (editor === 'create' && resource === 'simulator-configurations' && !body.sourceId)) {
       setState('validation')
       setFeedback({ tone: 'warning', message: 'Tên là bắt buộc.' })
       return
@@ -151,10 +171,22 @@ export function ConfigurationManagementRoutes() {
   async function duplicate(item: ManagementItem) {
     const id = idOf(item)
     if (!id) return
+    if (resource === 'simulator-configurations' && !duplicateSourceId) {
+      setState('validation')
+      setFeedback({ tone: 'warning', message: 'Hãy chọn Nguồn đích nhân bản trước khi tạo bản nháp Simulator.' })
+      return
+    }
+    if (resource === 'simulator-configurations' &&
+      duplicateSourceId === textValue(item.sourceId)) {
+      setState('validation')
+      setFeedback({ tone: 'warning', message: 'Nguồn đích phải khác Source hiện tại của cấu hình.' })
+      return
+    }
     setBusyItem(id)
     let result
     try {
-      result = await gateways.management.duplicate(resource, id)
+      result = await gateways.management.duplicate(resource, id,
+        resource === 'simulator-configurations' ? duplicateSourceId : undefined)
     } catch {
       setBusyItem(null)
       setState('runtime')
@@ -169,8 +201,13 @@ export function ConfigurationManagementRoutes() {
     const newId = textValue(result.body?.id)
     const relationships = Array.isArray(result.body?.reviewRelationships) ? result.body?.reviewRelationships.map(String) : []
     const excluded = Array.isArray(result.body?.excludedFields) ? result.body?.excludedFields.map(String) : []
-    setReview({ id: newId, relationships, excluded, reviewed: false })
-    setFeedback({ tone: 'success', message: `Đã tạo bản nháp ${resourceLabel(resource)} mới (${newId}). Hãy xem xét quan hệ và kiểm tra trước khi kích hoạt.` })
+    if (resource === 'simulator-configurations') {
+      setReview({ id: newId, draftVersion: Number(result.body?.draftConfigurationVersion ?? 0), relationships, excluded, reviewed: false })
+      setFeedback({ tone: 'success', message: `Đã tạo bản nháp ${resourceLabel(resource)} mới (${newId}). Hãy xem xét quan hệ và kiểm tra trước khi kích hoạt.` })
+    } else {
+      setReview(null)
+      setFeedback({ tone: 'success', message: `Đã tạo bản nháp ${resourceLabel(resource)} mới (${newId}).` })
+    }
     if (newId) {
       try {
         const loaded = await gateways.management.detail(resource, newId)
@@ -181,6 +218,26 @@ export function ConfigurationManagementRoutes() {
       }
     }
     reload()
+  }
+
+  async function reviewRelationships() {
+    if (!review) return
+    setBusyItem(review.id)
+    try {
+      const result = await gateways.management.reviewSimulatorConfiguration(review.id, review.draftVersion)
+      setBusyItem(null)
+      if (!result.ok) {
+        setFeedback({ tone: 'error', message: messageFor(result, 'Xem xét quan hệ') })
+        return
+      }
+      setReview(current => current ? { ...current, reviewed: true } : current)
+      setFeedback({ tone: 'success', message: 'Đã lưu biên nhận xem xét quan hệ trên máy chủ.' })
+      reload()
+    } catch {
+      setBusyItem(null)
+      setState('runtime')
+      setFeedback({ tone: 'error', message: 'Không thể lưu biên nhận xem xét quan hệ.' })
+    }
   }
 
   async function validate(item: ManagementItem) {
@@ -248,15 +305,16 @@ export function ConfigurationManagementRoutes() {
     const id = textValue(item.configurationId)
     const headVersion = Number(item.version ?? 0)
     const draftVersion = Number(item.draftConfigurationVersion ?? 0)
-    const relationshipReviewed = review?.id === id ? review.reviewed : true
-    if (!relationshipReviewed || !validated.has(id)) {
+    const relationshipReviewed = review?.id === id ? review.reviewed : Boolean(item.relationshipReviewed)
+    const validationRecorded = validated.has(id) || Boolean(item.validationRecorded)
+    if (!relationshipReviewed || !validationRecorded) {
       setFeedback({ tone: 'warning', message: 'Cần xem xét quan hệ và kiểm tra bản nháp trước khi kích hoạt.' })
       return
     }
     setBusyItem(id)
     let result
     try {
-      result = await gateways.management.activateSimulatorConfigurationVersion(id, headVersion, draftVersion, true, true)
+      result = await gateways.management.activateSimulatorConfigurationVersion(id, headVersion, draftVersion)
     } catch {
       setBusyItem(null)
       setState('runtime')
@@ -282,8 +340,9 @@ export function ConfigurationManagementRoutes() {
   const columns = columnsFor(resource)
   const hasDraftReady = (item: ManagementItem) => {
     const id = idOf(item)
-    const relationshipReviewed = review?.id === id ? review.reviewed : true
-    return relationshipReviewed && validated.has(id)
+    const relationshipReviewed = review?.id === id ? review.reviewed : Boolean(item.relationshipReviewed)
+    const validationRecorded = validated.has(id) || Boolean(item.validationRecorded)
+    return relationshipReviewed && validationRecorded
   }
 
   return (
@@ -297,12 +356,13 @@ export function ConfigurationManagementRoutes() {
         <div className="actions-stack"><span className="badge badge-neutral">{resourceLabel(resource)}</span><ManagementActionButton label="Tạo mới" tone="primary" onClick={beginCreate} /></div>
       </div>
       <nav className="tabs" aria-label="Loại cấu hình">
-        {RESOURCE_KEYS.map(value => <button key={value} type="button" className={`tab ${resource === value ? 'tab-active' : ''}`} onClick={() => { setResource(value); setFilter(emptyFilter); setSelected(null); setDetail(null); setEditor(null); setReview(null); setFeedback(null) }}>{resourceLabel(value)}</button>)}
+        {RESOURCE_KEYS.map(value => <button key={value} type="button" className={`tab ${resource === value ? 'tab-active' : ''}`} onClick={() => { setResource(value); setFilter(emptyFilter); setSelected(null); setDetail(null); setEditor(null); setReview(null); setDuplicateSourceId(''); setFeedback(null) }}>{resourceLabel(value)}</button>)}
       </nav>
       <ManagementFilterBar search={filter.search} onSearchChange={value => setFilter(current => ({ ...current, search: value, page: 1 }))} statuses={statusesFor(resource)} status={filter.status} onStatusChange={value => setFilter(current => ({ ...current, status: value || undefined, page: 1 }))} siteOptions={sites} siteId={filter.siteId} onSiteChange={value => setFilter(current => ({ ...current, siteId: value || undefined, page: 1 }))} busy={state === 'loading'} />
+      {resource === 'simulator-configurations' ? <label className="field"><span className="field-label">Nguồn đích nhân bản</span><select className="input" value={duplicateSourceId} onChange={event => setDuplicateSourceId(event.target.value)}><option value="">-- Chọn nguồn đích --</option>{sources.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select><small className="muted">Bản nháp mới phải gắn với một Source khác được cấp quyền; không tự chọn phần tử đầu tiên.</small></label> : null}
       <FeedbackBanner feedback={feedback} />
-      {review ? <RelationshipReview review={review} onReviewed={() => setReview(current => current ? { ...current, reviewed: true } : current)} /> : null}
-      {editor ? <EditorPanel resource={resource} mode={editor} form={form} setForm={setForm} busy={busyItem !== null} onSave={submitEditor} onCancel={() => setEditor(null)} /> : null}
+      {review ? <RelationshipReview review={review} onReviewed={() => void reviewRelationships()} /> : null}
+      {editor ? <EditorPanel resource={resource} mode={editor} form={form} setForm={setForm} siteOptions={sites} sourceOptions={sources} pointOptions={points} busy={busyItem !== null} onSave={submitEditor} onCancel={() => setEditor(null)} /> : null}
       {detailLoading ? <p className="notice notice-info" role="status">Đang tải chi tiết…</p> : null}
       {detail ? <DetailPanel resource={resource} detail={detail} onClose={() => { setDetail(null); setSelected(null) }} supportedActions={supportedActions(resource, detail)} /> : null}
       <div className="card form-card">
@@ -312,7 +372,7 @@ export function ConfigurationManagementRoutes() {
           return <span className="actions-stack">
             <ManagementActionButton label="Chi tiết" onClick={() => void openDetail(item)} />
             <ManagementActionButton label="Sửa" onClick={() => beginEdit(item)} disabled={busyItem !== null || (resource === 'source-point-mappings' && textValue(item.status) === 'Active') || (resource === 'points' && textValue(item.status) === 'Active') || (resource === 'simulator-configurations' && Number(item.draftConfigurationVersion ?? 0) > Number(item.currentConfigurationVersion ?? 0))} title={resource === 'source-point-mappings' && textValue(item.status) === 'Active' ? 'Ánh xạ đang Active là bất biến; hãy tạo bản nháp thay thế.' : resource === 'points' && textValue(item.status) === 'Active' ? 'Điểm đo Active cần quy trình điều phối; chỉnh sửa hành vi đang bị tắt.' : resource === 'simulator-configurations' && Number(item.draftConfigurationVersion ?? 0) > Number(item.currentConfigurationVersion ?? 0) ? 'Cấu hình đã có bản nháp; hãy xem xét và kích hoạt bản nháp hiện tại trước khi sửa tiếp.' : undefined} />
-            <ManagementActionButton label="Kiểm tra" onClick={() => void validate(item)} disabled={busyItem === id} />
+            {(resource !== 'simulator-configurations' || Number(item.draftConfigurationVersion ?? 0) > Number(item.currentConfigurationVersion ?? 0)) ? <ManagementActionButton label="Kiểm tra" onClick={() => void validate(item)} disabled={busyItem === id} /> : null}
             <DuplicateButton item={item} busyItem={busyItem} onDuplicate={duplicate} />
             {actions.map(action => <ManagementActionButton key={action} label={actionLabel(action)} onClick={() => void lifecycle(item, action)} disabled={busyItem === id} tone={action === 'decommission' ? 'danger' : 'secondary'} />)}
             {resource === 'simulator-configurations' ? <ActivateVersionButton item={item} busyItem={busyItem} readyForActivation={hasDraftReady(item)} onActivate={activate} /> : null}
@@ -325,11 +385,11 @@ export function ConfigurationManagementRoutes() {
   )
 }
 
-function RelationshipReview(props: { review: { id: string; relationships: string[]; excluded: string[]; reviewed: boolean }; onReviewed: () => void }) {
+function RelationshipReview(props: { review: { id: string; draftVersion: number; relationships: string[]; excluded: string[]; reviewed: boolean }; onReviewed: () => void }) {
   const { review, onReviewed } = props
   return <div className="card form-card" aria-labelledby="relationship-review-title">
     <h2 id="relationship-review-title">Xem xét quan hệ bản nháp</h2>
-    <p className="muted">Bản nháp <code>{review.id}</code> chưa được kích hoạt cho đến khi quan hệ được xem xét và kiểm tra.</p>
+    <p className="muted">Bản nháp <code>{review.id}</code> phiên bản {review.draftVersion} chưa được kích hoạt cho đến khi biên nhận quan hệ được lưu trên máy chủ và bản nháp được kiểm tra.</p>
     <p><strong>Quan hệ được sao chép:</strong> {review.relationships.length ? review.relationships.join(', ') : 'Không có quan hệ tự động.'}</p>
     <p><strong>Trường bị loại trừ:</strong> {review.excluded.length ? review.excluded.join(', ') : 'Không có dữ liệu lịch sử hoặc bí mật nào được sao chép.'}</p>
     <ManagementActionButton label={review.reviewed ? 'Đã xem xét' : 'Đánh dấu đã xem xét'} onClick={onReviewed} disabled={review.reviewed} tone="primary" />
@@ -344,21 +404,21 @@ function DetailPanel(props: { resource: string; detail: ManagementItem; onClose:
   </div>
 }
 
-function EditorPanel(props: { resource: string; mode: 'create' | 'edit'; form: Record<string, string>; setForm: (value: Record<string, string>) => void; busy: boolean; onSave: () => void; onCancel: () => void }) {
+function EditorPanel(props: { resource: string; mode: 'create' | 'edit'; form: Record<string, string>; setForm: (value: Record<string, string>) => void; siteOptions: Array<{ id: string; label: string }>; sourceOptions: Array<{ id: string; label: string }>; pointOptions: Array<{ id: string; label: string }>; busy: boolean; onSave: () => void; onCancel: () => void }) {
   const fields = editorFields(props.resource, props.mode)
-  return <div className="card form-card" role="dialog" aria-labelledby="configuration-editor-title"><h2 id="configuration-editor-title">{props.mode === 'create' ? 'Tạo mới' : 'Chỉnh sửa'} {resourceLabel(props.resource)}</h2><div className="filter-bar">{fields.map(field => <label className="field" key={field.key}><span className="field-label">{field.label}</span><input className="input" type={field.type ?? 'text'} value={props.form[field.key] ?? ''} readOnly={field.readOnly} aria-readonly={field.readOnly || undefined} onChange={event => props.setForm({ ...props.form, [field.key]: event.target.value })} />{field.help ? <small className="muted">{field.help}</small> : null}</label>)}</div><div className="actions-stack"><ManagementActionButton label={props.busy ? 'Đang lưu…' : 'Lưu'} tone="primary" disabled={props.busy} onClick={props.onSave} /><ManagementActionButton label="Hủy" onClick={props.onCancel} /></div></div>
+  return <div className="card form-card" role="dialog" aria-labelledby="configuration-editor-title"><h2 id="configuration-editor-title">{props.mode === 'create' ? 'Tạo mới' : 'Chỉnh sửa'} {resourceLabel(props.resource)}</h2><div className="filter-bar">{fields.map(field => <label className="field" key={field.key}><span className="field-label">{field.label}</span>{field.select ? <select className="input" value={props.form[field.key] ?? ''} onChange={event => props.setForm({ ...props.form, [field.key]: event.target.value })}><option value="">-- Chọn {field.label.toLocaleLowerCase('vi')} --</option>{(field.select === 'site' ? props.siteOptions : field.select === 'source' ? props.sourceOptions : props.pointOptions).map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select> : <input className="input" type={field.type ?? 'text'} value={props.form[field.key] ?? ''} readOnly={field.readOnly} aria-readonly={field.readOnly || undefined} onChange={event => props.setForm({ ...props.form, [field.key]: event.target.value })} />}{field.help ? <small className="muted">{field.help}</small> : null}</label>)}</div><div className="actions-stack"><ManagementActionButton label={props.busy ? 'Đang lưu…' : 'Lưu'} tone="primary" disabled={props.busy} onClick={props.onSave} /><ManagementActionButton label="Hủy" onClick={props.onCancel} /></div></div>
 }
 
-function editorFields(resource: string, mode: 'create' | 'edit'): Array<{ key: string; label: string; type?: string; readOnly?: boolean; help?: string }> {
+function editorFields(resource: string, mode: 'create' | 'edit'): Array<{ key: string; label: string; type?: string; readOnly?: boolean; help?: string; select?: 'site' | 'source' | 'point' }> {
   const common = [{ key: 'name', label: 'Tên' }]
   const immutable = (label: string) => ({ label, readOnly: true, help: 'Trường quan hệ do miền sở hữu quản lý; không thể đổi trên bản ghi này.' })
   switch (resource) {
-    case 'areas': return mode === 'create' ? [...common, { key: 'siteId', label: 'Mã địa điểm cha' }] : common
+    case 'areas': return mode === 'create' ? [...common, { key: 'siteId', label: 'Địa điểm cha', select: 'site' as const }] : common
     case 'assets': return mode === 'create' ? [...common, { key: 'areaId', label: 'Mã khu vực cha' }] : common
     case 'points': return mode === 'create' ? [...common, { key: 'description', label: 'Mô tả' }, { key: 'assetId', label: 'Mã tài sản cha' }, { key: 'metricId', label: 'Mã chỉ số' }, { key: 'unitId', label: 'Mã đơn vị' }, { key: 'dataOwnerUserId', label: 'Mã chủ dữ liệu' }, { key: 'expectedIntervalSeconds', label: 'Chu kỳ (giây)', type: 'number' }, { key: 'noDataAfterSeconds', label: 'No Data sau (giây)', type: 'number' }] : [...common, { key: 'description', label: 'Mô tả' }, { key: 'metricId', label: 'Mã chỉ số' }, { key: 'unitId', label: 'Mã đơn vị' }, { key: 'dataOwnerUserId', label: 'Mã chủ dữ liệu' }, { key: 'expectedIntervalSeconds', label: 'Chu kỳ (giây)', type: 'number' }, { key: 'noDataAfterSeconds', label: 'No Data sau (giây)', type: 'number' }]
-    case 'data-sources': return mode === 'create' ? [...common, { key: 'siteId', label: 'Mã địa điểm' }] : common
-    case 'source-point-mappings': return [{ key: 'sourceId', ...immutable('Mã nguồn dữ liệu') }, { key: 'pointId', ...immutable('Mã điểm đo') }, { key: 'effectiveFromUtc', label: 'Hiệu lực từ', type: 'datetime-local' }, { key: 'effectiveToUtc', label: 'Hiệu lực đến', type: 'datetime-local' }]
-    case 'simulator-configurations': return [{ key: 'sourceId', ...immutable('Mã nguồn dữ liệu') }, { key: 'scenarioType', label: 'Kịch bản' }, { key: 'minimumValue', label: 'Giá trị nhỏ nhất', type: 'number' }, { key: 'maximumValue', label: 'Giá trị lớn nhất', type: 'number' }, { key: 'intervalSeconds', label: 'Chu kỳ (giây)', type: 'number' }, { key: 'deterministicSeed', label: 'Hạt giống xác định', type: 'number' }]
+    case 'data-sources': return mode === 'create' ? [...common, { key: 'siteId', label: 'Địa điểm', select: 'site' as const }] : common
+    case 'source-point-mappings': return [{ key: 'sourceId', ...(mode === 'create' ? { label: 'Nguồn dữ liệu', select: 'source' as const } : immutable('Mã nguồn dữ liệu')) }, { key: 'pointId', ...(mode === 'create' ? { label: 'Điểm đo', select: 'point' as const } : immutable('Mã điểm đo')) }, { key: 'effectiveFromUtc', label: 'Hiệu lực từ', type: 'datetime-local' }, { key: 'effectiveToUtc', label: 'Hiệu lực đến', type: 'datetime-local' }]
+    case 'simulator-configurations': return [{ key: 'sourceId', ...(mode === 'create' ? { label: 'Nguồn dữ liệu', select: 'source' as const } : immutable('Mã nguồn dữ liệu')) }, { key: 'scenarioType', label: 'Kịch bản' }, { key: 'minimumValue', label: 'Giá trị nhỏ nhất', type: 'number' }, { key: 'maximumValue', label: 'Giá trị lớn nhất', type: 'number' }, { key: 'intervalSeconds', label: 'Chu kỳ (giây)', type: 'number' }, { key: 'deterministicSeed', label: 'Hạt giống xác định', type: 'number' }]
     default: return common
   }
 }
@@ -377,6 +437,8 @@ function fieldLabel(key: string): string {
 function defaultForm(resource: string, siteId?: string): Record<string, string> {
   const result: Record<string, string> = { name: '' }
   if (resource === 'areas' || resource === 'data-sources') result.siteId = siteId ?? ''
+  if (resource === 'source-point-mappings' || resource === 'simulator-configurations') result.sourceId = ''
+  if (resource === 'source-point-mappings') result.pointId = ''
   if (resource === 'points') { result.expectedIntervalSeconds = '60'; result.noDataAfterSeconds = '180' }
   if (resource === 'simulator-configurations') { result.scenarioType = 'Constant'; result.minimumValue = '42'; result.maximumValue = '42'; result.intervalSeconds = '60'; result.deterministicSeed = '42' }
   return result
@@ -415,7 +477,8 @@ function actionLabel(action: string): string {
 }
 
 function supportedActions(resource: string, detail: ManagementItem): string[] {
-  return [...lifecycleActions(resource, textValue(detail.status)), ...(canDelete(resource, textValue(detail.status)) ? ['delete-draft'] : []), 'validate', 'duplicate']
+  const hasSimulatorDraft = Number(detail.draftConfigurationVersion ?? 0) > Number(detail.currentConfigurationVersion ?? 0)
+  return [...lifecycleActions(resource, textValue(detail.status)), ...(canDelete(resource, textValue(detail.status)) ? ['delete-draft'] : []), ...(resource !== 'simulator-configurations' || hasSimulatorDraft ? ['validate'] : []), 'duplicate']
 }
 
 function canDelete(resource: string, status: string): boolean {

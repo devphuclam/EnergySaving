@@ -12,9 +12,7 @@ public static class ConfigurationManagementEndpointPolicy
 
 public sealed record ActivateSimulatorConfigurationVersionRequest(
     long ExpectedHeadVersion,
-    long DraftConfigurationVersion,
-    bool RelationshipReviewConfirmed = false,
-    bool ValidationConfirmed = false);
+    long DraftConfigurationVersion);
 
 public static class ConfigurationManagementEndpoints
 {
@@ -39,6 +37,9 @@ public static class ConfigurationManagementEndpoints
         group.MapPost("/{resource}/{id:guid}/validate", ValidateAsync)
             .WithMetadata(new RequireAntiforgeryCheckAttribute())
             .WithName("ConfigurationManagement.Validate");
+        group.MapPost("/simulator-configurations/{configurationId:guid}/drafts/{draftConfigurationVersion:long}/review", ReviewSimulatorConfigurationAsync)
+            .WithMetadata(new RequireAntiforgeryCheckAttribute())
+            .WithName("ConfigurationManagement.ReviewSimulatorConfiguration");
         group.MapPost("/{resource}/{id:guid}/{action}", LifecycleAsync)
             .WithMetadata(new RequireAntiforgeryCheckAttribute())
             .WithName("ConfigurationManagement.Lifecycle");
@@ -141,6 +142,14 @@ public static class ConfigurationManagementEndpoints
             string.IsNullOrWhiteSpace(key))
             return Results.Problem("Idempotency-Key is required.",
                 statusCode: StatusCodes.Status400BadRequest);
+        IReadOnlyList<CommandFingerprintField> fields;
+        try { fields = await ReadCommandFieldsAsync(request, ct); }
+        catch (InvalidJsonException) { return InvalidJson(); }
+        var targetSourceId = resource == ConfigurationManagementResources.SimulatorConfigurations
+            ? GuidField(fields, "targetSourceId")
+            : null;
+        if (resource == ConfigurationManagementResources.SimulatorConfigurations && targetSourceId is null)
+            return Results.Json(new { errorCode = "TARGET_SOURCE_REQUIRED" }, statusCode: 400);
         if (principalAccessor.Current is not { } principal)
             return Results.Unauthorized();
         var identity = new CommandIdentity(
@@ -148,13 +157,15 @@ public static class ConfigurationManagementEndpoints
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
             identity.OperationCode, principal.UserId, null, null,
             resource, id, null,
-            [CommandFingerprintField.String("resource", resource)]));
+            fields.Count == 0
+                ? [CommandFingerprintField.String("resource", resource)]
+                : fields));
         try
         {
             var response = await executor.ExecuteTransactionalAsync(
                 identity, fingerprint, transactionFactory,
                 (transaction, token) => commands.DuplicateAsync(
-                    resource, id, principal, transaction, token), ct);
+                    resource, id, principal, transaction, targetSourceId, token), ct);
             return new IdempotentHttpResult(response);
         }
         catch (Exception exception) when (IsRuntimeFailure(exception))
@@ -165,7 +176,6 @@ public static class ConfigurationManagementEndpoints
 
     public static async Task<IResult> ActivateSimulatorConfigurationVersionAsync(
         Guid configurationId,
-        ActivateSimulatorConfigurationVersionRequest? body,
         HttpRequest request,
         IConfigurationManagementCommandPort commands,
         IdempotentCommandExecutor executor,
@@ -173,15 +183,14 @@ public static class ConfigurationManagementEndpoints
         IHostTransactionFactory transactionFactory,
         CancellationToken ct)
     {
-        if (body is null ||
-            body.ExpectedHeadVersion < 1 ||
-            body.DraftConfigurationVersion < 1)
+        IReadOnlyList<CommandFingerprintField> fields;
+        try { fields = await ReadCommandFieldsAsync(request, ct); }
+        catch (InvalidJsonException) { return InvalidJson(); }
+        if (!TryReadInt64(fields, "expectedHeadVersion", out var expectedHeadVersion) ||
+            !TryReadInt64(fields, "draftConfigurationVersion", out var draftConfigurationVersion) ||
+            expectedHeadVersion < 1 || draftConfigurationVersion < 1)
             return Results.Json(new { errorCode = "VERSION_FIELDS_REQUIRED" },
                 statusCode: StatusCodes.Status400BadRequest);
-        if (!body.RelationshipReviewConfirmed)
-            return Results.Json(new { errorCode = "RELATIONSHIP_REVIEW_REQUIRED" }, statusCode: 422);
-        if (!body.ValidationConfirmed)
-            return Results.Json(new { errorCode = "VALIDATION_REQUIRED" }, statusCode: 422);
         if (!request.Headers.TryGetValue("Idempotency-Key", out var key) ||
             string.IsNullOrWhiteSpace(key))
             return Results.Problem("Idempotency-Key is required.",
@@ -193,23 +202,57 @@ public static class ConfigurationManagementEndpoints
         var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
             identity.OperationCode, principal.UserId,
             "SimulatorConfiguration", configurationId, null, null,
-            body.ExpectedHeadVersion,
+            expectedHeadVersion,
             [
                 CommandFingerprintField.Int64(
-                    "draftConfigurationVersion", body.DraftConfigurationVersion),
-                CommandFingerprintField.Bool("relationshipReviewConfirmed", body.RelationshipReviewConfirmed),
-                CommandFingerprintField.Bool("validationConfirmed", body.ValidationConfirmed)
+                    "draftConfigurationVersion", draftConfigurationVersion)
             ]));
         try
         {
             var response = await executor.ExecuteTransactionalAsync(
                 identity, fingerprint, transactionFactory,
                 (transaction, token) =>
-                    commands.ActivateSimulatorConfigurationVersionAsync(
-                        configurationId, body.ExpectedHeadVersion,
-                        body.DraftConfigurationVersion, principal, transaction,
-                        body.RelationshipReviewConfirmed, body.ValidationConfirmed, token),
+                commands.ActivateSimulatorConfigurationVersionAsync(
+                    configurationId, expectedHeadVersion,
+                    draftConfigurationVersion, principal, transaction,
+                    token),
                 ct);
+            return new IdempotentHttpResult(response);
+        }
+        catch (Exception exception) when (IsRuntimeFailure(exception))
+        {
+            return DependencyUnavailable();
+        }
+    }
+
+    public static async Task<IResult> ReviewSimulatorConfigurationAsync(
+        Guid configurationId,
+        long draftConfigurationVersion,
+        HttpRequest request,
+        IConfigurationManagementCommandPort commands,
+        IdempotentCommandExecutor executor,
+        IServerPrincipalAccessor principalAccessor,
+        IHostTransactionFactory transactionFactory,
+        CancellationToken ct)
+    {
+        if (draftConfigurationVersion < 1)
+            return Results.Json(new { errorCode = "VERSION_FIELDS_REQUIRED" }, statusCode: 400);
+        if (!request.Headers.TryGetValue("Idempotency-Key", out var key) || string.IsNullOrWhiteSpace(key))
+            return Results.Problem("Idempotency-Key is required.", statusCode: 400);
+        if (principalAccessor.Current is not { } principal)
+            return Results.Unauthorized();
+        var operation = CommandOperationCodes.ReviewSimulatorConfiguration;
+        var identity = new CommandIdentity(principal.UserId, operation, key!);
+        var fingerprint = CommandFingerprintV1.Compute(new CommandFingerprintInput(
+            operation, principal.UserId, "SimulatorConfiguration", configurationId,
+            "SimulatorConfigurationDraft", configurationId, draftConfigurationVersion,
+            [CommandFingerprintField.Int64("draftConfigurationVersion", draftConfigurationVersion)]));
+        try
+        {
+            var response = await executor.ExecuteTransactionalAsync(identity, fingerprint,
+                transactionFactory,
+                (transaction, token) => commands.ReviewSimulatorConfigurationAsync(
+                    configurationId, draftConfigurationVersion, principal, transaction, token), ct);
             return new IdempotentHttpResult(response);
         }
         catch (Exception exception) when (IsRuntimeFailure(exception))
@@ -229,7 +272,9 @@ public static class ConfigurationManagementEndpoints
     {
         if (!ConfigurationManagementResources.IsKnown(resource))
             return UnknownResource();
-        var fields = await ReadCommandFieldsAsync(request, ct);
+        IReadOnlyList<CommandFingerprintField> fields;
+        try { fields = await ReadCommandFieldsAsync(request, ct); }
+        catch (InvalidJsonException) { return InvalidJson(); }
         var operation = resource switch
         {
             ConfigurationManagementResources.Sites => CommandOperationCodes.CreateSite,
@@ -269,7 +314,9 @@ public static class ConfigurationManagementEndpoints
     {
         if (!ConfigurationManagementResources.IsKnown(resource))
             return UnknownResource();
-        var fields = await ReadCommandFieldsAsync(request, ct);
+        IReadOnlyList<CommandFingerprintField> fields;
+        try { fields = await ReadCommandFieldsAsync(request, ct); }
+        catch (InvalidJsonException) { return InvalidJson(); }
         var operation = resource switch
         {
             ConfigurationManagementResources.Sites => CommandOperationCodes.UpdateSite,
@@ -303,7 +350,9 @@ public static class ConfigurationManagementEndpoints
                 errorCode = "UNSUPPORTED_ACTION",
                 reason = "Chỉ Nguồn dữ liệu và Ánh xạ nguồn ở trạng thái Nháp mới cho phép xóa an toàn."
             }, statusCode: 422);
-        var fields = await ReadCommandFieldsAsync(request, ct);
+        IReadOnlyList<CommandFingerprintField> fields;
+        try { fields = await ReadCommandFieldsAsync(request, ct); }
+        catch (InvalidJsonException) { return InvalidJson(); }
         return await ExecuteManagementCommandAsync(
             resource == ConfigurationManagementResources.DataSources
                 ? CommandOperationCodes.UpdateSource : CommandOperationCodes.UpdateMapping,
@@ -326,7 +375,9 @@ public static class ConfigurationManagementEndpoints
         if (operation is null)
             return Results.Json(new { errorCode = "UNSUPPORTED_ACTION", reason =
                 "Chuyển trạng thái này không được hỗ trợ bởi miền nghiệp vụ." }, statusCode: 422);
-        var fields = await ReadCommandFieldsAsync(request, ct);
+        IReadOnlyList<CommandFingerprintField> fields;
+        try { fields = await ReadCommandFieldsAsync(request, ct); }
+        catch (InvalidJsonException) { return InvalidJson(); }
         return await ExecuteManagementCommandAsync(operation, id, resource, request,
             fields, commands, executor, principalAccessor, transactionFactory, ct);
     }
@@ -435,6 +486,8 @@ public static class ConfigurationManagementEndpoints
 
     private static IResult UnknownResource() => Results.Json(new { errorCode = "UNKNOWN_RESOURCE" }, statusCode: 400);
 
+    private static IResult InvalidJson() => Results.Json(new { errorCode = "INVALID_JSON" }, statusCode: 400);
+
     private static IResult DependencyUnavailable() => Results.Json(
         new { errorCode = "DEPENDENCY_UNAVAILABLE" },
         statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -447,22 +500,63 @@ public static class ConfigurationManagementEndpoints
         fields.FirstOrDefault(field => field.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value is Guid guid
             ? guid : Guid.TryParse(fields.FirstOrDefault(field => field.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value?.ToString(), out var parsed) ? parsed : null;
 
+    private sealed class InvalidJsonException : Exception;
+
     private static async Task<IReadOnlyList<CommandFingerprintField>> ReadCommandFieldsAsync(HttpRequest request, CancellationToken ct)
     {
-        if (request.ContentLength is 0 || request.Body == Stream.Null ||
-            request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) != true)
-            return Array.Empty<CommandFingerprintField>();
+        if (IsNoBody(request))
+        {
+            if (string.IsNullOrWhiteSpace(request.ContentType) ||
+                request.ContentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+                return Array.Empty<CommandFingerprintField>();
+            throw new InvalidJsonException();
+        }
         try
         {
-            using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return Array.Empty<CommandFingerprintField>();
+            using var reader = new StreamReader(request.Body, leaveOpen: true);
+            var raw = await reader.ReadToEndAsync(ct);
+            if (raw.Length == 0)
+            {
+                if (string.IsNullOrWhiteSpace(request.ContentType) ||
+                    request.ContentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+                    return Array.Empty<CommandFingerprintField>();
+                throw new InvalidJsonException();
+            }
+            if (request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) != true)
+                throw new InvalidJsonException();
+            using var document = JsonDocument.Parse(raw);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidJsonException();
             return document.RootElement.EnumerateObject()
                 .Where(property => !property.Name.Contains("password", StringComparison.OrdinalIgnoreCase) &&
                     !property.Name.Contains("secret", StringComparison.OrdinalIgnoreCase) &&
                     !property.Name.Contains("token", StringComparison.OrdinalIgnoreCase))
                 .Select(property => ToFingerprintField(property.Name, property.Value)).ToArray();
         }
-        catch (JsonException) { return Array.Empty<CommandFingerprintField>(); }
+        catch (JsonException) { throw new InvalidJsonException(); }
+    }
+
+    private static bool IsNoBody(HttpRequest request) =>
+        request.ContentLength is 0 || request.Body == Stream.Null ||
+        (request.ContentLength is null && request.Body.CanSeek &&
+            request.Body.Position >= request.Body.Length);
+
+    private static bool TryReadInt64(
+        IReadOnlyList<CommandFingerprintField> fields,
+        string name,
+        out long value)
+    {
+        value = 0;
+        var field = fields.FirstOrDefault(candidate =>
+            candidate.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        return field?.Value switch
+        {
+            long number => (value = number) == number,
+            int number => (value = number) == number,
+            decimal number when decimal.Truncate(number) == number &&
+                number >= long.MinValue && number <= long.MaxValue => (value = (long)number) == (long)number,
+            string text => long.TryParse(text, out value),
+            _ => false
+        };
     }
 
     private static CommandFingerprintField ToFingerprintField(string name, JsonElement value) => value.ValueKind switch

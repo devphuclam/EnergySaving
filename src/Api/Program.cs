@@ -71,6 +71,7 @@ app.MapGet("/health/ready", async (NpgsqlDataSource dataSource, CancellationToke
             SELECT current_database(),
                    inet_server_port(),
                    to_regclass('integration.command_idempotency') IS NOT NULL,
+                   to_regclass('acquisition.simulator_configuration_receipt') IS NOT NULL,
                    (SELECT count(*) FROM information_schema.tables
                     WHERE table_schema IN
                       ('iam','catalog','organization','acquisition','telemetry',
@@ -82,8 +83,8 @@ app.MapGet("/health/ready", async (NpgsqlDataSource dataSource, CancellationToke
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         var databaseMatches = reader.GetString(0) == PostgresRuntimeConfiguration.ApprovedLocalDatabase;
         var portMatches = reader.GetInt32(1) == PostgresRuntimeConfiguration.ApprovedLocalPort;
-        var migrationMarker = reader.GetBoolean(2);
-        var ownedTableCount = reader.GetInt64(3);
+        var migrationMarker = reader.GetBoolean(2) && reader.GetBoolean(3);
+        var ownedTableCount = reader.GetInt64(4);
         if (!databaseMatches || !portMatches)
             return Results.Json(new { status = "not-ready", reason = "RUNTIME_DEPENDENCY_UNAVAILABLE" },
                 statusCode: StatusCodes.Status503ServiceUnavailable);
