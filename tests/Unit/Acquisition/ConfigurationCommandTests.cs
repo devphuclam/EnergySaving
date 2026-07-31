@@ -35,6 +35,7 @@ public static class ConfigurationCommandTests
         ZeroVersionDenied(failures).GetAwaiter().GetResult();
         DuplicateMappingScopes(failures).GetAwaiter().GetResult();
         StaleVersionAndNoop(failures).GetAwaiter().GetResult();
+        ReceiptsAreServerAuthoritative(failures).GetAwaiter().GetResult();
         EventEnvelopeCompleteness(failures).GetAwaiter().GetResult();
         Console.WriteLine($"T079: assertions={_assertionCount}; failures={failures.Count}");
         return failures;
@@ -94,6 +95,68 @@ public static class ConfigurationCommandTests
         AssertT079(createdEvent.ActorId == "engineer", failures, "Engineer event ActorId is snapshot.");
         AssertT079(createdEvent.ActorUsername == "engineer.user", failures, "Engineer event ActorUsername is snapshot.");
         AssertT079(createdEvent.SiteIds.Count == 1 && createdEvent.SiteIds[0] == GuidHash("eng-site").ToString("D"), failures, "Engineer event SiteIds matches scope.");
+    }
+
+    private static async Task ReceiptsAreServerAuthoritative(List<string> failures)
+    {
+        var sourceId = Guid.NewGuid();
+        var pointId = Guid.NewGuid();
+        var repository = new FakeAcquisitionConfigurationRepository();
+        var (adapter, _, callers) = CreateAdapterChain(sourceId, pointId,
+            "receipt-site", "receipt-area", SiteStatus.Active, AreaStatus.Active, AssetStatus.Active,
+            PointStatus.Draft, 60, 300);
+        var service = new SimulatorConfigurationService(repository, callers, adapter);
+        AssertT079((await service.CreateAsync(Command("admin", sourceId, 7, "receipt-create", "receipt-cause"))).IsSuccess,
+            failures, "Receipt fixture creates a configuration.");
+        var head = await repository.GetBySourceIdAsync(sourceId);
+        AssertT079((await service.EditAsync(Edit("admin", head!.ConfigurationId, head.Version, 9, 30, 2, 4,
+            SimulatorScenario.Normal, "receipt-edit", "receipt-edit-cause"))).IsSuccess,
+            failures, "Behavior-changing edit creates a Draft version.");
+        head = await repository.GetHeadAsync(head.ConfigurationId);
+        var draft = (await repository.ListVersionsAsync(head!.ConfigurationId)).MaxBy(v => v.ConfigurationVersion)!.ConfigurationVersion;
+        var missingReview = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            head.ConfigurationId, head.Version, draft, "admin", "receipt-activate-before-review", null));
+        AssertT079(missingReview.Code == "REVIEW_REQUIRED", failures,
+            "Activation rejects a Draft without a persisted relationship receipt.");
+        AssertT079((await service.ReviewDraftAsync(head.ConfigurationId, draft, "admin")).IsSuccess,
+            failures, "Authorized review persists a receipt for the exact Draft version.");
+        var missingValidation = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            head.ConfigurationId, head.Version, draft, "admin", "receipt-activate-before-validation", null));
+        AssertT079(missingValidation.Code == "VALIDATION_REQUIRED", failures,
+            "Activation rejects a reviewed Draft without a validation receipt.");
+        AssertT079((await service.ValidateDraftAsync(head.ConfigurationId, draft, "admin")).IsSuccess,
+            failures, "Validation persists the exact Draft payload fingerprint.");
+        var receiptBeforeEdit = await repository.GetReceiptAsync(head.ConfigurationId, draft);
+        AssertT079(receiptBeforeEdit?.ValidatedPayloadFingerprint is not null, failures,
+            "The reviewed Draft has a persisted validation receipt before a subsequent edit.");
+        AssertT079((await service.EditAsync(Edit("admin", head.ConfigurationId, head.Version, 11, 30, 2, 5,
+            SimulatorScenario.Normal, "receipt-edit-again", "receipt-edit-again-cause"))).IsSuccess,
+            failures, "A subsequent behavior edit creates a new Draft and cannot reuse receipts.");
+        head = await repository.GetHeadAsync(head.ConfigurationId);
+        AssertT079(await repository.GetReceiptAsync(head!.ConfigurationId, draft) is null,
+            failures, "A subsequent behavior edit invalidates the prior Draft receipts.");
+        var editedDraft = (await repository.ListVersionsAsync(head!.ConfigurationId))
+            .MaxBy(v => v.ConfigurationVersion)!.ConfigurationVersion;
+        var oldDraftActivation = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            head.ConfigurationId, head.Version, draft, "admin", "receipt-activate-old-draft", null));
+        AssertT079(oldDraftActivation.Code == "REVIEW_REQUIRED",
+            failures, "An older Draft cannot be activated after a subsequent behavior edit.");
+        var staleAfterEdit = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            head.ConfigurationId, head.Version, editedDraft, "admin", "receipt-activate-after-edit", null));
+        AssertT079(staleAfterEdit.Code == "REVIEW_REQUIRED", failures,
+            "Activation rejects a newly edited Draft until it receives fresh receipts.");
+        AssertT079((await service.ReviewDraftAsync(head.ConfigurationId, editedDraft, "admin")).IsSuccess,
+            failures, "Fresh relationship review is required for the edited Draft.");
+        AssertT079((await service.ValidateDraftAsync(head.ConfigurationId, editedDraft, "admin")).IsSuccess,
+            failures, "Fresh validation is required for the edited Draft.");
+        draft = editedDraft;
+        head = await repository.GetHeadAsync(head.ConfigurationId);
+        var activated = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            head!.ConfigurationId, head.Version, draft, "admin", "receipt-activate", null));
+        AssertT079(activated.IsSuccess, failures, "Activation succeeds only after server receipts exist.");
+        var oldReceipt = await repository.GetReceiptAsync(head.ConfigurationId, draft);
+        AssertT079(oldReceipt?.ValidatedPayloadFingerprint is not null, failures,
+            "Persisted review and validation receipts survive the activation transaction.");
     }
 
     private static async Task EngineerEditWithSingleScope(List<string> failures)

@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using IUMP.Modules.Catalog.Contracts;
 
 namespace IUMP.Modules.Acquisition.Contracts;
 
@@ -79,6 +82,57 @@ public sealed record SimulatorConfigurationVersion
     }
 }
 
+public sealed record SimulatorConfigurationReceipt(
+    Guid ConfigurationId,
+    long DraftConfigurationVersion,
+    Guid SourceId,
+    string RelationshipFingerprint,
+    string ReviewedByUserId,
+    DateTime ReviewedAtUtc,
+    string? ValidatedPayloadFingerprint,
+    string? ValidatedByUserId,
+    DateTime? ValidatedAtUtc);
+
+public static class SimulatorConfigurationReceiptFingerprint
+{
+    public static string Relationship(Guid sourceId) =>
+        Hash($"relationship|{sourceId:D}");
+
+    public static string Relationship(CatalogSourceScopeSnapshot scope)
+    {
+        var mapped = scope.MappedScopes
+            .OrderBy(value => value.MappingId.Value)
+            .ThenBy(value => value.MappingVersion)
+            .Select(value => string.Join('|',
+                value.MappingId.Value.ToString("D"), value.MappingVersion,
+                value.PointId, value.SiteId, value.AreaId,
+                value.OrganizationReadinessVersions.SiteVersion,
+                value.OrganizationReadinessVersions.AreaVersion,
+                value.OrganizationReadinessVersions.AssetVersion,
+                value.OrganizationReadinessVersions.PointVersion));
+        return Hash(string.Join('|', new[]
+        {
+            "relationship", scope.SourceId.ToString("D"), scope.SourceType,
+            scope.SourceStatus, scope.SourceVersion.ToString(CultureInfo.InvariantCulture),
+            string.Join(';', mapped)
+        }));
+    }
+
+    public static string Payload(SimulatorConfigurationHead head, SimulatorConfigurationVersion version) =>
+        Hash(string.Join('|',
+            "payload", head.ConfigurationId.ToString("D"), head.SourceId.ToString("D"),
+            version.ConfigurationVersion.ToString(CultureInfo.InvariantCulture),
+            version.IntervalSeconds.ToString(CultureInfo.InvariantCulture),
+            version.MinimumValue.ToString("R", CultureInfo.InvariantCulture),
+            version.MaximumValue.ToString("R", CultureInfo.InvariantCulture),
+            version.DeterministicSeed.ToString(CultureInfo.InvariantCulture),
+            version.ScenarioType.ToString(), version.AlgorithmId,
+            version.AlgorithmVersion.ToString(CultureInfo.InvariantCulture)));
+
+    private static string Hash(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+}
+
 public sealed record SimulatorConfigurationCreateCommand(
     Guid SourceId,
     ulong DeterministicSeed,
@@ -117,8 +171,8 @@ public sealed record SimulatorConfigurationActivateVersionCommand(
     string? CausationId);
 
 /// <summary>Duplicate-to-Draft for a Simulator Configuration. The current behavior is
-/// copied into a new head for the target Source at version 1; it never copies history,
-/// Active state, or Run pins.</summary>
+/// copied into a new head for the target Source as a version-1 baseline plus an explicit
+/// version-2 Draft; it never copies history, Active state, or Run pins.</summary>
 public sealed record SimulatorConfigurationDuplicateCommand(
     Guid ConfigurationId,
     Guid SourceId,
@@ -130,10 +184,11 @@ public sealed record ConfigurationDuplicateOutcome(
     bool IsSuccess,
     string Code,
     string? Error = null,
-    Guid? NewConfigurationId = null)
+    Guid? NewConfigurationId = null,
+    long? DraftConfigurationVersion = null)
 {
-    public static ConfigurationDuplicateOutcome Success(Guid newConfigurationId) =>
-        new(true, "OK", null, newConfigurationId);
+    public static ConfigurationDuplicateOutcome Success(Guid newConfigurationId, long draftConfigurationVersion) =>
+        new(true, "OK", null, newConfigurationId, draftConfigurationVersion);
 
     public static ConfigurationDuplicateOutcome Failure(string code, string error) =>
         new(false, code, error);
@@ -169,11 +224,17 @@ public interface IConfigurationTransaction : IDisposable
 
 public interface IAcquisitionConfigurationRepository
 {
+    bool HasAmbientTransaction { get; }
     Task<SimulatorConfigurationHead?> GetBySourceIdAsync(Guid sourceId, CancellationToken ct = default);
     Task<SimulatorConfigurationHead?> GetHeadAsync(Guid configurationId, CancellationToken ct = default);
     Task<SimulatorConfigurationVersion?> GetVersionAsync(Guid configurationId, long configurationVersion, CancellationToken ct = default);
     Task<IReadOnlyList<SimulatorConfigurationHead>> ListHeadsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<SimulatorConfigurationVersion>> ListVersionsAsync(Guid configurationId, CancellationToken ct = default);
+    Task<SimulatorConfigurationReceipt?> GetReceiptAsync(Guid configurationId, long draftConfigurationVersion, CancellationToken ct = default);
+    Task SaveRelationshipReviewAsync(SimulatorConfigurationReceipt receipt, CancellationToken ct = default);
+    Task InvalidateReceiptAsync(Guid configurationId, long draftConfigurationVersion, CancellationToken ct = default);
+    Task<bool> SaveValidationReceiptAsync(Guid configurationId, long draftConfigurationVersion, Guid sourceId,
+        string payloadFingerprint, string validatedByUserId, DateTime validatedAtUtc, CancellationToken ct = default);
     Task CreateAsync(SimulatorConfigurationHead head, SimulatorConfigurationVersion firstVersion, CancellationToken ct = default);
     Task AppendVersionAsync(Guid configurationId, long expectedAggregateVersion, SimulatorConfigurationVersion nextVersion, CancellationToken ct = default);
     Task AppendDraftVersionAsync(Guid configurationId, long expectedAggregateVersion, SimulatorConfigurationVersion draftVersion, CancellationToken ct = default);

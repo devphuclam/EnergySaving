@@ -351,6 +351,10 @@ public static class ConfigurationDuplicationTests
         _ = await service.CreateAsync(Create("admin", sourceId, 42));
         var head = await acqRepo.GetBySourceIdAsync(sourceId);
         _ = await service.EditAsync(Edit("admin", head!.ConfigurationId, head.Version, 7));
+        AssertT037((await service.ReviewDraftAsync(head.ConfigurationId, 2, "admin")).IsSuccess,
+            failures, "Draft relationship review receipt is persisted before activation.");
+        AssertT037((await service.ValidateDraftAsync(head.ConfigurationId, 2, "admin")).IsSuccess,
+            failures, "Draft validation receipt is persisted before activation.");
 
         var activated = await service.ActivateVersionAsync(
             new SimulatorConfigurationActivateVersionCommand(
@@ -365,8 +369,8 @@ public static class ConfigurationDuplicationTests
         AssertT037(version1 is not null && version1.MinimumValue == 1 && version2 is not null &&
             version2.DeterministicSeed == 7,
             failures, "Activation never rewrites historical versions.");
-        AssertT037(service.Events.Count == 3 && service.Events[2].Action == "VersionActivated",
-            failures, "Activation emits exactly one VersionActivated event.");
+        AssertT037(service.Events.Count == 5 && service.Events[^1].Action == "VersionActivated",
+            failures, "Review, validation, and activation each emit auditable events.");
     }
 
     private static async Task ActivateVersionRejectsStaleOrUnknownDraftAsync(List<string> failures)
@@ -425,12 +429,18 @@ public static class ConfigurationDuplicationTests
         AssertT037(newId != head.ConfigurationId, failures, "Configuration duplicate gets a new identity.");
         var newHead = await acqRepo.GetHeadAsync(newId);
         var newVersion = await acqRepo.GetVersionAsync(newId, 1);
+        var newDraft = await acqRepo.GetVersionAsync(newId, duplicated.DraftConfigurationVersion ?? 0);
         AssertT037(newHead is not null && newHead.SourceId == targetSourceId &&
-            newHead.CurrentConfigurationVersion == 1 && newHead.Version == 1 &&
+            newHead.CurrentConfigurationVersion == 1 && newHead.Version == 2 &&
             newVersion is not null && newVersion.DeterministicSeed == 42,
-            failures, "Configuration duplicate is a fresh head at version 1 with the copied behavior as Draft content.");
-        AssertT037(service.Events.Count == 2 && service.Events[1].Action == "Duplicated",
-            failures, "Configuration duplicate emits exactly one Duplicated event.");
+            failures, "Configuration duplicate keeps a version-1 baseline and advances the head for a Draft copy.");
+        AssertT037(duplicated.DraftConfigurationVersion == 2 && newDraft is not null &&
+            newDraft.DeterministicSeed == 42 && newDraft.ConfigurationVersion > newHead!.CurrentConfigurationVersion,
+            failures, "Configuration duplicate returns an explicit activatable Draft version tied to the selected Source.");
+        AssertT037(service.Events.Count == 2 && service.Events[1].Action == "Duplicated" &&
+            service.Events[1].AggregateVersion == newHead?.Version &&
+            service.Events[1].After["configurationVersion"]?.ToString() == "2",
+            failures, "Configuration duplicate emits one Duplicated event for the persisted Draft aggregate version.");
     }
 
     private static Task SimulatorManagementSearchMatchesSafeIdentifiersAsync(List<string> failures)

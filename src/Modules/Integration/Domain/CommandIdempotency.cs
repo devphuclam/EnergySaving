@@ -51,6 +51,7 @@ public static class CommandOperationCodes
     public const string StopSimulator = "Simulator.Stop.v1";
     public const string DuplicateConfiguration = "ConfigurationManagement.Duplicate.v1";
     public const string ValidateConfiguration = "ConfigurationManagement.Validate.v1";
+    public const string ReviewSimulatorConfiguration = "ConfigurationManagement.ReviewSimulatorConfiguration.v1";
     public const string ActivateSimulatorConfigurationVersion =
         "ConfigurationManagement.ActivateSimulatorConfigurationVersion.v1";
 
@@ -64,7 +65,7 @@ public static class CommandOperationCodes
         DecommissionSource, CreateSimulatorConfiguration, UpdateSimulatorConfiguration,
         ValidateSimulatorConfiguration, AssignEngineerSiteScope,
         StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator,
-        DuplicateConfiguration, ValidateConfiguration, ActivateSimulatorConfigurationVersion
+        DuplicateConfiguration, ValidateConfiguration, ReviewSimulatorConfiguration, ActivateSimulatorConfigurationVersion
     };
 
     public static bool IsKnown(string operationCode) => AllCodes.Contains(operationCode);

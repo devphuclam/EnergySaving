@@ -90,7 +90,9 @@ public sealed record SimulatorConfigurationManagementItem(
     int? IntervalSeconds = null,
     double? MinimumValue = null,
     double? MaximumValue = null,
-    ulong? DeterministicSeed = null);
+    ulong? DeterministicSeed = null,
+    bool RelationshipReviewed = false,
+    bool ValidationRecorded = false);
 
 public static class ConfigurationManagementResources
 {
@@ -165,11 +167,19 @@ public interface IConfigurationManagementCommandPort
         IHostTransaction transaction,
         CancellationToken ct = default);
 
+    Task<CommandExecutionResult> ReviewSimulatorConfigurationAsync(
+        Guid configurationId,
+        long draftConfigurationVersion,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default);
+
     Task<CommandExecutionResult> DuplicateAsync(
         string resource,
         Guid targetId,
         ServerPrincipal principal,
         IHostTransaction transaction,
+        Guid? targetSourceId = null,
         CancellationToken ct = default);
 
     Task<CommandExecutionResult> ActivateSimulatorConfigurationVersionAsync(
@@ -178,7 +188,5 @@ public interface IConfigurationManagementCommandPort
         long draftConfigurationVersion,
         ServerPrincipal principal,
         IHostTransaction transaction,
-        bool relationshipReviewConfirmed = false,
-        bool validationConfirmed = false,
         CancellationToken ct = default);
 }

@@ -89,15 +89,14 @@ export type ManagementGateway = {
   create(resource: string, body: Record<string, unknown>, retryKey?: string): Promise<ManagementMutation>
   update(resource: string, id: string, expectedVersion: number, body: Record<string, unknown>, retryKey?: string): Promise<ManagementMutation>
   validate(resource: string, id: string, retryKey?: string): Promise<ManagementMutation>
+  reviewSimulatorConfiguration(configurationId: string, draftConfigurationVersion: number, retryKey?: string): Promise<ManagementMutation>
   lifecycle(resource: string, id: string, action: string, expectedVersion: number, retryKey?: string): Promise<ManagementMutation>
   remove(resource: string, id: string, expectedVersion: number, retryKey?: string): Promise<ManagementMutation>
-  duplicate(resource: string, id: string, retryKey?: string): Promise<ManagementMutation>
+  duplicate(resource: string, id: string, targetSourceId?: string, retryKey?: string): Promise<ManagementMutation>
   activateSimulatorConfigurationVersion(
     configurationId: string,
     expectedHeadVersion: number,
     draftConfigurationVersion: number,
-    relationshipReviewConfirmed?: boolean,
-    validationConfirmed?: boolean,
     retryKey?: string,
   ): Promise<ManagementMutation>
 }
@@ -164,9 +163,9 @@ async function managementMutation(
       method,
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
         'Idempotency-Key': retryKey,
         'X-XSRF-TOKEN': token,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(expectedVersion ? { 'If-Match': `"${expectedVersion}"` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -321,17 +320,21 @@ export const webGateways: WebGateways = {
     async validate(resource, id, retryKey = crypto.randomUUID()) {
       return managementMutation(`configuration-management/${resource}/${id}/validate`, 'POST', undefined, retryKey)
     },
+    async reviewSimulatorConfiguration(configurationId, draftConfigurationVersion, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/simulator-configurations/${configurationId}/drafts/${draftConfigurationVersion}/review`, 'POST', undefined, retryKey)
+    },
     async lifecycle(resource, id, action, expectedVersion, retryKey = crypto.randomUUID()) {
       return managementMutation(`configuration-management/${resource}/${id}/${action}`, 'POST', undefined, retryKey, expectedVersion)
     },
     async remove(resource, id, expectedVersion, retryKey = crypto.randomUUID()) {
       return managementMutation(`configuration-management/${resource}/${id}`, 'DELETE', undefined, retryKey, expectedVersion)
     },
-    async duplicate(resource, id, retryKey = crypto.randomUUID()) {
-      return managementMutation(`configuration-management/${resource}/${id}/duplicate`, 'POST', undefined, retryKey)
+    async duplicate(resource, id, targetSourceId, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}/${id}/duplicate`, 'POST',
+        targetSourceId ? { targetSourceId } : undefined, retryKey)
     },
-    async activateSimulatorConfigurationVersion(configurationId, expectedHeadVersion, draftConfigurationVersion, relationshipReviewConfirmed = false, validationConfirmed = false, retryKey = crypto.randomUUID()) {
-      return managementMutation(`configuration-management/simulator-configurations/${configurationId}/activate`, 'POST', { expectedHeadVersion, draftConfigurationVersion, relationshipReviewConfirmed, validationConfirmed }, retryKey)
+    async activateSimulatorConfigurationVersion(configurationId, expectedHeadVersion, draftConfigurationVersion, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/simulator-configurations/${configurationId}/activate`, 'POST', { expectedHeadVersion, draftConfigurationVersion }, retryKey)
     },
   },
 }

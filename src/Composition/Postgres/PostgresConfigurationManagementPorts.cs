@@ -68,19 +68,12 @@ public sealed class PostgresConfigurationManagementPorts(
                 .OrderByDescending(value => value.ConfigurationVersion)
                 .FirstOrDefault();
             if (current is null) return Failure(404, "NOT_FOUND");
-            var fields = new CommandFingerprintField[]
-            {
-                CommandFingerprintField.Uuid("sourceId", head.SourceId),
-                CommandFingerprintField.String("scenarioType", current.ScenarioType.ToString()),
-                CommandFingerprintField.Int64("intervalSeconds", current.IntervalSeconds),
-                CommandFingerprintField.Decimal("minimumValue", (decimal)current.MinimumValue),
-                CommandFingerprintField.Decimal("maximumValue", (decimal)current.MaximumValue),
-                CommandFingerprintField.String("deterministicSeed", current.DeterministicSeed.ToString())
-            };
-            return await configurationCommands.ExecuteAsync(
-                "Acquisition.ValidateSimulatorConfiguration.v1",
-                new ConfigurationCommandRequest(targetId, string.Empty, null, fields),
-                principal, transaction, ct);
+            var service = SimulatorConfigurationServiceForManagement();
+            var result = await service.ValidateDraftAsync(targetId, current.ConfigurationVersion,
+                principal.UserId.ToString("D"), ct);
+            if (result.IsSuccess)
+                await StageAsync(transaction, ToEnvelopes(service.Events), ct);
+            return ToCommandResult(result);
         }
         var detail = await GetDetailAsync(resource, targetId, principal, ct);
         if (detail is null) return Failure(404, "NOT_FOUND");
@@ -98,6 +91,21 @@ public sealed class PostgresConfigurationManagementPorts(
             return Failure(422, "VALIDATION_FAILED");
         return CommandExecutionResult.Ok(200,
             JsonSerializer.Serialize(new { valid = true, resource, id = targetId, status }), null);
+    }
+
+    public async Task<CommandExecutionResult> ReviewSimulatorConfigurationAsync(
+        Guid configurationId,
+        long draftConfigurationVersion,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default)
+    {
+        var service = SimulatorConfigurationServiceForManagement();
+        var result = await service.ReviewDraftAsync(
+            configurationId, draftConfigurationVersion, principal.UserId.ToString("D"), ct);
+        if (result.IsSuccess)
+            await StageAsync(transaction, ToEnvelopes(service.Events), ct);
+        return ToCommandResult(result);
     }
 
     public async Task<ConfigurationManagementPage<object>> QueryAsync(
@@ -367,6 +375,7 @@ public sealed class PostgresConfigurationManagementPorts(
         Guid targetId,
         ServerPrincipal principal,
         IHostTransaction transaction,
+        Guid? targetSourceId = null,
         CancellationToken ct = default)
     {
         if (!ConfigurationManagementResources.IsKnown(resource))
@@ -450,7 +459,7 @@ public sealed class PostgresConfigurationManagementPorts(
                     configurations, configurationCallers, sourceScopes);
                 var outcome = await service.DuplicateAsync(
                     new SimulatorConfigurationDuplicateCommand(
-                        targetId, head.SourceId, actor,
+                        targetId, targetSourceId ?? head.SourceId, actor,
                         $"duplicate-{targetId:D}", null), ct);
                 if (!outcome.IsSuccess)
                     return Failure(
@@ -463,9 +472,10 @@ public sealed class PostgresConfigurationManagementPorts(
                     JsonSerializer.Serialize(new
                     {
                         id = outcome.NewConfigurationId,
-                        sourceId = head.SourceId,
+                        sourceId = targetSourceId ?? head.SourceId,
                         status = "Draft",
-                        version = 1,
+                        version = outcome.DraftConfigurationVersion,
+                        draftConfigurationVersion = outcome.DraftConfigurationVersion,
                         reviewRelationships = new[] { "Data Source" },
                         excludedFields = ExcludedDuplicationFields
                     }),
@@ -482,32 +492,8 @@ public sealed class PostgresConfigurationManagementPorts(
         long draftConfigurationVersion,
         ServerPrincipal principal,
         IHostTransaction transaction,
-        bool relationshipReviewConfirmed = false,
-        bool validationConfirmed = false,
         CancellationToken ct = default)
     {
-        if (!relationshipReviewConfirmed)
-            return Failure(422, "RELATIONSHIP_REVIEW_REQUIRED");
-        if (!validationConfirmed)
-            return Failure(422, "VALIDATION_REQUIRED");
-        var head = await configurations.GetHeadAsync(configurationId, ct);
-        var draft = await configurations.GetVersionAsync(
-            configurationId, draftConfigurationVersion, ct);
-        if (head is null || draft is null) return Failure(404, "NOT_FOUND");
-        var fields = new CommandFingerprintField[]
-        {
-            CommandFingerprintField.Uuid("sourceId", head.SourceId),
-            CommandFingerprintField.String("scenarioType", draft.ScenarioType.ToString()),
-            CommandFingerprintField.Int64("intervalSeconds", draft.IntervalSeconds),
-            CommandFingerprintField.Decimal("minimumValue", (decimal)draft.MinimumValue),
-            CommandFingerprintField.Decimal("maximumValue", (decimal)draft.MaximumValue),
-            CommandFingerprintField.String("deterministicSeed", draft.DeterministicSeed.ToString())
-        };
-        var validation = await configurationCommands.ExecuteAsync(
-            "Acquisition.ValidateSimulatorConfiguration.v1",
-            new ConfigurationCommandRequest(configurationId, string.Empty, null, fields),
-            principal, transaction, ct);
-        if (validation.StatusCode != 200) return validation;
         var service = new SimulatorConfigurationService(
             configurations, configurationCallers, sourceScopes);
         var result = await service.ActivateVersionAsync(
@@ -533,6 +519,20 @@ public sealed class PostgresConfigurationManagementPorts(
             configurationId.ToString("D"),
             $"\"{expectedHeadVersion + 1}\"");
     }
+
+    private SimulatorConfigurationService SimulatorConfigurationServiceForManagement() =>
+        new(configurations, configurationCallers, sourceScopes);
+
+    private static CommandExecutionResult ToCommandResult(ConfigurationCommandResult result) =>
+        result.IsSuccess
+            ? CommandExecutionResult.Ok(200, JsonSerializer.Serialize(new { valid = true }), null)
+            : Failure(result.Code switch
+            {
+                "NOT_FOUND" => 404,
+                "FORBIDDEN" => 403,
+                "VERSION_CONFLICT" or "CONFLICT" => 409,
+                _ => 422
+            }, result.Code);
 
     private CatalogConfigurationDuplicationGateway CatalogDuplicationGateway() =>
         new(catalogCommands, new CatalogCallerBridge(configurationCallers));
@@ -762,13 +762,18 @@ public sealed class PostgresConfigurationManagementPorts(
             ? draft : value.CurrentConfigurationVersion;
         var current = await configurations.GetVersionAsync(
             value.ConfigurationId, displayedVersion, ct);
+        var receipt = draft > value.CurrentConfigurationVersion
+            ? await configurations.GetReceiptAsync(value.ConfigurationId, draft, ct)
+            : null;
         return new SimulatorConfigurationManagementItem(
             value.ConfigurationId, value.SourceId,
             value.CurrentConfigurationVersion, value.Version,
             draft > value.CurrentConfigurationVersion ? draft : null,
             current?.ScenarioType.ToString(), current?.IntervalSeconds,
             current?.MinimumValue, current?.MaximumValue,
-            current?.DeterministicSeed);
+            current?.DeterministicSeed,
+            receipt is not null,
+            !string.IsNullOrWhiteSpace(receipt?.ValidatedPayloadFingerprint));
     }
 
     private sealed class CatalogCallerBridge(

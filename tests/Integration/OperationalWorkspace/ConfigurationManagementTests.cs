@@ -323,6 +323,106 @@ public static class ConfigurationManagementTests
             CancellationToken.None);
         Check(await ExecuteResultAsync(updateResult) == 409,
             "T038 public management Update endpoint rejects a stale If-Match conflict.", failures);
+
+        var malformedContext = new DefaultHttpContext();
+        malformedContext.Request.Method = "PUT";
+        malformedContext.Request.ContentType = "application/json";
+        malformedContext.Request.Headers["Idempotency-Key"] = $"t038-http-invalid-json-{suffix}";
+        malformedContext.Request.Headers["If-Match"] = "\"1\"";
+        var malformed = Encoding.UTF8.GetBytes("{\"name\":");
+        malformedContext.Request.Body = new MemoryStream(malformed);
+        malformedContext.Request.ContentLength = malformed.Length;
+        var malformedResult = await ConfigurationManagementEndpoints.UpdateAsync(
+            "sites", siteId, malformedContext.Request, commands, executor, accessor, factory,
+            CancellationToken.None);
+        var malformedResponse = await ExecuteResultDetailsAsync(malformedResult, services);
+        Check(malformedResponse.Status == 400 && malformedResponse.Body.Contains("INVALID_JSON", StringComparison.Ordinal),
+            "T038 malformed JSON returns HTTP 400/INVALID_JSON instead of an empty command field set.", failures);
+
+        var arrayContext = new DefaultHttpContext();
+        arrayContext.Request.Headers["Idempotency-Key"] = $"t038-http-array-{suffix}";
+        arrayContext.Request.Headers["If-Match"] = "\"1\"";
+        arrayContext.Request.ContentType = "application/json";
+        arrayContext.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("[]"));
+        arrayContext.Request.ContentLength = 2;
+        var arrayResponse = await ExecuteResultDetailsAsync(
+            await ConfigurationManagementEndpoints.UpdateAsync(
+                "sites", siteId, arrayContext.Request, commands, executor, accessor, factory,
+                CancellationToken.None));
+        Check(arrayResponse.Status == 400 && arrayResponse.Body.Contains("INVALID_JSON", StringComparison.Ordinal),
+            "T038 JSON arrays are rejected as INVALID_JSON.", failures);
+
+        var contentTypeContext = new DefaultHttpContext();
+        contentTypeContext.Request.Headers["Idempotency-Key"] = $"t038-http-content-type-{suffix}";
+        contentTypeContext.Request.Headers["If-Match"] = "\"1\"";
+        contentTypeContext.Request.ContentType = "text/plain";
+        contentTypeContext.Request.ContentLength = 0;
+        var contentTypeResponse = await ExecuteResultDetailsAsync(
+            await ConfigurationManagementEndpoints.UpdateAsync(
+                "sites", siteId, contentTypeContext.Request, commands, executor, accessor, factory,
+                CancellationToken.None));
+        Check(contentTypeResponse.Status == 400 && contentTypeResponse.Body.Contains("INVALID_JSON", StringComparison.Ordinal),
+            "T038 unsupported content types are rejected as INVALID_JSON.", failures);
+
+        var activationContext = new DefaultHttpContext();
+        activationContext.Request.ContentType = "application/json";
+        activationContext.Request.Headers["Idempotency-Key"] = $"t038-http-invalid-activation-{suffix}";
+        var invalidActivation = Encoding.UTF8.GetBytes("{\"expectedHeadVersion\":");
+        activationContext.Request.Body = new MemoryStream(invalidActivation);
+        activationContext.Request.ContentLength = invalidActivation.Length;
+        var activationResponse = await ExecuteResultDetailsAsync(
+            await ConfigurationManagementEndpoints.ActivateSimulatorConfigurationVersionAsync(
+                Guid.NewGuid(), activationContext.Request, commands, executor, accessor, factory,
+                CancellationToken.None), services);
+        Check(activationResponse.Status == 400 && activationResponse.Body.Contains("INVALID_JSON", StringComparison.Ordinal),
+            "T038 malformed activation JSON returns HTTP 400/INVALID_JSON.", failures);
+
+        var catalog = services.GetRequiredService<CatalogRuntimeGateway>();
+        var source = await catalog.CreateSourceAsync($"T038-HTTP-SRC-{suffix}", $"T038 HTTP Source {suffix}", siteId: siteId);
+        var targetSource = await catalog.CreateSourceAsync($"T038-HTTP-TARGET-{suffix}", $"T038 HTTP Target {suffix}", siteId: siteId);
+        if (source.Id != Guid.Empty)
+        {
+            var sourceTransition = await catalog.TransitionSourceAsync(source.Id, source.Version, "activate");
+            Check(sourceTransition is not null, "T038 HTTP receipt fixture activates its Source.", failures);
+            var targetTransition = await catalog.TransitionSourceAsync(targetSource.Id, targetSource.Version, "activate");
+            Check(targetTransition is not null, "T038 HTTP duplicate fixture activates its target Source.", failures);
+            var createFields = new[]
+            {
+                CommandFingerprintField.Uuid("sourceId", source.Id),
+                CommandFingerprintField.String("scenarioType", "Constant"),
+                CommandFingerprintField.Int64("intervalSeconds", 60),
+                CommandFingerprintField.Decimal("minimumValue", 42),
+                CommandFingerprintField.Decimal("maximumValue", 42),
+                CommandFingerprintField.String("deterministicSeed", "7")
+            };
+            Guid? configurationId = null;
+            await using (var tx = await factory.BeginAsync())
+            {
+                var created = await commands.ExecuteAsync(CommandOperationCodes.CreateSimulatorConfiguration,
+                    new ConfigurationCommandRequest(null, string.Empty, null, createFields), admin, tx);
+                await ((IHostTransactionController)tx).CommitAsync();
+                configurationId = Guid.TryParse(created.ResourceReference, out var parsed) ? parsed : null;
+                Check(created.StatusCode == 201 && configurationId is not null,
+                    "T038 HTTP receipt fixture creates a Simulator Configuration through the owner command.", failures);
+            }
+            if (configurationId is not null && targetSource.Id != Guid.Empty)
+            {
+                var duplicateContext = new DefaultHttpContext();
+                duplicateContext.Request.ContentType = "application/json";
+                duplicateContext.Request.Headers["Idempotency-Key"] = $"t038-http-duplicate-{suffix}";
+                var duplicatePayload = Encoding.UTF8.GetBytes($"{{\"targetSourceId\":\"{targetSource.Id:D}\"}}");
+                duplicateContext.Request.Body = new MemoryStream(duplicatePayload);
+                duplicateContext.Request.ContentLength = duplicatePayload.Length;
+                var duplicateResponse = await ExecuteResultDetailsAsync(
+                    await ConfigurationManagementEndpoints.DuplicateAsync(
+                        configurationId.Value, "simulator-configurations", duplicateContext.Request,
+                        commands, executor, accessor, factory, CancellationToken.None), services);
+                Check(duplicateResponse.Status == 201 &&
+                      duplicateResponse.Body.Contains(targetSource.Id.ToString("D"), StringComparison.OrdinalIgnoreCase) &&
+                      duplicateResponse.Body.Contains("draftConfigurationVersion", StringComparison.Ordinal),
+                    "T038 Simulator duplicate accepts an explicit target Source and returns an activatable Draft version.", failures);
+            }
+        }
     }
 
     private static async Task<int> ExecuteResultAsync(IResult result)
@@ -331,6 +431,20 @@ public static class ConfigurationManagementTests
         context.Response.Body = new MemoryStream();
         await result.ExecuteAsync(context);
         return context.Response.StatusCode;
+    }
+
+    private static async Task<(int Status, string Body)> ExecuteResultDetailsAsync(
+        IResult result, IServiceProvider? services = null)
+    {
+        var context = new DefaultHttpContext();
+        context.RequestServices = new ServiceCollection()
+            .AddLogging()
+            .BuildServiceProvider();
+        context.Response.Body = new MemoryStream();
+        await result.ExecuteAsync(context);
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body, Encoding.UTF8);
+        return (context.Response.StatusCode, await reader.ReadToEndAsync());
     }
 
     private sealed class FixedPrincipalAccessor(ServerPrincipal principal) : IServerPrincipalAccessor
