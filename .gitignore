@@ -34,6 +34,7 @@ appsettings.Development.*
 .env
 .env.local
 IUMP_Local_Database_Connection_Info.md
+UserGuide.txt
 *.rar
 
 # Business Docs images (ignore prototype screenshots)
