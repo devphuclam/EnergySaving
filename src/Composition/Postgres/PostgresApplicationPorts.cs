@@ -498,11 +498,12 @@ public sealed class PostgresConfigurationCommandPort(
                 return Failure(409, "VERSION_CONFLICT");
             if (IsDelete(request))
                 return Failure(409, "CONFIGURATION_RETENTION_REQUIRED");
-            var current = await configurations.GetVersionAsync(
-                configurationId, head.CurrentConfigurationVersion, ct);
+            var current = (await configurations.ListVersionsAsync(configurationId, ct))
+                .OrderByDescending(value => value.ConfigurationVersion)
+                .FirstOrDefault();
             if (current is null) return Failure(404, "NOT_FOUND");
             if (!TryBuildConfigurationVersion(
-                configurationId, checked(head.CurrentConfigurationVersion + 1),
+                configurationId, checked(current.ConfigurationVersion + 1),
                 request, principal, out var next, out var validationError))
                 return Failure(422, validationError ?? "VALIDATION_FAILED");
             if (Equivalent(current, next))

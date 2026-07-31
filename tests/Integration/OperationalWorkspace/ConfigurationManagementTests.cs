@@ -1,12 +1,17 @@
+using System.Text;
+using IUMP.Api;
 using IUMP.Api.Infrastructure;
 using IUMP.BuildingBlocks.Persistence;
 using IUMP.Composition.Postgres;
+using IUMP.Modules.Acquisition.Contracts;
 using IUMP.Modules.Catalog.Contracts;
 using IUMP.Modules.IAM.Contracts;
 using IUMP.Modules.IAM.Domain;
+using IUMP.Modules.Integration.Contracts;
 using IUMP.Modules.Organization.Contracts;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Http;
 
 namespace IUMP.Tests.Integration.OperationalWorkspace;
 
@@ -62,9 +67,11 @@ public static class ConfigurationManagementTests
             await ScopedChildPagingAsync(query, adminPrincipal, siteA.Id.Value, siteB.Id.Value, suffix, failures);
             await ScopedSourceAndMappingPagingAsync(query, services, adminPrincipal,
                 siteA.Id.Value, siteB.Id.Value, suffix, failures);
-            await ScopedConfigurationPagingAsync(query, adminPrincipal, siteA.Id.Value, siteB.Id.Value, suffix, failures);
+            await ScopedConfigurationPagingAsync(query, services, adminPrincipal, siteA.Id.Value, siteB.Id.Value, suffix, failures);
             await DetailAndDuplicateJourneyAsync(services, query, adminPrincipal, siteA.Id.Value, suffix, failures);
             await DependencySafeLifecycleAsync(services, adminPrincipal, siteA.Id.Value, suffix, failures);
+            await PublicManagementLifecycleAsync(services, adminPrincipal, siteA.Id.Value, suffix, failures);
+            await PublicHttpManagementEndpointAsync(services, adminPrincipal, siteA.Id.Value, suffix, failures);
         }
         catch (Exception ex)
         {
@@ -148,7 +155,7 @@ public static class ConfigurationManagementTests
     }
 
     private static async Task ScopedConfigurationPagingAsync(
-        IConfigurationManagementQueryPort query, ServerPrincipal admin,
+        IConfigurationManagementQueryPort query, IServiceProvider services, ServerPrincipal admin,
         Guid siteA, Guid siteB, string suffix, List<string> failures)
     {
         _testCount++;
@@ -156,6 +163,41 @@ public static class ConfigurationManagementTests
             new ManagementQueryFilter(SiteId: siteA.ToString("D"), Page: 1, PageSize: 10), admin);
         Check(configurations.TotalCount == 0,
             "T038 Simulator Configuration paging returns zero without a scoped Source.", failures);
+
+        var catalog = services.GetRequiredService<CatalogRuntimeGateway>();
+        var source = await catalog.CreateSourceAsync(
+            $"T038-CONFIG-{suffix}", $"T038 Configuration Source {suffix}", siteId: siteA);
+        var sourceB = await catalog.CreateSourceAsync(
+            $"T038-CONFIG-B-{suffix}", $"T038 Configuration Source B {suffix}", siteId: siteA);
+        var repository = services.GetRequiredService<IAcquisitionConfigurationRepository>();
+        var configurationA = Guid.NewGuid();
+        var configurationB = Guid.NewGuid();
+        foreach (var (configurationId, sourceId) in new[] { (configurationA, source.Id), (configurationB, sourceB.Id) })
+        {
+            var version = new SimulatorConfigurationVersion(
+                configurationId, 1, 60, 42, 42, 7, SimulatorScenario.Constant,
+                SimulatorConfigurationConstants.AlgorithmId,
+                SimulatorConfigurationConstants.AlgorithmVersion,
+                admin.UserId.ToString("D"), admin.Username, DateTime.UtcNow,
+                $"t038-{configurationId:D}", null);
+            await repository.CreateAsync(
+                new SimulatorConfigurationHead(configurationId, sourceId, 1, 1), version);
+        }
+        var byConfigurationId = await query.QueryAsync(
+            "simulator-configurations",
+            new ManagementQueryFilter(Search: configurationA.ToString("D"), Page: 1, PageSize: 1), admin);
+        Check(byConfigurationId.TotalCount == 1 && byConfigurationId.Items.Count == 1,
+            "T040 Simulator search filters by configuration ID before paging.", failures);
+        var bySourceId = await query.QueryAsync(
+            "simulator-configurations",
+            new ManagementQueryFilter(Search: sourceB.Id.ToString("D"), Page: 1, PageSize: 1), admin);
+        Check(bySourceId.TotalCount == 1 && bySourceId.Items.Count == 1,
+            "T040 Simulator search filters by Source ID before paging.", failures);
+        var byVersion = await query.QueryAsync(
+            "simulator-configurations",
+            new ManagementQueryFilter(Search: "1", Page: 1, PageSize: 1), admin);
+        Check(byVersion.TotalCount >= 2 && byVersion.Items.Count == 1,
+            "T040 Simulator search filters by current version before paging.", failures);
     }
 
     private static async Task DetailAndDuplicateJourneyAsync(
@@ -206,6 +248,94 @@ public static class ConfigurationManagementTests
         var delete = await catalog.DeleteSourceAsync(source.Id, 2);
         Check(!delete.IsAllowed && delete.Code is "DEPENDENT_HISTORY" or "InvalidState",
             "T038 Active Source deletion is rejected by dependency protection.", failures);
+    }
+
+    private static async Task PublicManagementLifecycleAsync(
+        IServiceProvider services, ServerPrincipal admin, Guid siteId, string suffix,
+        List<string> failures)
+    {
+        _testCount++;
+        using var scope = services.CreateScope();
+        var catalog = scope.ServiceProvider.GetRequiredService<CatalogRuntimeGateway>();
+        var source = await catalog.CreateSourceAsync(
+            $"T038-PUBLIC-{suffix}", $"T038 Public Source {suffix}", siteId: siteId);
+        Check(source.Id != Guid.Empty, "T038 could not create public-management Source.", failures);
+        if (source.Id == Guid.Empty) return;
+        var commands = scope.ServiceProvider.GetRequiredService<IConfigurationCommandPort>();
+        var factory = scope.ServiceProvider.GetRequiredService<IHostTransactionFactory>();
+        await using (var transaction = await factory.BeginAsync())
+        {
+            var activated = await commands.ExecuteAsync(
+                "Acquisition.ActivateSource.v1",
+                new ConfigurationCommandRequest(source.Id, string.Empty, source.Version,
+                    [CommandFingerprintField.String("httpMethod", "POST")]),
+                admin, transaction);
+            await ((IHostTransactionController)transaction).CommitAsync();
+            Check(activated.StatusCode is 200 or 204,
+                "T038 public management lifecycle activation did not succeed.", failures);
+        }
+        var active = await catalog.GetDataSourceSnapshotAsync(source.Id);
+        Check(active is not null && active.Version > source.Version,
+            "T038 public lifecycle did not advance the Source version.", failures);
+        if (active is null) return;
+        await using (var transaction = await factory.BeginAsync())
+        {
+            var deletion = await commands.ExecuteAsync(
+                "Acquisition.UpdateSource.v1",
+                new ConfigurationCommandRequest(source.Id, string.Empty, active.Version,
+                    [CommandFingerprintField.String("httpMethod", "DELETE")]),
+                admin, transaction);
+            await ((IHostTransactionController)transaction).CommitAsync();
+            Check(deletion.StatusCode == 409,
+                "T038 public management delete must reject an active Source.", failures);
+        }
+    }
+
+    private static async Task PublicHttpManagementEndpointAsync(
+        IServiceProvider services, ServerPrincipal admin, Guid siteId, string suffix,
+        List<string> failures)
+    {
+        _testCount++;
+        var accessor = new FixedPrincipalAccessor(admin);
+        var commands = services.GetRequiredService<IConfigurationManagementCommandPort>();
+        var executor = new IdempotentCommandExecutor(
+            services.GetRequiredService<ICommandIdempotencyStore>(),
+            principalAccessor: accessor);
+        var factory = services.GetRequiredService<IHostTransactionFactory>();
+        var validateContext = new DefaultHttpContext();
+        validateContext.Request.Headers["Idempotency-Key"] = $"t038-http-validate-{suffix}";
+        var validateResult = await ConfigurationManagementEndpoints.ValidateAsync(
+            "sites", siteId, validateContext.Request, commands, executor, accessor, factory,
+            CancellationToken.None);
+        Check(await ExecuteResultAsync(validateResult) == 200,
+            "T038 public management Validate endpoint returns a successful owner-backed result.", failures);
+
+        var updateContext = new DefaultHttpContext();
+        updateContext.Request.Method = "PUT";
+        updateContext.Request.ContentType = "application/json";
+        updateContext.Request.Headers["Idempotency-Key"] = $"t038-http-conflict-{suffix}";
+        updateContext.Request.Headers["If-Match"] = "\"999999\"";
+        var payload = Encoding.UTF8.GetBytes("{\"name\":\"stale update\"}");
+        updateContext.Request.Body = new MemoryStream(payload);
+        updateContext.Request.ContentLength = payload.Length;
+        var updateResult = await ConfigurationManagementEndpoints.UpdateAsync(
+            "sites", siteId, updateContext.Request, commands, executor, accessor, factory,
+            CancellationToken.None);
+        Check(await ExecuteResultAsync(updateResult) == 409,
+            "T038 public management Update endpoint rejects a stale If-Match conflict.", failures);
+    }
+
+    private static async Task<int> ExecuteResultAsync(IResult result)
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        await result.ExecuteAsync(context);
+        return context.Response.StatusCode;
+    }
+
+    private sealed class FixedPrincipalAccessor(ServerPrincipal principal) : IServerPrincipalAccessor
+    {
+        public ServerPrincipal? Current { get; } = principal;
     }
 
     private static void Check(bool condition, string message, List<string> failures)

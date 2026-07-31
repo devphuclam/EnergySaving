@@ -102,6 +102,11 @@ function createFakeWebGateways(
     management: {
       list: async (_resource, filter) => ({ items: [], totalCount: 0, page: filter.page, pageSize: filter.pageSize }),
       detail: async () => null,
+      create: async () => ({ ok: true, status: 201 }),
+      update: async () => ({ ok: true, status: 200 }),
+      validate: async () => ({ ok: true, status: 200 }),
+      lifecycle: async () => ({ ok: true, status: 200 }),
+      remove: async () => ({ ok: true, status: 204 }),
       duplicate: async () => ({ ok: true, status: 201 }),
       activateSimulatorConfigurationVersion: async () => ({ ok: true, status: 200 }),
     },

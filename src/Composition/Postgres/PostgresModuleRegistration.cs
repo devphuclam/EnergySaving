@@ -52,6 +52,7 @@ public static class PostgresModuleRegistration
             provider.GetRequiredService<PostgresConfigurationManagementPorts>());
         services.AddScoped<IConfigurationManagementCommandPort>(provider =>
             provider.GetRequiredService<PostgresConfigurationManagementPorts>());
+        services.AddScoped<IConfigurationCommandPort, PostgresConfigurationCommandPort>();
         services.AddIumpPostgresRuntimeProviders();
         return services;
     }

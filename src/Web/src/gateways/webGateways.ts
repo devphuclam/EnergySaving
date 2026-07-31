@@ -86,11 +86,18 @@ export type ManagementMutation = {
 export type ManagementGateway = {
   list(resource: string, filter: ManagementFilter): Promise<ManagementPage>
   detail(resource: string, id: string): Promise<Record<string, unknown> | null>
+  create(resource: string, body: Record<string, unknown>, retryKey?: string): Promise<ManagementMutation>
+  update(resource: string, id: string, expectedVersion: number, body: Record<string, unknown>, retryKey?: string): Promise<ManagementMutation>
+  validate(resource: string, id: string, retryKey?: string): Promise<ManagementMutation>
+  lifecycle(resource: string, id: string, action: string, expectedVersion: number, retryKey?: string): Promise<ManagementMutation>
+  remove(resource: string, id: string, expectedVersion: number, retryKey?: string): Promise<ManagementMutation>
   duplicate(resource: string, id: string, retryKey?: string): Promise<ManagementMutation>
   activateSimulatorConfigurationVersion(
     configurationId: string,
     expectedHeadVersion: number,
     draftConfigurationVersion: number,
+    relationshipReviewConfirmed?: boolean,
+    validationConfirmed?: boolean,
     retryKey?: string,
   ): Promise<ManagementMutation>
 }
@@ -146,28 +153,37 @@ function stateFromError(error: unknown): GatewayState {
 
 async function managementMutation(
   path: string,
-  method: 'POST',
+  method: 'POST' | 'PUT' | 'DELETE',
   body?: Record<string, unknown>,
   retryKey: string = crypto.randomUUID(),
+  expectedVersion?: number,
 ): Promise<ManagementMutation> {
-  const token = await antiforgeryToken()
-  const response = await fetch(`/api/v1/${path}`, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'Idempotency-Key': retryKey,
-      'X-XSRF-TOKEN': token,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  const text = await response.text()
-  const parsed = (text ? JSON.parse(text) : {}) as Record<string, unknown>
-  return {
-    ok: response.ok,
-    status: response.status,
-    body: parsed,
-    errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined,
+  try {
+    const token = await antiforgeryToken()
+    const response = await fetch(`/api/v1/${path}`, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Idempotency-Key': retryKey,
+        'X-XSRF-TOKEN': token,
+        ...(expectedVersion ? { 'If-Match': `"${expectedVersion}"` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    const text = await response.text()
+    let parsed: Record<string, unknown> = {}
+    if (text) {
+      try { parsed = JSON.parse(text) as Record<string, unknown> } catch { parsed = {} }
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      body: parsed,
+      errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined,
+    }
+  } catch {
+    return { ok: false, status: 503, errorCode: 'RUNTIME_FAILURE' }
   }
 }
 
@@ -296,11 +312,26 @@ export const webGateways: WebGateways = {
         throw error
       }
     },
+    async create(resource, body, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}`, 'POST', body, retryKey)
+    },
+    async update(resource, id, expectedVersion, body, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}/${id}`, 'PUT', body, retryKey, expectedVersion)
+    },
+    async validate(resource, id, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}/${id}/validate`, 'POST', undefined, retryKey)
+    },
+    async lifecycle(resource, id, action, expectedVersion, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}/${id}/${action}`, 'POST', undefined, retryKey, expectedVersion)
+    },
+    async remove(resource, id, expectedVersion, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}/${id}`, 'DELETE', undefined, retryKey, expectedVersion)
+    },
     async duplicate(resource, id, retryKey = crypto.randomUUID()) {
       return managementMutation(`configuration-management/${resource}/${id}/duplicate`, 'POST', undefined, retryKey)
     },
-    async activateSimulatorConfigurationVersion(configurationId, expectedHeadVersion, draftConfigurationVersion, retryKey = crypto.randomUUID()) {
-      return managementMutation(`configuration-management/simulator-configurations/${configurationId}/activate`, 'POST', { expectedHeadVersion, draftConfigurationVersion }, retryKey)
+    async activateSimulatorConfigurationVersion(configurationId, expectedHeadVersion, draftConfigurationVersion, relationshipReviewConfirmed = false, validationConfirmed = false, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/simulator-configurations/${configurationId}/activate`, 'POST', { expectedHeadVersion, draftConfigurationVersion, relationshipReviewConfirmed, validationConfirmed }, retryKey)
     },
   },
 }

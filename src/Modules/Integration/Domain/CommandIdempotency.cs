@@ -33,6 +33,7 @@ public static class CommandOperationCodes
     public const string SetMetricCompatibleUnits = "Catalog.SetMetricCompatibleUnits.v1";
     public const string CreateSource = "Acquisition.CreateSource.v1";
     public const string UpdateSource = "Acquisition.UpdateSource.v1";
+    public const string ActivateSource = "Acquisition.ActivateSource.v1";
     public const string CreateMapping = "Acquisition.CreateMapping.v1";
     public const string UpdateMapping = "Acquisition.UpdateMapping.v1";
     public const string ActivateMapping = "Acquisition.ActivateMapping.v1";
@@ -49,6 +50,7 @@ public static class CommandOperationCodes
     public const string ResumeSimulator = "Simulator.Resume.v1";
     public const string StopSimulator = "Simulator.Stop.v1";
     public const string DuplicateConfiguration = "ConfigurationManagement.Duplicate.v1";
+    public const string ValidateConfiguration = "ConfigurationManagement.Validate.v1";
     public const string ActivateSimulatorConfigurationVersion =
         "ConfigurationManagement.ActivateSimulatorConfigurationVersion.v1";
 
@@ -58,11 +60,11 @@ public static class CommandOperationCodes
         ActivatePoint, DeactivatePoint, ActivateSite, DeactivateSite, ActivateArea, DeactivateArea,
         ActivateAsset, DeactivateAsset, SupersedeSite, SupersedeArea, SupersedeAsset, SupersedePoint,
         CreateMetric, UpdateMetric, CreateUnit, UpdateUnit, SetMetricCompatibleUnits, CreateSource, UpdateSource,
-        CreateMapping, UpdateMapping, ActivateMapping, InactivateMapping, SupersedeMapping, SuspendSource,
+        CreateMapping, UpdateMapping, ActivateSource, ActivateMapping, InactivateMapping, SupersedeMapping, SuspendSource,
         DecommissionSource, CreateSimulatorConfiguration, UpdateSimulatorConfiguration,
         ValidateSimulatorConfiguration, AssignEngineerSiteScope,
         StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator,
-        DuplicateConfiguration, ActivateSimulatorConfigurationVersion
+        DuplicateConfiguration, ValidateConfiguration, ActivateSimulatorConfigurationVersion
     };
 
     public static bool IsKnown(string operationCode) => AllCodes.Contains(operationCode);

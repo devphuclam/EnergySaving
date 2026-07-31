@@ -26,10 +26,80 @@ public sealed class PostgresConfigurationManagementPorts(
     ICatalogSourceScopeQuery sourceScopes,
     IAcquisitionConfigurationRepository configurations,
     CatalogRuntimeGateway catalog,
-    ITransactionalOutboxWriter outbox) :
+    ITransactionalOutboxWriter outbox,
+    IConfigurationCommandPort configurationCommands) :
     IConfigurationManagementQueryPort,
     IConfigurationManagementCommandPort
 {
+    public Task<CommandExecutionResult> CreateSiteAsync(
+        ConfigurationCommandRequest request,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default) =>
+        configurationCommands.CreateSiteAsync(request, principal, transaction, ct);
+
+    public Task<CommandExecutionResult> UpdateSiteAsync(
+        ConfigurationCommandRequest request,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default) =>
+        configurationCommands.UpdateSiteAsync(request, principal, transaction, ct);
+
+    public Task<CommandExecutionResult> ExecuteAsync(
+        string operationCode,
+        ConfigurationCommandRequest request,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default) =>
+        configurationCommands.ExecuteAsync(operationCode, request, principal, transaction, ct);
+
+    public async Task<CommandExecutionResult> ValidateAsync(
+        string resource,
+        Guid targetId,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default)
+    {
+        if (resource == ConfigurationManagementResources.SimulatorConfigurations)
+        {
+            var head = await configurations.GetHeadAsync(targetId, ct);
+            if (head is null) return Failure(404, "NOT_FOUND");
+            var current = (await configurations.ListVersionsAsync(targetId, ct))
+                .OrderByDescending(value => value.ConfigurationVersion)
+                .FirstOrDefault();
+            if (current is null) return Failure(404, "NOT_FOUND");
+            var fields = new CommandFingerprintField[]
+            {
+                CommandFingerprintField.Uuid("sourceId", head.SourceId),
+                CommandFingerprintField.String("scenarioType", current.ScenarioType.ToString()),
+                CommandFingerprintField.Int64("intervalSeconds", current.IntervalSeconds),
+                CommandFingerprintField.Decimal("minimumValue", (decimal)current.MinimumValue),
+                CommandFingerprintField.Decimal("maximumValue", (decimal)current.MaximumValue),
+                CommandFingerprintField.String("deterministicSeed", current.DeterministicSeed.ToString())
+            };
+            return await configurationCommands.ExecuteAsync(
+                "Acquisition.ValidateSimulatorConfiguration.v1",
+                new ConfigurationCommandRequest(targetId, string.Empty, null, fields),
+                principal, transaction, ct);
+        }
+        var detail = await GetDetailAsync(resource, targetId, principal, ct);
+        if (detail is null) return Failure(404, "NOT_FOUND");
+        var status = detail switch
+        {
+            SiteManagementItem value => value.Status,
+            AreaManagementItem value => value.Status,
+            AssetManagementItem value => value.Status,
+            PointManagementItem value => value.Status,
+            SourceManagementItem value => value.Status,
+            MappingManagementItem value => value.Status,
+            _ => string.Empty
+        };
+        if (status is "Decommissioned" or "Superseded")
+            return Failure(422, "VALIDATION_FAILED");
+        return CommandExecutionResult.Ok(200,
+            JsonSerializer.Serialize(new { valid = true, resource, id = targetId, status }), null);
+    }
+
     public async Task<ConfigurationManagementPage<object>> QueryAsync(
         string resource,
         ManagementQueryFilter filter,
@@ -173,11 +243,15 @@ public sealed class PostgresConfigurationManagementPorts(
                     heads = heads.Where(value =>
                         scopedSources.Contains(value.SourceId));
                 }
+                var filteredHeads = heads.Where(value =>
+                    ConfigurationManagementSearch.MatchesSimulatorConfiguration(
+                        value.ConfigurationId, value.SourceId,
+                        value.CurrentConfigurationVersion, filter.Search));
                 var configItems = new List<object>();
                 var configTotal = 0;
                 var pageStart = (Math.Max(1, filter.Page) - 1) * Math.Clamp(filter.PageSize, 1, 200);
                 var pageSize = Math.Clamp(filter.PageSize, 1, 200);
-                foreach (var head in heads)
+                foreach (var head in filteredHeads)
                 {
                     if (configTotal >= pageStart && configItems.Count < pageSize)
                         configItems.Add(await ToConfigurationItemAsync(head, ct));
@@ -391,7 +465,9 @@ public sealed class PostgresConfigurationManagementPorts(
                         id = outcome.NewConfigurationId,
                         sourceId = head.SourceId,
                         status = "Draft",
-                        version = 1
+                        version = 1,
+                        reviewRelationships = new[] { "Data Source" },
+                        excludedFields = ExcludedDuplicationFields
                     }),
                     outcome.NewConfigurationId?.ToString("D"));
             }
@@ -406,8 +482,32 @@ public sealed class PostgresConfigurationManagementPorts(
         long draftConfigurationVersion,
         ServerPrincipal principal,
         IHostTransaction transaction,
+        bool relationshipReviewConfirmed = false,
+        bool validationConfirmed = false,
         CancellationToken ct = default)
     {
+        if (!relationshipReviewConfirmed)
+            return Failure(422, "RELATIONSHIP_REVIEW_REQUIRED");
+        if (!validationConfirmed)
+            return Failure(422, "VALIDATION_REQUIRED");
+        var head = await configurations.GetHeadAsync(configurationId, ct);
+        var draft = await configurations.GetVersionAsync(
+            configurationId, draftConfigurationVersion, ct);
+        if (head is null || draft is null) return Failure(404, "NOT_FOUND");
+        var fields = new CommandFingerprintField[]
+        {
+            CommandFingerprintField.Uuid("sourceId", head.SourceId),
+            CommandFingerprintField.String("scenarioType", draft.ScenarioType.ToString()),
+            CommandFingerprintField.Int64("intervalSeconds", draft.IntervalSeconds),
+            CommandFingerprintField.Decimal("minimumValue", (decimal)draft.MinimumValue),
+            CommandFingerprintField.Decimal("maximumValue", (decimal)draft.MaximumValue),
+            CommandFingerprintField.String("deterministicSeed", draft.DeterministicSeed.ToString())
+        };
+        var validation = await configurationCommands.ExecuteAsync(
+            "Acquisition.ValidateSimulatorConfiguration.v1",
+            new ConfigurationCommandRequest(configurationId, string.Empty, null, fields),
+            principal, transaction, ct);
+        if (validation.StatusCode != 200) return validation;
         var service = new SimulatorConfigurationService(
             configurations, configurationCallers, sourceScopes);
         var result = await service.ActivateVersionAsync(
@@ -605,9 +705,16 @@ public sealed class PostgresConfigurationManagementPorts(
                 name,
                 status,
                 version,
-                reviewRelationships
+                reviewRelationships,
+                excludedFields = ExcludedDuplicationFields
             }),
             newId?.ToString("D"));
+
+    private static readonly string[] ExcludedDuplicationFields =
+    [
+        "history", "runs", "measurements", "latest", "sourceHealth", "audit",
+        "sessions", "tokens", "credentials", "secrets"
+    ];
 
     private static CommandExecutionResult Failure(int statusCode, string errorCode) =>
         new(statusCode, JsonSerializer.Serialize(new { errorCode }), null);
@@ -627,7 +734,8 @@ public sealed class PostgresConfigurationManagementPorts(
     private static PointManagementItem ToManagementItem(PointSnapshot value) =>
         new(value.Id, value.SiteId, value.AreaId, value.AssetId, value.Code,
             value.Description, value.MetricId, value.UnitId, value.DataOwnerUserId,
-            value.Status.ToString(), value.Version);
+            value.Status.ToString(), value.Version, value.ExpectedIntervalSeconds,
+            value.NoDataAfterSeconds);
 
     private static SourceManagementItem ToManagementItem(
         CatalogRuntimeDataSource value) =>
@@ -650,10 +758,17 @@ public sealed class PostgresConfigurationManagementPorts(
             .Select(version => version.ConfigurationVersion)
             .DefaultIfEmpty()
             .Max();
+        var displayedVersion = draft > value.CurrentConfigurationVersion
+            ? draft : value.CurrentConfigurationVersion;
+        var current = await configurations.GetVersionAsync(
+            value.ConfigurationId, displayedVersion, ct);
         return new SimulatorConfigurationManagementItem(
             value.ConfigurationId, value.SourceId,
             value.CurrentConfigurationVersion, value.Version,
-            draft > value.CurrentConfigurationVersion ? draft : null);
+            draft > value.CurrentConfigurationVersion ? draft : null,
+            current?.ScenarioType.ToString(), current?.IntervalSeconds,
+            current?.MinimumValue, current?.MaximumValue,
+            current?.DeterministicSeed);
     }
 
     private sealed class CatalogCallerBridge(
