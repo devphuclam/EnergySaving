@@ -69,7 +69,25 @@ Step IDs:
 |---:|---|
 | 401 | No valid server session |
 | 403 | Authenticated but workspace access capability is unavailable |
+| 403 | `mode=new` requested by a non-Administrator |
+| 404 | `selectedSiteId` is unavailable or outside the caller's authorized scope |
+| 400 | Malformed or mutually exclusive mode/selection query |
 | 503 | API/database dependency unavailable; no fallback data |
+
+Optional query parameters select an explicit Administrator setup context:
+
+```text
+mode=new
+selectedSiteId=<uuid>
+```
+
+`mode=new` is Administrator-only and returns an empty, server-derived `SetupWizard` projection
+whose next step is `site-and-engineer`; it never creates a Site or command-idempotency record.
+`selectedSiteId` is authorized and resolved on the server, returns only that Site and its eligible
+chain/counts, and is safe across refreshes and chain ordering. The two parameters are mutually
+exclusive. An omitted query preserves the default landing behavior, including the operational
+Dashboard when an eligible operational chain exists. The browser must not use localStorage or list
+position as setup authority.
 
 The status query never creates command-idempotency records.
 

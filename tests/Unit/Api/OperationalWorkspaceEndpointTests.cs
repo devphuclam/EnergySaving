@@ -36,7 +36,7 @@ public static class OperationalWorkspaceEndpointTests
         var anonymous = new PrincipalAccessor(null);
         var query = new FakeQueryPort(Status(0));
         var status401 = await OperationalWorkspaceEndpoints.GetStatusAsync(
-            query, anonymous, CancellationToken.None);
+            new DefaultHttpContext().Request, query, anonymous, CancellationToken.None);
         Check(status401 is Microsoft.AspNetCore.Http.HttpResults.UnauthorizedHttpResult,
             "Status without a server principal must return 401.");
 
@@ -49,10 +49,40 @@ public static class OperationalWorkspaceEndpointTests
             "Engineer list must return 403 to a non-Administrator.");
 
         var dependency503 = await OperationalWorkspaceEndpoints.GetStatusAsync(
+            new DefaultHttpContext().Request,
             new FakeQueryPort(Status(0), throwDependency: true),
             new PrincipalAccessor(engineer), CancellationToken.None);
         Check(dependency503.GetType().Name.Contains("JsonHttpResult", StringComparison.Ordinal),
             "Dependency failure must be mapped to a safe JSON result.");
+
+        var admin = new ServerPrincipal(
+            Guid.NewGuid(), "admin", new HashSet<string>(), new HashSet<string>(), true);
+        var newRequest = new DefaultHttpContext().Request;
+        newRequest.QueryString = new QueryString("?mode=new");
+        var newStatusQuery = new FakeQueryPort(Status(0));
+        var newStatus = await OperationalWorkspaceEndpoints.GetStatusAsync(
+            newRequest, newStatusQuery, new PrincipalAccessor(admin), CancellationToken.None);
+        Check(newStatus is Microsoft.AspNetCore.Http.HttpResults.Ok<OperationalWorkspaceStatus> &&
+            newStatusQuery.LastRequest?.IsNew == true,
+            "Administrator mode=new must request a server-owned NoSite status.");
+
+        var engineerNewRequest = new DefaultHttpContext().Request;
+        engineerNewRequest.QueryString = new QueryString("?mode=new");
+        var engineerNew = await OperationalWorkspaceEndpoints.GetStatusAsync(
+            engineerNewRequest, query, new PrincipalAccessor(engineer), CancellationToken.None);
+        Check(engineerNew is Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult,
+            "Engineer mode=new must fail closed with 403.");
+
+        var invalidSelectionRequest = new DefaultHttpContext().Request;
+        invalidSelectionRequest.QueryString = new QueryString(
+            "?selectedSiteId=00000000-0000-0000-0000-000000000099");
+        var invalidSelection = await OperationalWorkspaceEndpoints.GetStatusAsync(
+            invalidSelectionRequest,
+            new FakeQueryPort(Status(0), selectionNotFound: true),
+            new PrincipalAccessor(admin), CancellationToken.None);
+        Check(invalidSelection is Microsoft.AspNetCore.Http.IStatusCodeHttpResult missing &&
+            missing.StatusCode == 404,
+            "Unauthorized selected Site must return a safe 404 result.");
 
         var validationRequest = new DefaultHttpContext().Request;
         validationRequest.QueryString = new QueryString(
@@ -118,13 +148,23 @@ public static class OperationalWorkspaceEndpointTests
 
     private sealed class FakeQueryPort(
         OperationalWorkspaceStatus status,
-        bool throwDependency = false) : IOperationalWorkspaceQueryPort
+        bool throwDependency = false,
+        bool selectionNotFound = false) : IOperationalWorkspaceQueryPort
     {
+        public WorkspaceStatusRequest? LastRequest { get; private set; }
+
         public Task<OperationalWorkspaceStatus> GetStatusAsync(
-            ServerPrincipal principal, CancellationToken ct = default) =>
-            throwDependency
+            ServerPrincipal principal,
+            WorkspaceStatusRequest? request = null,
+            CancellationToken ct = default)
+        {
+            LastRequest = request;
+            if (selectionNotFound)
+                return Task.FromResult(status with { ErrorCode = "NOT_FOUND" });
+            return throwDependency
                 ? throw new InvalidOperationException("redacted dependency failure")
                 : Task.FromResult(status);
+        }
 
         public Task<IReadOnlyList<WorkspaceEngineerCandidate>> ListEngineersAsync(
             ServerPrincipal principal, CancellationToken ct = default) =>

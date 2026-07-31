@@ -2,6 +2,54 @@ export type WorkspaceLanding = 'SetupWizard' | 'ContinueSetup' | 'Dashboard' | '
 export type WorkspaceStep = 'SiteAndEngineer' | 'Area' | 'Asset' | 'MeasurementPoint' | 'DataSource' | 'Mapping' | 'SimulatorConfiguration' | 'ValidateAndActivate'
 export type SiteAndEngineerState = 'NoSite' | 'DraftSite' | 'ActiveWithoutEngineer' | 'EngineerAssigned'
 
+export type WorkspaceStatusRequest =
+  | { mode: 'new'; selectedSiteId?: never }
+  | { selectedSiteId: string; mode?: never }
+  | { invalidSearch: string }
+
+export type WorkspaceGatewayErrorKind = 'validation' | 'forbidden' | 'notFound' | 'dependency' | 'runtime'
+
+export class WorkspaceGatewayError extends Error {
+  readonly status: number
+  readonly errorCode?: string
+  readonly body?: Record<string, unknown>
+
+  constructor(status: number, body?: Record<string, unknown>) {
+    super(`WORKSPACE_${status}`)
+    this.name = 'WorkspaceGatewayError'
+    this.status = status
+    this.errorCode = typeof body?.errorCode === 'string' ? body.errorCode : undefined
+    this.body = body
+  }
+}
+
+export function workspaceGatewayErrorKind(error: unknown): WorkspaceGatewayErrorKind {
+  if (!(error instanceof WorkspaceGatewayError)) return 'runtime'
+  if (error.status === 400 || error.status === 422) return 'validation'
+  if (error.status === 403) return 'forbidden'
+  if (error.status === 404) return 'notFound'
+  if (error.status === 503) return 'dependency'
+  return 'runtime'
+}
+
+export function workspaceStatusRequestFromSearch(search: string): WorkspaceStatusRequest | undefined {
+  const params = new URLSearchParams(search)
+  const hasMode = params.has('mode')
+  const hasSelectedSiteId = params.has('selectedSiteId')
+  const mode = params.get('mode')
+  const selectedSiteId = params.get('selectedSiteId')
+  if ((hasMode && mode !== 'new') || (hasSelectedSiteId && !selectedSiteId) ||
+    (hasMode && hasSelectedSiteId)) {
+    return { invalidSearch: search }
+  }
+  if (mode === 'new') return { mode: 'new' }
+  return selectedSiteId ? { selectedSiteId } : undefined
+}
+
+export function selectedSetupPath(siteId: string): string {
+  return `/setup?selectedSiteId=${encodeURIComponent(siteId)}`
+}
+
 export type WorkspaceChain = {
   siteId?: string
   siteVersion?: number
@@ -65,7 +113,7 @@ export type MutationResult = {
 }
 
 export type WorkspaceGateway = {
-  getStatus(): Promise<OperationalWorkspaceStatus>
+  getStatus(request?: WorkspaceStatusRequest): Promise<OperationalWorkspaceStatus>
   listEngineers(): Promise<EngineerCandidate[]>
   assignEngineer(siteId: string, engineerId: string, retryKey?: string): Promise<MutationResult>
   mutate(path: string, method: 'POST' | 'PUT' | 'DELETE', body?: Record<string, unknown>, version?: number, retryKey?: string): Promise<MutationResult>

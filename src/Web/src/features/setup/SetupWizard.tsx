@@ -2,9 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWebGateways } from '../../gateways/GatewayContext'
 import {
   deriveSiteAndEngineerState,
+  selectedSetupPath,
   type EngineerCandidate,
+  type MutationResult,
   type OperationalWorkspaceStatus,
   type WorkspaceStep,
+  workspaceGatewayErrorKind,
+  type WorkspaceGatewayErrorKind,
 } from './setupTypes'
 
 const stepLabels: Record<WorkspaceStep, string> = {
@@ -27,6 +31,7 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
   const [fields, setFields] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
   const [dependencyError, setDependencyError] = useState(false)
+  const [requestError, setRequestError] = useState<WorkspaceGatewayErrorKind>()
   const [submitting, setSubmitting] = useState(false)
   const [retryKey, setRetryKey] = useState(crypto.randomUUID())
   const [reviewStep, setReviewStep] = useState<WorkspaceStep>()
@@ -38,6 +43,7 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
 
   const reload = useCallback(async () => {
     setDependencyError(false)
+    setRequestError(undefined)
     try {
       const next = await gateway.getStatus()
       setStatus(next)
@@ -68,7 +74,9 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
       setEngineers([])
       setMetrics([])
       setUnits([])
-      setDependencyError(true)
+      const kind = workspaceGatewayErrorKind(error)
+      setRequestError(kind)
+      setDependencyError(kind === 'dependency')
       throw error
     }
   }, [engineerId, gateway])
@@ -85,11 +93,7 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
     ? deriveSiteAndEngineerState(status)
     : undefined
 
-  async function run(action: () => Promise<{
-    ok: boolean
-    status: number
-    errorCode?: string
-  }>) {
+  async function run(action: () => Promise<MutationResult>) {
     setSubmitting(true)
     setFeedback('')
     try {
@@ -100,6 +104,15 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
           ;(nameInput.current ?? pointSelect.current)?.focus()
         }
         return
+      }
+      const createdSiteId = status?.nextStep === 'SiteAndEngineer' &&
+        siteAndEngineerState === 'NoSite' &&
+        typeof result.body?.id === 'string'
+        ? result.body.id
+        : undefined
+      if (createdSiteId) {
+        window.history.pushState({}, '', selectedSetupPath(createdSiteId))
+        window.dispatchEvent(new PopStateEvent('popstate'))
       }
       setRetryKey(crypto.randomUUID())
       setName('')
@@ -230,6 +243,10 @@ export function SetupWizard({ onSimulator }: { onSimulator: () => void }) {
   }
 
   if (dependencyError) return <section className="notice notice-warning"><strong>Không thể tải dữ liệu phụ thuộc.</strong><span>Vui lòng thử lại khi API và PostgreSQL sẵn sàng. Không có dữ liệu thay thế được hiển thị.</span><button className="button button-quiet" type="button" onClick={() => void reload().catch(() => undefined)}>Thử lại</button></section>
+  if (requestError === 'validation') return <section className="notice notice-warning"><strong>Yêu cầu thiết lập không hợp lệ.</strong><span>Mục thiết lập được chọn không được server chấp nhận.</span><button className="button button-quiet" type="button" onClick={() => void reload().catch(() => undefined)}>Tải lại</button></section>
+  if (requestError === 'forbidden') return <section className="notice notice-warning"><strong>Bạn không có quyền với phạm vi này.</strong><span>Vui lòng quay về Dashboard hoặc liên hệ Administrator.</span></section>
+  if (requestError === 'notFound') return <section className="notice notice-warning"><strong>Không tìm thấy Site đã chọn.</strong><span>Site có thể đã được thay đổi hoặc không còn trong phạm vi của bạn.</span><button className="button button-quiet" type="button" onClick={() => { window.history.pushState({}, '', '/setup'); window.dispatchEvent(new PopStateEvent('popstate')) }}>Về thiết lập mặc định</button></section>
+  if (requestError === 'runtime') return <section className="notice notice-warning"><strong>Không thể tải trạng thái thiết lập.</strong><span>Máy chủ trả về lỗi ngoài dự kiến. Không có dữ liệu thay thế được hiển thị.</span><button className="button button-quiet" type="button" onClick={() => void reload().catch(() => undefined)}>Thử lại</button></section>
   if (!status) return <section className="setup-card"><p>Đang tải trạng thái thiết lập…</p></section>
   if (status.landing === 'DependencyError') return <section className="notice notice-warning"><strong>Không thể kết nối dịch vụ phụ thuộc.</strong><span>Không có dữ liệu mẫu thay thế.</span></section>
   if (status.landing === 'NoAuthorizedScope') return <section className="notice notice-warning"><strong>Bạn chưa được cấp phạm vi truy cập.</strong><span>Vui lòng liên hệ Administrator.</span></section>

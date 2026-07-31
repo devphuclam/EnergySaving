@@ -35,6 +35,31 @@ public static class OperationalSetupJourneyTests
                 failures);
             if (admin is null) return failures;
 
+            var adminPrincipal = new ServerPrincipal(
+                admin.Id.Value,
+                admin.Username,
+                new HashSet<string>(),
+                new HashSet<string>(),
+                true,
+                new HashSet<string> { "Administrator" });
+            var workspace = services.GetRequiredService<IOperationalWorkspaceQueryPort>();
+            var defaultStatus = await workspace.GetStatusAsync(adminPrincipal);
+            Check(
+                defaultStatus.Landing == WorkspaceLanding.Dashboard,
+                "T014 default Administrator status no longer lands on Dashboard.",
+                failures);
+            var newSetupStatus = await workspace.GetStatusAsync(
+                adminPrincipal, WorkspaceStatusRequest.NewSetup());
+            Check(
+                newSetupStatus.Landing == WorkspaceLanding.SetupWizard &&
+                newSetupStatus.NextStep == WorkspaceStep.SiteAndEngineer &&
+                newSetupStatus.SelectedSiteId is null &&
+                newSetupStatus.AuthorizedSites.Count == 0 &&
+                newSetupStatus.OperationalChainCount == 0 &&
+                newSetupStatus.IncompleteChainCount == 0,
+                "T014 Administrator new-setup mode did not return an empty SiteAndEngineer wizard.",
+                failures);
+
             var engineerUsername = $"phase1-engineer-{suffix}";
             var engineer = new User(
                 UserId.New(), engineerUsername,
@@ -79,6 +104,17 @@ public static class OperationalSetupJourneyTests
             Check(site.IsSuccess, "T014 Administrator could not create Site.", failures);
             if (!site.IsSuccess || site.Id is null || site.Version is null)
                 return failures;
+
+            var selectedDraft = await workspace.GetStatusAsync(
+                adminPrincipal, WorkspaceStatusRequest.ForSite(site.Id.Value));
+            Check(
+                selectedDraft.SelectedSiteId == site.Id.Value &&
+                selectedDraft.AuthorizedSites.Count == 1 &&
+                selectedDraft.AuthorizedSites[0].SiteId == site.Id.Value &&
+                selectedDraft.Chain?.SiteId == site.Id.Value &&
+                selectedDraft.OperationalChainCount == 0,
+                "T014 selected-site status did not reconstruct only the newly created Site.",
+                failures);
 
             var activatedSite = await organization.TransitionSiteAsync(
                 site.Id.Value, site.Version.Value, "activate", admin.Id.ToString());
@@ -266,6 +302,8 @@ public static class OperationalSetupJourneyTests
             }
 
             var completed = await ReloadStatusAsync(root, engineerPrincipal);
+            var selectedCompleted = await workspace.GetStatusAsync(
+                adminPrincipal, WorkspaceStatusRequest.ForSite(site.Id.Value));
             var runningAfter = (await runs.ListRunningAsync())
                 .Count(value => value.SourceId == sourceId);
             Check(
@@ -275,6 +313,15 @@ public static class OperationalSetupJourneyTests
                 completed.OperationalChainCount == 1 &&
                 completed.IncompleteChainCount == 1,
                 "T014 multi-Site status did not select the later operational chain and count both authorized chains.",
+                failures);
+            Check(
+                selectedCompleted.Landing == WorkspaceLanding.Dashboard &&
+                selectedCompleted.SelectedSiteId == site.Id.Value &&
+                selectedCompleted.AuthorizedSites.Count == 1 &&
+                selectedCompleted.OperationalChainCount == 1 &&
+                selectedCompleted.IncompleteChainCount == 0 &&
+                selectedCompleted.Chain?.SiteId == site.Id.Value,
+                "T014 selected-site status did not reconstruct the completed Site independently of chain ordering.",
                 failures);
             Check(
                 runningBefore == 0 && runningAfter == 0 &&

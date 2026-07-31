@@ -1,7 +1,7 @@
 # Phase 1 Corrective Verification
 
 Date: 2026-07-31
-Baseline: `0165719c0ee9f8477efd336c16b5887c58ae3a8f`
+Baseline: `a08e28eb0e2299d12403af37f275cb9d862421a9`
 Database target: `127.0.0.1:5433/iump_dev` only
 Secret handling: PASS; credentials and `.env` values are not recorded.
 
@@ -9,17 +9,17 @@ Secret handling: PASS; credentials and `.env` values are not recorded.
 
 | Check | Result | Exit / evidence |
 |---|---|---:|
-| Solution build | PASS | `dotnet build .\IUMP.slnx --no-restore` → exit 0; 0 warnings, 0 errors |
-| Unit runner | PASS | `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` → exit 0; all suites PASS |
-| PostgreSQL integration | PASS | `dotnet run --project .\tests\Integration\IUMP.Tests.Integration.csproj --no-restore` → exit 0; 14 suites, 0 failures |
-| Web lint | PASS | `npm run lint` in `src/Web` → exit 0; three pre-existing Fast Refresh warnings |
-| Web production build | PASS | `npm run build` in `src/Web` → exit 0 |
+| Solution build | PASS | `dotnet build .\IUMP.slnx --no-restore` -> exit 0; 0 warnings, 0 errors |
+| Unit runner | PASS | `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` -> exit 0; all suites PASS |
+| PostgreSQL integration | PASS | `dotnet run --project .\tests\Integration\IUMP.Tests.Integration.csproj --no-restore` -> exit 0; 14 suites, 0 failures |
+| Web lint | PASS | `npm run lint` in `src/Web` -> exit 0; three pre-existing Fast Refresh warnings |
+| Web production build | PASS | `npm run build` in `src/Web` -> exit 0 |
 | Runtime auth/session | PASS | real API `ready=200 login=200 me=200 logout=200`; no credential recorded |
-| Architecture | PASS | `.\tests\Verification\architecture.tests.ps1` → exit 0 |
-| Repository policy | PASS | `.\tests\Verification\repository-policy.tests.ps1` → exit 0 |
-| Observability | PASS | `.\tests\Verification\observability.tests.ps1` → exit 0; 12 checks, 0 failures |
-| Fast harness | PASS | `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` → exit 0; PASS 8 |
-| Full harness | BLOCKED | `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` → exit 20; PASS 11 and 2 company-approval blockers |
+| Architecture | PASS | `./tests/Verification/architecture.tests.ps1` -> exit 0 |
+| Repository policy | PASS | `./tests/Verification/repository-policy.tests.ps1` -> exit 0 |
+| Observability | PASS | `./tests/Verification/observability.tests.ps1` -> exit 0; 12 checks, 0 failures |
+| Fast harness | PASS | `./scripts/harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` -> exit 0; PASS 8 |
+| Full harness | BLOCKED | `./scripts/harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` -> exit 20; PASS 11 and 2 company-approval blockers |
 
 The Vite proxy remains `http://localhost:5000` because the repository API startup contract uses
 `AllowedHosts=localhost` and `launchSettings.json` binds `http://localhost:5000`. This is the
@@ -43,37 +43,31 @@ HTTP loopback host only; the PostgreSQL target remains the approved
 - Session unit coverage fails closed for malformed cookies and proves the request-scoped principal
   reuses server-resolved role, Site, Area, and capability claims without a second IAM lookup.
 - PostgreSQL T014 evaluates two authorized Sites, selects the later operational chain, reports one
-  operational and one incomplete chain, completes the legal
-  Area → Asset → Source → Mapping → Point activation sequence, reconstructs persisted state, and
-  creates no Simulator Run.
+  operational and one incomplete chain, completes the legal Area -> Asset -> Source -> Mapping ->
+  Point activation sequence, reconstructs persisted state, and creates no Simulator Run.
 
 ## Manual browser evidence
 
-The in-app browser used the real local Web/API/PostgreSQL runtime:
+The in-app browser used the real local Web/API/PostgreSQL runtime and a newly created Site. No
+database reset, truncation, deletion, or replacement was used.
 
-- Administrator sign-in: PASS. The server returned a persisted operational Dashboard.
-- Administrator Setup view: PASS for persisted reconstruction; it visibly showed `8/8` and
-  `Simulator tự khởi động: Không`.
-- Administrator create/activate/assign journey: **NOT RUN to completion**. The persistent
-  development database already contained 59 Sites and at least one operational chain. Landing
-  precedence therefore selected the operational chain and the Setup view exposed no `Tạo Site`
-  action. No destructive database cleanup was authorized or performed.
-- Administrator logout: PASS after registering server-owned session authentication; the browser
-  returned to the sign-in state.
-- Engineer sign-in and continuation: PASS. The Engineer resumed the selected persisted chain at
-  Data Source, created a Source, Mapping, and Simulator Configuration, and reached `7/8`.
-- Browser refresh: PASS. Refresh reconstructed `7/8` and `Kiểm tra và kích hoạt` from server state.
-- Ordered activation on that pre-existing Point: safely stopped with visible
-  `CATALOG_CONFLICT` because the Point already had a different active open-ended Mapping. The same
-  conflict previously produced HTTP 500 and now remains a replayable HTTP 409.
-- Simulator auto-started: **NO**. The newest browser-created Source has zero Runs.
-- Browser console errors: **0**.
-
-Because the exact Administrator create/activate/assign browser journey could not be run against
-the non-empty persistent database, T033 remains unchecked. The complete isolated Administrator
-handoff, duplicate-safe assignment, Engineer continuation, resume, activation, and zero-Run
-journey is green in PostgreSQL T014, but automated evidence is not substituted for the required
-manual browser evidence.
+- Administrator sign-in: PASS. The server returned the Dashboard.
+- Dashboard NEW action: PASS. Exactly one visible `Tạo chuỗi cấu hình mới` action was present for
+  Administrator and was not exposed as a general-user action.
+- NEW state contract: PASS. Clicking the action navigated to `/setup` with server-authorized
+  `mode=new` state and an empty new-chain snapshot; no localStorage or list-position was used.
+- Administrator Site creation: PASS through the UI, followed by activation and Engineer handoff.
+- Engineer continuation: PASS through Area, Asset, Measurement Point, Data Source, Source Mapping,
+  and Simulator Configuration (steps 1 through 7); the Engineer saw the assigned Site read-only.
+- Browser refresh: PASS. Refresh after step 7 reconstructed `7/8` and the exact
+  `Kiểm tra và kích hoạt` action from server state.
+- Ordered activation: PASS. The validation and ordered activation completed and redirected to the
+  Simulator page.
+- Simulator page: PASS. The page was visited, no Start control was clicked, and the UI did not
+  auto-start a run.
+- Browser console errors: PASS, fresh Simulator tab reported 0 error entries.
+- Database zero-Run evidence: PASS, read-only PostgreSQL query against the newly created Site
+  returned `site_runs=0`; no mutation was executed.
 
 ## Frontend behavior runner
 

@@ -1,11 +1,25 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useWebGateways } from '../gateways/GatewayContext'
 import type { AuthSession } from '../gateways/webGateways'
+import type { WorkspaceStatusRequest } from '../features/setup/setupTypes'
+import { workspaceStatusRequestFromSearch } from '../features/setup/setupTypes'
 
 export type WebRoute = 'setup' | 'dashboard' | 'configuration' | 'simulator' | 'telemetry' | 'audit'
 
+const webRoutes: WebRoute[] = ['setup', 'dashboard', 'configuration', 'simulator', 'telemetry', 'audit']
+
+function routeFromPath(pathname: string): WebRoute {
+  const route = pathname.slice(1) as WebRoute
+  return webRoutes.includes(route) ? route : 'configuration'
+}
+
 export type AppShellProps = {
-  children: (route: WebRoute, navigate: (route: WebRoute) => void) => ReactNode
+  children: (
+    route: WebRoute,
+    navigate: (route: WebRoute, request?: WorkspaceStatusRequest) => void,
+    session: AuthSession,
+    locationKey: string,
+  ) => ReactNode
 }
 
 export type AppShellState = {
@@ -54,9 +68,25 @@ export function transitionAppShell(state: AppShellState, event: AppShellTransiti
 
 export function AppShell({ children }: AppShellProps) {
   const gateways = useWebGateways()
-  const [state, setState] = useState(initialAppShellState)
+  const [state, setState] = useState(() => ({
+    ...initialAppShellState,
+    route: routeFromPath(window.location.pathname),
+  }))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [locationKey, setLocationKey] = useState(() => window.location.href)
+
+  useEffect(() => {
+    function handlePopState() {
+      setLocationKey(window.location.href)
+      setState(current => transitionAppShell(current, {
+        type: 'navigate',
+        route: routeFromPath(window.location.pathname),
+      }))
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   useEffect(() => {
     void gateways.auth.getSession()
@@ -66,11 +96,21 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     if (state.session.state !== 'ready') return
-    void gateways.workspace.getStatus().then(workspace => {
-      const route: WebRoute = workspace.landing === 'Dashboard' ? 'dashboard' : 'setup'
-      setState(current => transitionAppShell(current, { type: 'navigate', route }))
-    }).catch(() => setState(current => transitionAppShell(current, { type: 'navigate', route: 'setup' })))
-  }, [gateways.workspace, state.session.state])
+    const pathname = window.location.pathname
+    const resolveInitialLanding = pathname === '/' || pathname === ''
+    if (!resolveInitialLanding) return
+    const request = workspaceStatusRequestFromSearch(window.location.search)
+    void gateways.workspace.getStatus(request).then(workspace => {
+      if (resolveInitialLanding) {
+        const route: WebRoute = request || workspace.landing !== 'Dashboard'
+          ? 'setup'
+          : 'dashboard'
+        setState(current => transitionAppShell(current, { type: 'navigate', route }))
+      }
+    }).catch(() => {
+      if (resolveInitialLanding) setState(current => transitionAppShell(current, { type: 'navigate', route: 'setup' }))
+    })
+  }, [gateways.workspace, state.session.state, locationKey])
 
   async function signIn() {
     if (!username.trim() || !password) {
@@ -91,7 +131,15 @@ export function AppShell({ children }: AppShellProps) {
     setState(current => transitionAppShell(current, { type: 'signed-out' }))
   }
 
-  function navigate(route: WebRoute) {
+  function navigate(route: WebRoute, request?: WorkspaceStatusRequest) {
+    const query = new URLSearchParams()
+    if (request && !('invalidSearch' in request)) {
+      if (request.mode) query.set('mode', request.mode)
+      if (request.selectedSiteId) query.set('selectedSiteId', request.selectedSiteId)
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    window.history.pushState({}, '', `/${route}${suffix}`)
+    setLocationKey(window.location.href)
     setState(current => transitionAppShell(current, { type: 'navigate', route }))
   }
 
@@ -150,7 +198,7 @@ export function AppShell({ children }: AppShellProps) {
           {state.session.state === 'forbidden' && <section className="notice notice-warning" role="alert">Phiên không được phép. Hãy đăng nhập lại.</section>}
           {state.session.state === 'expired' && <section className="notice notice-warning" role="alert">Phiên đã hết hạn. Hãy đăng nhập lại.</section>}
           {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Lỗi phiên. Kiểm tra kết nối rồi đăng nhập lại.</section>}
-          {authenticated ? children(state.route, navigate) : null}
+          {authenticated ? children(state.route, navigate, state.session, locationKey) : null}
         </main>
       </div>
     </div>

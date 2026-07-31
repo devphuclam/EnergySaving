@@ -31,13 +31,43 @@ public static class OperationalWorkspaceEndpoints
     }
 
     public static async Task<IResult> GetStatusAsync(
+        HttpRequest request,
         IOperationalWorkspaceQueryPort query,
         IServerPrincipalAccessor principalAccessor,
         CancellationToken ct)
     {
         if (principalAccessor.Current is not { } principal)
             return Results.Unauthorized();
-        try { return Results.Ok(await query.GetStatusAsync(principal, ct)); }
+        var mode = request.Query["mode"].FirstOrDefault();
+        if (mode is not null &&
+            !mode.Equals("new", StringComparison.OrdinalIgnoreCase))
+            return Results.Json(new { errorCode = "INVALID_STATUS_MODE" },
+                statusCode: StatusCodes.Status400BadRequest);
+        Guid? selectedSiteId = null;
+        if (request.Query["selectedSiteId"].FirstOrDefault() is { } rawSiteId)
+        {
+            if (!Guid.TryParse(rawSiteId, out var parsedSiteId))
+                return Results.Json(new { errorCode = "INVALID_SITE_ID" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            selectedSiteId = parsedSiteId;
+        }
+        if (mode is not null && selectedSiteId is not null)
+            return Results.Json(new { errorCode = "INVALID_STATUS_SELECTION" },
+                statusCode: StatusCodes.Status400BadRequest);
+        if (string.Equals(mode, "new", StringComparison.OrdinalIgnoreCase) &&
+            !principal.IsAdministrator)
+            return Results.Forbid();
+        var statusRequest = mode is null && selectedSiteId is null
+            ? null
+            : WorkspaceStatusRequest.FromQuery(mode, selectedSiteId);
+        try
+        {
+            var status = await query.GetStatusAsync(principal, statusRequest, ct);
+            return status.ErrorCode == "NOT_FOUND"
+                ? Results.Json(new { errorCode = "NOT_FOUND" },
+                    statusCode: StatusCodes.Status404NotFound)
+                : Results.Ok(status);
+        }
         catch (Exception exception) when (
             exception is InvalidOperationException or TimeoutException or Npgsql.NpgsqlException)
         {

@@ -79,9 +79,9 @@ restarts without loss, validates and activates legally, reaches Simulator, and z
 
 ### Phase 1 verification, review, and checkpoint
 
-- [ ] T033 [US1] [RUNNABLE_NOW] Run new Unit and PostgreSQL Integration seams to green, a manual browser acceptance journey for Administrator handoff/Engineer continuation/persisted resume/no auto-start, existing Fast mode, Web lint/build, and runtime HTTP checks; record exact commands and numeric exit codes in `specs/003-operational-configuration-workspace/checklists/phase-01-verification.md`
+- [x] T033 [US1] [RUNNABLE_NOW] Run new Unit and PostgreSQL Integration seams to green, a manual browser acceptance journey for Administrator handoff/Engineer continuation/persisted resume/no auto-start, existing Fast mode, Web lint/build, and runtime HTTP checks; record exact commands and numeric exit codes in `specs/003-operational-configuration-workspace/checklists/phase-01-verification.md`
 - [ ] T034 [US1] [BLOCKED_BY_PACKAGE_POLICY] Execute approved frontend behavior tests for role-aware landing, persisted wizard resume, conflict focus, and no auto-start if a runner is already available; otherwise record the exact separate package-policy blocker in `specs/003-operational-configuration-workspace/checklists/phase-01-verification.md`
-- [x] T035 [US1] [RUNNABLE_NOW] Perform separate Standards and Specification reviews against baseline `8ff3d398e4c1358238ae9044962a40813a7374f1`, resolve all Critical/High findings, and record both axes in `specs/003-operational-configuration-workspace/checklists/phase-01-review.md`
+- [x] T035 [US1] [RUNNABLE_NOW] Perform separate Standards and Specification reviews against corrective baseline `a08e28eb0e2299d12403af37f275cb9d862421a9`, resolve all Critical/High findings, and record both axes in `specs/003-operational-configuration-workspace/checklists/phase-01-review.md`
 - [x] T036 [US1] [RUNNABLE_NOW] Run architecture/repository-policy checks and a fresh Full harness, report company blockers truthfully, update completed task boxes, and create the explicit stop checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-01-checkpoint.md`
 
 **Checkpoint**: Phase 1 functionality visible and usable against PostgreSQL; Administrator handoff,

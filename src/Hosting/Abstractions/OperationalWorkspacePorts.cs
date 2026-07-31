@@ -51,6 +51,36 @@ public sealed record WorkspaceChainSelection(
     Guid? ConfigurationId,
     long? ConfigurationVersion);
 
+public sealed record WorkspaceStatusRequest
+{
+    private WorkspaceStatusRequest(string? mode, Guid? selectedSiteId)
+    {
+        Mode = mode;
+        SelectedSiteId = selectedSiteId;
+    }
+
+    public string? Mode { get; }
+
+    public Guid? SelectedSiteId { get; }
+
+    public bool IsNew => string.Equals(Mode, "new", StringComparison.OrdinalIgnoreCase);
+
+    public static WorkspaceStatusRequest NewSetup() => new("new", null);
+
+    public static WorkspaceStatusRequest ForSite(Guid siteId) => new(null, siteId);
+
+    public static WorkspaceStatusRequest FromQuery(string? mode, Guid? selectedSiteId)
+    {
+        if (mode is null && selectedSiteId is null)
+            throw new ArgumentException("A status selection is required.");
+        if (mode is not null && selectedSiteId is not null)
+            throw new ArgumentException("Status mode and Site selection are mutually exclusive.");
+        if (mode is not null && !mode.Equals("new", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Only the new status mode is supported.");
+        return mode is not null ? new WorkspaceStatusRequest(mode, null) : new WorkspaceStatusRequest(null, selectedSiteId);
+    }
+}
+
 internal sealed record WorkspacePersistedSite(
     Guid Id,
     string Code,
@@ -164,12 +194,25 @@ public static class OperationalWorkspaceStatusBuilder
         bool isAdministrator,
         bool hasAuthorizedScope,
         bool dependencyAvailable,
-        WorkspacePersistedSnapshot snapshot)
+        WorkspacePersistedSnapshot snapshot,
+        WorkspaceStatusRequest? request = null)
     {
+        if (request?.IsNew == true)
+            return isAdministrator
+                ? NewSetupStatus()
+                : Build(false, hasAuthorizedScope, false, 0, 0,
+                    dependencyAvailable, []);
+
         var sites = snapshot.Sites
             .Where(value => value.IsAuthorized)
             .OrderBy(value => value.Id)
             .ToArray();
+        if (request?.SelectedSiteId is { } selectedSiteId)
+        {
+            if (sites.All(value => value.Id != selectedSiteId))
+                return SelectionNotFound(isAdministrator, hasAuthorizedScope);
+            sites = sites.Where(value => value.Id == selectedSiteId).ToArray();
+        }
         var summaries = sites.Select(value => new WorkspaceSiteSummary(
             value.Id, value.Code, value.Name, value.Status, value.Version)).ToArray();
         if (!dependencyAvailable || (!isAdministrator && !hasAuthorizedScope) ||
@@ -232,6 +275,41 @@ public static class OperationalWorkspaceStatusBuilder
                 selected.Configuration?.Version),
             ActivationSteps(selected));
     }
+
+    private static OperationalWorkspaceStatus NewSetupStatus() => new(
+        WorkspaceLanding.SetupWizard,
+        WorkspaceRoleMode.Administrator,
+        [],
+        null,
+        [],
+        WorkspaceStep.SiteAndEngineer,
+        [],
+        0,
+        0,
+        false,
+        "Available");
+
+    private static OperationalWorkspaceStatus SelectionNotFound(
+        bool isAdministrator,
+        bool hasAuthorizedScope) => new(
+            isAdministrator
+                ? WorkspaceLanding.SetupWizard
+                : WorkspaceLanding.NoAuthorizedScope,
+            isAdministrator
+                ? WorkspaceRoleMode.Administrator
+                : hasAuthorizedScope
+                    ? WorkspaceRoleMode.Engineer
+                    : WorkspaceRoleMode.ReadOnly,
+            [],
+            null,
+            [],
+            null,
+            [],
+            0,
+            0,
+            false,
+            "Available",
+            "NOT_FOUND");
 
     private static void BuildSiteCandidates(
         WorkspacePersistedSite site,
@@ -434,7 +512,9 @@ public static class OperationalWorkspaceStatusBuilder
 public interface IOperationalWorkspaceQueryPort
 {
     Task<OperationalWorkspaceStatus> GetStatusAsync(
-        ServerPrincipal principal, CancellationToken ct = default);
+        ServerPrincipal principal,
+        WorkspaceStatusRequest? request = null,
+        CancellationToken ct = default);
     Task<IReadOnlyList<WorkspaceEngineerCandidate>> ListEngineersAsync(
         ServerPrincipal principal, CancellationToken ct = default);
     Task<WorkspaceChainValidation> ValidateChainAsync(
