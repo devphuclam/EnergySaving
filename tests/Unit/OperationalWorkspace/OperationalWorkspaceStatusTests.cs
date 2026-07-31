@@ -23,7 +23,44 @@ public static class OperationalWorkspaceStatusTests
 
         MultiSiteAndOrderIndependentDerivation(failures);
         RelationshipAndScopeDerivation(failures);
+        ExplicitNewSetupAndSelection(failures);
         return failures;
+    }
+
+    private static void ExplicitNewSetupAndSelection(List<string> failures)
+    {
+        var site = Guid.Parse("f0000000-0000-0000-0000-00000000000f");
+        var area = Guid.Parse("f1000000-0000-0000-0000-00000000000f");
+        var snapshot = new WorkspacePersistedSnapshot(
+            [
+                new(site, "S-NEW", "New candidate", "Draft", 1, false, true),
+                new(Guid.Parse("f2000000-0000-0000-0000-00000000000f"), "S-OTHER", "Other", "Active", 1, true, true)
+            ],
+            [new(area, site, "Draft", 1)],
+            [], [], [], [], []);
+
+        var newSetup = OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
+            true, true, true, snapshot, WorkspaceStatusRequest.NewSetup());
+        if (newSetup.Landing != WorkspaceLanding.SetupWizard ||
+            newSetup.NextStep != WorkspaceStep.SiteAndEngineer ||
+            newSetup.SelectedSiteId is not null ||
+            newSetup.OperationalChainCount != 0)
+            failures.Add("T012: Administrator new setup mode must start at NoSite without unrelated chain progress.");
+
+        var selected = OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
+            true, true, true, snapshot, WorkspaceStatusRequest.ForSite(site));
+        if (selected.SelectedSiteId != site ||
+            selected.AuthorizedSites.Count != 1 ||
+            selected.AuthorizedSites[0].SiteId != site ||
+            selected.NextStep != WorkspaceStep.SiteAndEngineer)
+            failures.Add("T012: selected Site status must reconstruct only the requested persisted chain.");
+
+        var reordered = OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
+            true, true, true, snapshot with { Sites = snapshot.Sites.Reverse().ToArray() },
+            WorkspaceStatusRequest.ForSite(site));
+        if (reordered.Chain != selected.Chain ||
+            reordered.SelectedSiteId != selected.SelectedSiteId)
+            failures.Add("T012: selected Site reconstruction must not depend on repository order.");
     }
 
     private static void MultiSiteAndOrderIndependentDerivation(List<string> failures)

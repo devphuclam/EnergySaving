@@ -1,4 +1,12 @@
-import type { EngineerCandidate, MutationResult, OperationalWorkspaceStatus, WorkspaceGateway } from './setupTypes'
+import {
+  workspaceStatusRequestFromSearch,
+  type EngineerCandidate,
+  type MutationResult,
+  type OperationalWorkspaceStatus,
+  type WorkspaceGateway,
+  type WorkspaceStatusRequest,
+  WorkspaceGatewayError,
+} from './setupTypes'
 
 async function json<T>(response: Response): Promise<T> {
   const text = await response.text()
@@ -39,17 +47,26 @@ async function mutation(path: string, method: 'POST' | 'PUT' | 'DELETE',
 }
 
 export const setupGateway: WorkspaceGateway = {
-  async getStatus() {
-    const response = await fetch('/api/v1/operational-workspace/status', { headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new Error(
-      response.status === 503 ? 'DEPENDENCY_UNAVAILABLE' : `WORKSPACE_${response.status}`)
-    return json<OperationalWorkspaceStatus>(response)
+  async getStatus(request?: WorkspaceStatusRequest) {
+    const selected = request ?? workspaceStatusRequestFromSearch(window.location.search)
+    const query = new URLSearchParams()
+    if (selected && 'invalidSearch' in selected) {
+      for (const [key, value] of new URLSearchParams(selected.invalidSearch)) query.append(key, value)
+    } else {
+      if (selected?.mode) query.set('mode', selected.mode)
+      if (selected?.selectedSiteId) query.set('selectedSiteId', selected.selectedSiteId)
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const response = await fetch(`/api/v1/operational-workspace/status${suffix}`, { headers: { Accept: 'application/json' } })
+    const body = await json<Record<string, unknown>>(response)
+    if (!response.ok) throw new WorkspaceGatewayError(response.status, body)
+    return body as OperationalWorkspaceStatus
   },
   async listEngineers() {
     const response = await fetch('/api/v1/operational-workspace/engineers', { headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new Error(
-      response.status === 503 ? 'DEPENDENCY_UNAVAILABLE' : `ENGINEERS_${response.status}`)
-    return (await json<{ items: EngineerCandidate[] }>(response)).items
+    const body = await json<{ items?: EngineerCandidate[] } & Record<string, unknown>>(response)
+    if (!response.ok) throw new WorkspaceGatewayError(response.status, body)
+    return body.items ?? []
   },
   assignEngineer(siteId, engineerId, retryKey) {
     return mutation(`operational-workspace/sites/${siteId}/engineers/${engineerId}`, 'POST', undefined, undefined, retryKey)
@@ -57,13 +74,19 @@ export const setupGateway: WorkspaceGateway = {
   mutate: mutation,
   async listOptions(resource) {
     const response = await fetch(`/api/v1/${resource}`, { headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new Error(
-      response.status === 503 ? 'DEPENDENCY_UNAVAILABLE' : `OPTIONS_${response.status}`)
-    const values = await json<Array<Record<string, unknown>>>(response)
-    return values.map(value => ({
-      id: String(value.id ?? value.metricId ?? value.unitId ?? ''),
+    const body = await json<Record<string, unknown>>(response)
+    if (!response.ok) throw new WorkspaceGatewayError(response.status, body)
+    const values = body as unknown as Array<Record<string, unknown>>
+    return values.map(value => {
+      const rawId = value.id ?? value.metricId ?? value.unitId
+      const id = rawId && typeof rawId === 'object'
+        ? String((rawId as Record<string, unknown>).value ?? '')
+        : String(rawId ?? '')
+      return {
+      id,
       label: String(value.name ?? value.symbol ?? value.code ?? value.id ?? ''),
-    })).filter(value => value.id)
+      }
+    }).filter(value => value.id)
   },
   async validate(chain) {
     const names = ['siteId', 'areaId', 'assetId', 'pointId', 'sourceId', 'mappingId', 'configurationId'] as const
@@ -73,7 +96,14 @@ export const setupGateway: WorkspaceGateway = {
       if (value) query.set(name, value)
     }
     const response = await fetch(`/api/v1/operational-workspace/chains/validate?${query}`, { headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new Error(`VALIDATION_${response.status}`)
-    return json(response)
+    const body = await json<Record<string, unknown>>(response)
+    if (!response.ok) throw new WorkspaceGatewayError(response.status, body)
+    return body as {
+      valid: boolean
+      failures: Array<{ step?: string; errorCode: string }>
+      versions: Record<string, number>
+      activationSteps: string[]
+      simulatorAutoStart: false
+    }
   },
 }

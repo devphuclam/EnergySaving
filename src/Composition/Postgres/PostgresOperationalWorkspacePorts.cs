@@ -27,7 +27,9 @@ public sealed class PostgresOperationalWorkspacePorts(
     IOperationalWorkspaceCommandPort
 {
     public async Task<OperationalWorkspaceStatus> GetStatusAsync(
-        ServerPrincipal principal, CancellationToken ct = default)
+        ServerPrincipal principal,
+        WorkspaceStatusRequest? request = null,
+        CancellationToken ct = default)
     {
         var scope = principal.IsAdministrator
             ? OrganizationQueryScope.Global()
@@ -37,6 +39,27 @@ public sealed class PostgresOperationalWorkspacePorts(
             principal.SiteIds.Count > 0 || principal.AreaIds.Count > 0;
         var sites = await All(
             filter => organization.GetSitesAsync(scope, filter, ct));
+        if (request?.IsNew == true)
+            return OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
+                principal.IsAdministrator, hasScope, true,
+                new WorkspacePersistedSnapshot(
+                    [], [], [], [], [], [], []), request) with
+            {
+                CurrentUserId = principal.UserId
+            };
+
+        if (request?.SelectedSiteId is { } selectedSiteId)
+        {
+            if (sites.All(value => value.Id != selectedSiteId))
+                return OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
+                    principal.IsAdministrator, hasScope, true,
+                    new WorkspacePersistedSnapshot(
+                        [], [], [], [], [], [], []), request) with
+                    {
+                        CurrentUserId = principal.UserId
+                    };
+            sites = sites.Where(value => value.Id == selectedSiteId).ToArray();
+        }
         var authorizedSiteIds = sites.Select(value => value.Id).ToHashSet();
         var areas = new List<AreaSnapshot>();
         var assets = new List<AssetSnapshot>();
@@ -112,7 +135,7 @@ public sealed class PostgresOperationalWorkspacePorts(
                 value.Version)).ToArray(),
             configurationValues);
         return OperationalWorkspaceStatusBuilder.BuildFromSnapshot(
-            principal.IsAdministrator, hasScope, true, snapshot) with
+            principal.IsAdministrator, hasScope, true, snapshot, request) with
         {
             CurrentUserId = principal.UserId
         };

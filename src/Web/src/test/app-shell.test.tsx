@@ -11,7 +11,11 @@ import type {
   SimulatorSnapshot,
   WebGateways,
 } from '../gateways/webGateways'
-import { deriveSiteAndEngineerState } from '../features/setup/setupTypes'
+import {
+  deriveSiteAndEngineerState,
+  selectedSetupPath,
+  workspaceStatusRequestFromSearch,
+} from '../features/setup/setupTypes'
 
 type FakeObservations = {
   credentials?: { username: string; password: string }
@@ -182,5 +186,15 @@ export function runAppShellChecks(): string[] {
     nextStep: 'Area',
   }) !== 'EngineerAssigned')
     failures.push('Administrator wizard must derive completed handoff from server state')
+
+  const newSetup = workspaceStatusRequestFromSearch('?mode=new')
+  if (!newSetup || 'invalidSearch' in newSetup || !('mode' in newSetup) || newSetup.mode !== 'new')
+    failures.push('Dashboard new-setup navigation must be refresh-safe and server-requested')
+  const malformedSetup = workspaceStatusRequestFromSearch('?mode=new&selectedSiteId=site-a')
+  if (!malformedSetup || !('invalidSearch' in malformedSetup) || malformedSetup.invalidSearch !== '?mode=new&selectedSiteId=site-a')
+    failures.push('Malformed setup query must remain server-visible for its 400 validation outcome')
+  const selectedPath = selectedSetupPath('site-created-by-server')
+  if (selectedPath !== '/setup?selectedSiteId=site-created-by-server')
+    failures.push('Site creation must select the server-returned Site identity')
   return failures
 }

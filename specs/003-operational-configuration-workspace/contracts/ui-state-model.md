@@ -13,6 +13,13 @@ No page displays local fallback/demo data after an API failure.
 | `NoAuthorizedScope` | “Bạn chưa được cấp phạm vi truy cập” | Global counts, root Site create for Engineer |
 | `DependencyError` | Dependency error, retry, correlation ID when safe | Fake data or stale local completion |
 
+On the default Administrator Dashboard, render the visible Vietnamese action `Tạo chuỗi cấu hình
+mới`. It is hidden for Engineers and other roles. Activating it navigates to `/setup?mode=new` and
+reloads the empty `SetupWizard` projection from the server. Site creation must use the ID returned
+by the create response and navigate to `/setup?selectedSiteId=<uuid>`; refresh reconstructs that
+selection from the URL and server authorization. No list index, localStorage value, or client
+supplied role/scope is authoritative.
+
 ## Wizard layout
 
 - Desktop: horizontal eight-step progress indicator, main form panel, side summary/validation panel.
