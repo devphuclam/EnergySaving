@@ -54,6 +54,32 @@ public sealed class FakeAcquisitionConfigurationRepository : IAcquisitionConfigu
         return Task.CompletedTask;
     }
 
+    public Task AppendDraftVersionAsync(Guid configurationId, long expectedAggregateVersion, SimulatorConfigurationVersion draftVersion, CancellationToken ct = default)
+    {
+        if (!_heads.TryGetValue(configurationId, out var head)) throw new InvalidOperationException("Configuration not found.");
+        if (head.Version != expectedAggregateVersion) throw new InvalidOperationException("VERSION_CONFLICT");
+        var latest = _versions.Values.Where(v => v.ConfigurationId == configurationId)
+            .Max(v => v.ConfigurationVersion);
+        if (draftVersion.ConfigurationId != configurationId || draftVersion.ConfigurationVersion != latest + 1)
+            throw new InvalidOperationException("Configuration version must be monotonic.");
+        if (_versions.ContainsKey((configurationId, draftVersion.ConfigurationVersion))) throw new InvalidOperationException("Duplicate configuration version.");
+        _versions[(configurationId, draftVersion.ConfigurationVersion)] = Clone(draftVersion);
+        _heads[configurationId] = new SimulatorConfigurationHead(configurationId, head.SourceId,
+            head.CurrentConfigurationVersion, checked(head.Version + 1));
+        return Task.CompletedTask;
+    }
+
+    public Task ActivateVersionAsync(Guid configurationId, long expectedAggregateVersion, long draftConfigurationVersion, CancellationToken ct = default)
+    {
+        if (!_heads.TryGetValue(configurationId, out var head)) throw new InvalidOperationException("Configuration not found.");
+        if (head.Version != expectedAggregateVersion) throw new InvalidOperationException("VERSION_CONFLICT");
+        if (!_versions.ContainsKey((configurationId, draftConfigurationVersion)) || draftConfigurationVersion <= head.CurrentConfigurationVersion)
+            throw new InvalidOperationException("Draft version is not activatable.");
+        _heads[configurationId] = new SimulatorConfigurationHead(configurationId, head.SourceId,
+            draftConfigurationVersion, checked(head.Version + 1));
+        return Task.CompletedTask;
+    }
+
     public Task<IConfigurationTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
         if (_transaction is not null) throw new InvalidOperationException("A transaction is already active.");

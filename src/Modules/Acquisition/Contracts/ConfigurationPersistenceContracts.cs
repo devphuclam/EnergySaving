@@ -106,6 +106,39 @@ public sealed record SimulatorConfigurationEditCommand(
     string? CorrelationId,
     string? CausationId);
 
+/// <summary>Explicit activation of an appended Draft version. The aggregate head version
+/// is validated optimistically; only the named Draft becomes current.</summary>
+public sealed record SimulatorConfigurationActivateVersionCommand(
+    Guid ConfigurationId,
+    long ExpectedVersion,
+    long DraftConfigurationVersion,
+    string ActorUserId,
+    string? CorrelationId,
+    string? CausationId);
+
+/// <summary>Duplicate-to-Draft for a Simulator Configuration. The current behavior is
+/// copied into a new head for the target Source at version 1; it never copies history,
+/// Active state, or Run pins.</summary>
+public sealed record SimulatorConfigurationDuplicateCommand(
+    Guid ConfigurationId,
+    Guid SourceId,
+    string ActorUserId,
+    string? CorrelationId,
+    string? CausationId);
+
+public sealed record ConfigurationDuplicateOutcome(
+    bool IsSuccess,
+    string Code,
+    string? Error = null,
+    Guid? NewConfigurationId = null)
+{
+    public static ConfigurationDuplicateOutcome Success(Guid newConfigurationId) =>
+        new(true, "OK", null, newConfigurationId);
+
+    public static ConfigurationDuplicateOutcome Failure(string code, string error) =>
+        new(false, code, error);
+}
+
 public sealed record ConfigurationCallerSnapshot(
     string UserId,
     string Username,
@@ -143,6 +176,8 @@ public interface IAcquisitionConfigurationRepository
     Task<IReadOnlyList<SimulatorConfigurationVersion>> ListVersionsAsync(Guid configurationId, CancellationToken ct = default);
     Task CreateAsync(SimulatorConfigurationHead head, SimulatorConfigurationVersion firstVersion, CancellationToken ct = default);
     Task AppendVersionAsync(Guid configurationId, long expectedAggregateVersion, SimulatorConfigurationVersion nextVersion, CancellationToken ct = default);
+    Task AppendDraftVersionAsync(Guid configurationId, long expectedAggregateVersion, SimulatorConfigurationVersion draftVersion, CancellationToken ct = default);
+    Task ActivateVersionAsync(Guid configurationId, long expectedAggregateVersion, long draftConfigurationVersion, CancellationToken ct = default);
     Task<IConfigurationTransaction> BeginTransactionAsync(CancellationToken ct = default);
 }
 

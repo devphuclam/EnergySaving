@@ -99,6 +99,12 @@ function createFakeWebGateways(
     audit: {
       getSnapshot: async () => ({ state: 'forbidden', eventCount: 0, records: [] }),
     },
+    management: {
+      list: async (_resource, filter) => ({ items: [], totalCount: 0, page: filter.page, pageSize: filter.pageSize }),
+      detail: async () => null,
+      duplicate: async () => ({ ok: true, status: 201 }),
+      activateSimulatorConfigurationVersion: async () => ({ ok: true, status: 200 }),
+    },
   }
 }
 

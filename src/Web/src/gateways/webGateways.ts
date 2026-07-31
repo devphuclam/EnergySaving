@@ -60,6 +60,41 @@ export type AuditSnapshot = {
   nextCursor?: string
 }
 
+export type ManagementFilter = {
+  search?: string
+  status?: string
+  siteId?: string
+  areaId?: string
+  page: number
+  pageSize: number
+}
+
+export type ManagementPage = {
+  items: Array<Record<string, unknown>>
+  totalCount: number
+  page: number
+  pageSize: number
+}
+
+export type ManagementMutation = {
+  ok: boolean
+  status: number
+  body?: Record<string, unknown>
+  errorCode?: string
+}
+
+export type ManagementGateway = {
+  list(resource: string, filter: ManagementFilter): Promise<ManagementPage>
+  detail(resource: string, id: string): Promise<Record<string, unknown> | null>
+  duplicate(resource: string, id: string, retryKey?: string): Promise<ManagementMutation>
+  activateSimulatorConfigurationVersion(
+    configurationId: string,
+    expectedHeadVersion: number,
+    draftConfigurationVersion: number,
+    retryKey?: string,
+  ): Promise<ManagementMutation>
+}
+
 export type AuthGateway = {
   getSession: () => Promise<AuthSession>
   signIn: (credentials: { username: string; password: string }) => Promise<AuthSession>
@@ -86,6 +121,7 @@ export type WebGateways = {
   latest: LatestGateway
   audit: AuditGateway
   workspace: WorkspaceGateway
+  management: ManagementGateway
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -106,6 +142,33 @@ async function antiforgeryToken(): Promise<string> {
 
 function stateFromError(error: unknown): GatewayState {
   return error instanceof Error && error.message === 'forbidden' ? 'forbidden' : error instanceof Error && error.message === 'expired' ? 'expired' : 'error'
+}
+
+async function managementMutation(
+  path: string,
+  method: 'POST',
+  body?: Record<string, unknown>,
+  retryKey: string = crypto.randomUUID(),
+): Promise<ManagementMutation> {
+  const token = await antiforgeryToken()
+  const response = await fetch(`/api/v1/${path}`, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Idempotency-Key': retryKey,
+      'X-XSRF-TOKEN': token,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const text = await response.text()
+  const parsed = (text ? JSON.parse(text) : {}) as Record<string, unknown>
+  return {
+    ok: response.ok,
+    status: response.status,
+    body: parsed,
+    errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined,
+  }
 }
 
 export const webGateways: WebGateways = {
@@ -212,6 +275,32 @@ export const webGateways: WebGateways = {
         const page = await request<{ items?: AuditSnapshot['records']; nextCursor?: string }>(`/api/v1/audit-events?pageSize=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
         return { state: 'ready', eventCount: page.items?.length ?? 0, records: page.items, nextCursor: page.nextCursor }
       } catch (error) { return { state: stateFromError(error), eventCount: 0 } }
+    },
+  },
+  management: {
+    async list(resource, filter) {
+      const query = new URLSearchParams()
+      if (filter.search) query.set('search', filter.search)
+      if (filter.status) query.set('status', filter.status)
+      if (filter.siteId) query.set('siteId', filter.siteId)
+      if (filter.areaId) query.set('areaId', filter.areaId)
+      query.set('page', String(filter.page))
+      query.set('pageSize', String(filter.pageSize))
+      return request<ManagementPage>(`/api/v1/configuration-management/${resource}?${query}`)
+    },
+    async detail(resource, id) {
+      try {
+        return await request<Record<string, unknown>>(`/api/v1/configuration-management/${resource}/${id}`)
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('request-404')) return null
+        throw error
+      }
+    },
+    async duplicate(resource, id, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/${resource}/${id}/duplicate`, 'POST', undefined, retryKey)
+    },
+    async activateSimulatorConfigurationVersion(configurationId, expectedHeadVersion, draftConfigurationVersion, retryKey = crypto.randomUUID()) {
+      return managementMutation(`configuration-management/simulator-configurations/${configurationId}/activate`, 'POST', { expectedHeadVersion, draftConfigurationVersion }, retryKey)
     },
   },
 }

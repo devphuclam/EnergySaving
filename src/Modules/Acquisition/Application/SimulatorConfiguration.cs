@@ -52,26 +52,88 @@ public sealed class SimulatorConfigurationService
         var authorization = await AuthorizeAsync(command.ActorUserId, head.SourceId, ct);
         if (!authorization.Allowed) return ConfigurationCommandResult.Failure(authorization.Code, authorization.Error!);
         if (command.ExpectedVersion != head.Version) return ConfigurationCommandResult.Failure("VERSION_CONFLICT", "ExpectedVersion is stale.");
-        var current = await _repository.GetVersionAsync(head.ConfigurationId, head.CurrentConfigurationVersion, ct);
-        if (current is null) return ConfigurationCommandResult.Failure("NOT_FOUND", "Configuration version is not visible.");
-        if (!TryBuildVersion(head.ConfigurationId, checked(head.CurrentConfigurationVersion + 1), command, authorization.Caller!, out var next, out var error))
+        var versions = await _repository.ListVersionsAsync(head.ConfigurationId, ct);
+        var latest = versions.MaxBy(value => value.ConfigurationVersion);
+        if (latest is null) return ConfigurationCommandResult.Failure("NOT_FOUND", "Configuration version is not visible.");
+        if (!TryBuildVersion(head.ConfigurationId, checked(latest.ConfigurationVersion + 1), command, authorization.Caller!, out var next, out var error))
             return ConfigurationCommandResult.Failure("VALIDATION", error!);
-        if (Equivalent(current, next)) return ConfigurationCommandResult.Failure("NO_OP", "No configuration change was requested.");
+        if (Equivalent(latest, next)) return ConfigurationCommandResult.Failure("NO_OP", "No configuration change was requested.");
 
         using var tx = await _repository.BeginTransactionAsync(ct);
         try
         {
-            await _repository.AppendVersionAsync(head.ConfigurationId, head.Version, next, ct);
+            await _repository.AppendDraftVersionAsync(head.ConfigurationId, head.Version, next, ct);
             await tx.CommitAsync(ct);
             var updatedHead = new SimulatorConfigurationHead(head.ConfigurationId, head.SourceId,
-                next.ConfigurationVersion, head.Version + 1);
-            _events.Add(BuildEvent(updatedHead, next, authorization.TrustedSiteIds!, command, "Edited", current));
+                head.CurrentConfigurationVersion, head.Version + 1);
+            _events.Add(BuildEvent(updatedHead, next, authorization.TrustedSiteIds!, command, "Edited", latest));
             return ConfigurationCommandResult.Success();
         }
         catch (InvalidOperationException ex)
         {
             await tx.RollbackAsync(ct);
             return ConfigurationCommandResult.Failure(ex.Message.Contains("VERSION_CONFLICT", StringComparison.Ordinal) ? "VERSION_CONFLICT" : "CONFLICT", ex.Message);
+        }
+    }
+
+    public async Task<ConfigurationCommandResult> ActivateVersionAsync(
+        SimulatorConfigurationActivateVersionCommand command, CancellationToken ct = default)
+    {
+        var head = await _repository.GetHeadAsync(command.ConfigurationId, ct);
+        if (head is null) return ConfigurationCommandResult.Failure("NOT_FOUND", "Configuration is not visible.");
+        var authorization = await AuthorizeAsync(command.ActorUserId, head.SourceId, ct);
+        if (!authorization.Allowed) return ConfigurationCommandResult.Failure(authorization.Code, authorization.Error!);
+        if (command.ExpectedVersion != head.Version) return ConfigurationCommandResult.Failure("VERSION_CONFLICT", "ExpectedVersion is stale.");
+        if (command.DraftConfigurationVersion <= head.CurrentConfigurationVersion)
+            return ConfigurationCommandResult.Failure("VALIDATION", "Draft version must be newer than the current version.");
+        var draft = await _repository.GetVersionAsync(head.ConfigurationId, command.DraftConfigurationVersion, ct);
+        if (draft is null) return ConfigurationCommandResult.Failure("NOT_FOUND", "Draft version is not visible.");
+        var current = await _repository.GetVersionAsync(head.ConfigurationId, head.CurrentConfigurationVersion, ct);
+
+        using var tx = await _repository.BeginTransactionAsync(ct);
+        try
+        {
+            await _repository.ActivateVersionAsync(head.ConfigurationId, head.Version, draft.ConfigurationVersion, ct);
+            await tx.CommitAsync(ct);
+            var updatedHead = new SimulatorConfigurationHead(head.ConfigurationId, head.SourceId,
+                draft.ConfigurationVersion, head.Version + 1);
+            _events.Add(BuildEvent(updatedHead, draft, authorization.TrustedSiteIds!, command, "VersionActivated", current));
+            return ConfigurationCommandResult.Success();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(ct);
+            return ConfigurationCommandResult.Failure(ex.Message.Contains("VERSION_CONFLICT", StringComparison.Ordinal) ? "VERSION_CONFLICT" : "CONFLICT", ex.Message);
+        }
+    }
+
+    public async Task<ConfigurationDuplicateOutcome> DuplicateAsync(
+        SimulatorConfigurationDuplicateCommand command, CancellationToken ct = default)
+    {
+        var head = await _repository.GetHeadAsync(command.ConfigurationId, ct);
+        if (head is null) return ConfigurationDuplicateOutcome.Failure("NOT_FOUND", "Configuration is not visible.");
+        var authorization = await AuthorizeAsync(command.ActorUserId, command.SourceId, ct);
+        if (!authorization.Allowed) return ConfigurationDuplicateOutcome.Failure(authorization.Code, authorization.Error!);
+        var current = await _repository.GetVersionAsync(head.ConfigurationId, head.CurrentConfigurationVersion, ct);
+        if (current is null) return ConfigurationDuplicateOutcome.Failure("NOT_FOUND", "Configuration version is not visible.");
+        try
+        {
+            var configurationId = Guid.NewGuid();
+            var copied = new SimulatorConfigurationVersion(configurationId, 1, current.IntervalSeconds,
+                current.MinimumValue, current.MaximumValue, current.DeterministicSeed, current.ScenarioType,
+                current.AlgorithmId, current.AlgorithmVersion, authorization.Caller!.UserId,
+                authorization.Caller.Username, DateTime.UtcNow, command.CorrelationId, command.CausationId);
+            var copiedHead = new SimulatorConfigurationHead(configurationId, command.SourceId, 1, 1);
+            using var tx = await _repository.BeginTransactionAsync(ct);
+            await _repository.CreateAsync(copiedHead, copied, ct);
+            await tx.CommitAsync(ct);
+            _events.Add(BuildEvent(copiedHead, copied, authorization.TrustedSiteIds!, command, "Duplicated", null));
+            return ConfigurationDuplicateOutcome.Success(configurationId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ConfigurationDuplicateOutcome.Failure(
+                ex.Message.Contains("VERSION_CONFLICT", StringComparison.Ordinal) ? "VERSION_CONFLICT" : "CONFLICT", ex.Message);
         }
     }
 

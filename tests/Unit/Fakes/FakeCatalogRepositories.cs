@@ -219,7 +219,7 @@ public sealed class FakeCatalogCommandRepository : ICatalogCommandRepository
     private static Metric Clone(Metric value) => new(value.Id, value.Code, value.Name, value.Status, value.Version);
     private static MetricUnit Clone(MetricUnit value) => new(value.Id, value.Code, value.Symbol, value.Status, value.Version);
     private static MetricUnitCompatibility Clone(MetricUnitCompatibility value) => new(value.MetricId, value.UnitId, value.IsCanonical, value.Version);
-    private static DataSource Clone(DataSource value) => new(value.Id, value.Code, value.Name, value.SourceType, value.Status, value.Version);
+    private static DataSource Clone(DataSource value) => new(value.Id, value.Code, value.Name, value.SourceType, value.Status, value.Version, value.SiteId);
     private static SourcePointMapping Clone(SourcePointMapping value) => new(value.Id, value.DataSourceId, value.PointId, value.Status, value.EffectiveFrom, value.EffectiveTo, value.Version);
 }
 

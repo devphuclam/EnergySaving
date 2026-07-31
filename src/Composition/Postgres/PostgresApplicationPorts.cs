@@ -509,7 +509,7 @@ public sealed class PostgresConfigurationCommandPort(
                 return Failure(409, "NO_OP");
             try
             {
-                await configurations.AppendVersionAsync(
+                await configurations.AppendDraftVersionAsync(
                     configurationId, head.Version, next, ct);
             }
             catch (InvalidOperationException)

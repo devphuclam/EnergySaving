@@ -146,6 +146,71 @@ public sealed class PostgresConfigurationRepository : IAcquisitionConfigurationR
         }
     }
 
+    public async Task AppendDraftVersionAsync(
+        Guid configurationId,
+        long expectedAggregateVersion,
+        SimulatorConfigurationVersion draftVersion,
+        CancellationToken ct = default)
+    {
+        var ownsTransaction = _state.Value?.Current is null;
+        IConfigurationTransaction? transaction = null;
+        if (ownsTransaction) transaction = await BeginTransactionAsync(ct);
+        try
+        {
+            var affected = await ExecuteAsync("""
+                UPDATE acquisition.simulator_configuration
+                SET version=version+1,
+                    updated_at_utc=now()
+                WHERE configuration_id=@id AND version=@expected_version
+                """, command =>
+            {
+                command.Parameters.AddWithValue("id", configurationId);
+                command.Parameters.AddWithValue("expected_version", expectedAggregateVersion);
+            }, ct);
+            if (affected != 1) throw new InvalidOperationException("CONFIGURATION_VERSION_CONFLICT");
+            await InsertVersionAsync(draftVersion, ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    public async Task ActivateVersionAsync(
+        Guid configurationId,
+        long expectedAggregateVersion,
+        long draftConfigurationVersion,
+        CancellationToken ct = default)
+    {
+        var ownsTransaction = _state.Value?.Current is null;
+        IConfigurationTransaction? transaction = null;
+        if (ownsTransaction) transaction = await BeginTransactionAsync(ct);
+        try
+        {
+            var affected = await ExecuteAsync("""
+                UPDATE acquisition.simulator_configuration
+                SET current_configuration_version=@draft_version,
+                    version=version+1,
+                    updated_at_utc=now()
+                WHERE configuration_id=@id AND version=@expected_version
+                """, command =>
+            {
+                command.Parameters.AddWithValue("id", configurationId);
+                command.Parameters.AddWithValue("draft_version", draftConfigurationVersion);
+                command.Parameters.AddWithValue("expected_version", expectedAggregateVersion);
+            }, ct);
+            if (affected != 1) throw new InvalidOperationException("CONFIGURATION_VERSION_CONFLICT");
+            if (transaction is not null) await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
     public Task<IConfigurationTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
         var holder = _state.Value ??= new TransactionHolder();

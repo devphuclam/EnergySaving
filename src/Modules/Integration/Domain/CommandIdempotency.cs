@@ -48,6 +48,9 @@ public static class CommandOperationCodes
     public const string PauseSimulator = "Simulator.Pause.v1";
     public const string ResumeSimulator = "Simulator.Resume.v1";
     public const string StopSimulator = "Simulator.Stop.v1";
+    public const string DuplicateConfiguration = "ConfigurationManagement.Duplicate.v1";
+    public const string ActivateSimulatorConfigurationVersion =
+        "ConfigurationManagement.ActivateSimulatorConfigurationVersion.v1";
 
     private static readonly IReadOnlySet<string> AllCodes = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -58,7 +61,8 @@ public static class CommandOperationCodes
         CreateMapping, UpdateMapping, ActivateMapping, InactivateMapping, SupersedeMapping, SuspendSource,
         DecommissionSource, CreateSimulatorConfiguration, UpdateSimulatorConfiguration,
         ValidateSimulatorConfiguration, AssignEngineerSiteScope,
-        StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator
+        StartSimulator, PauseSimulator, ResumeSimulator, StopSimulator,
+        DuplicateConfiguration, ActivateSimulatorConfigurationVersion
     };
 
     public static bool IsKnown(string operationCode) => AllCodes.Contains(operationCode);

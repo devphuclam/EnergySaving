@@ -5,7 +5,7 @@ phases.
 
 ## Preconditions
 
-- Repository branch: `codex/003-operational-configuration-workspace`.
+- Repository branch: `003-operational-configuration-workspace`.
 - Approved tools and locked dependencies are already installed/cached.
 - `.env` remains ignored and is loaded through the repository’s supported mechanism.
 - PostgreSQL target resolves to `127.0.0.1:5433/iump_dev`.

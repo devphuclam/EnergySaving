@@ -26,6 +26,7 @@ failures.AddRange(await AuditDeliveryTests.RunAsync(scope.ServiceProvider));
 failures.AddRange(await AcceptancePostgresTests.RunAsync(provider));
 failures.AddRange(await PostgresRuntimeLeafTests.RunAsync(provider));
 failures.AddRange(await OperationalSetupJourneyTests.RunAsync(provider));
+failures.AddRange(await ConfigurationManagementTests.RunAsync(provider));
 var operationsContract = new OperationsJobRepositoryContractRunner();
 await operationsContract.RunAllAsync(
     new PostgresOperationsJobRepositoryTestProviderFactory(provider));
