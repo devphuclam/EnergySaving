@@ -6,8 +6,9 @@
 defined in `plan.md`. The frontend behavior runner remains package-policy blocked unless an already
 approved runnable dependency exists.
 
-**Execution rule**: Complete Phase 0 governance, reach final analysis PASS, execute Phase 1 only,
-record its checkpoint, commit, and stop. Do not begin Phase 2 in the same implementation run.
+**Execution rule**: Phase 0 and Phase 1 are historical checkpoints. This corrective invocation
+reopens only the Phase 2 tasks listed below, records incomplete evidence honestly, commits the
+corrective branch, and stops before T049. Do not begin Phase 3 in the same implementation run.
 
 ## Checklist format
 
@@ -95,17 +96,17 @@ NO; explicit stop before T037.
 **User Story**: US2 — Manage Configuration Safely
 
 - [x] T037 [P] [US2] [RUNNABLE_NOW] Add failing duplicate-to-Draft and exclusion tests for all eligible entity types in `tests/Unit/OperationalWorkspace/ConfigurationDuplicationTests.cs`
-- [x] T038 [P] [US2] [RUNNABLE_NOW] Add failing PostgreSQL scoped search/filter/paging and dependency-safe lifecycle tests in `tests/Integration/OperationalWorkspace/ConfigurationManagementTests.cs`
-- [x] T039 [US2] [RUNNABLE_NOW] Define typed paged management query and duplicate/version transition contracts in `src/Hosting/Abstractions/ConfigurationManagementPorts.cs`
-- [x] T040 [US2] [RUNNABLE_NOW] Implement scope-before-paging management queries through owner contracts in `src/Composition/Postgres/PostgresConfigurationManagementPorts.cs`
+- [ ] T038 [P] [US2] [RUNNABLE_NOW] **Corrective closure incomplete**: PostgreSQL scoped search/filter/paging and partial public-seam lifecycle coverage are green, but required HTTP lifecycle/delete/replay/authorization/outbox evidence and the approved browser journey remain unclosed in `tests/Integration/OperationalWorkspace/ConfigurationManagementTests.cs`
+- [x] T039 [US2] [RUNNABLE_NOW] **Corrective closure**: Define typed paged management and create/edit/validate/lifecycle/delete command contracts in `src/Hosting/Abstractions/ConfigurationManagementPorts.cs`
+- [x] T040 [US2] [RUNNABLE_NOW] **Corrective closure**: Implement scope-before-paging management queries, including Simulator ID/source/version search before paging, through owner contracts in `src/Composition/Postgres/PostgresConfigurationManagementPorts.cs`
 - [x] T041 [US2] [RUNNABLE_NOW] Implement owner-domain duplicate-to-Draft behavior without history/secrets in `src/Modules/Organization/Application/ConfigurationDuplication.cs`
 - [x] T042 [US2] [RUNNABLE_NOW] Implement Source/Mapping duplicate-to-Draft and dependency-safe lifecycle behavior in `src/Modules/Catalog/Application/ConfigurationDuplication.cs`
-- [x] T043 [US2] [RUNNABLE_NOW] Preserve immutable Simulator Configuration version semantics for behavior changes in `src/Modules/Acquisition/Application/SimulatorConfiguration.cs`
-- [x] T044 [US2] [RUNNABLE_NOW] Expose management paging, details, duplicate, version-safe edit, and lifecycle endpoints in `src/Api/ConfigurationManagementEndpoints.cs`
-- [x] T045 [P] [US2] [RUNNABLE_NOW] Build reusable Vietnamese table/filter/pagination/feedback primitives in `src/Web/src/features/configuration/ConfigurationManagementComponents.tsx`
-- [x] T046 [US2] [RUNNABLE_NOW] Implement Sites, Areas, Assets, Points, Sources, Mappings, and Simulator Configuration pages with real actions in `src/Web/src/features/configuration/ConfigurationManagementRoutes.tsx`
+- [ ] T043 [US2] [RUNNABLE_NOW] **Corrective closure incomplete**: Behavior-changing edits use Draft versions and the UI gate requires review/validation, but activation review proof is still caller-supplied rather than persisted/server-derived in `src/Modules/Acquisition/Application/SimulatorConfiguration.cs` and management UI
+- [x] T044 [US2] [RUNNABLE_NOW] **Corrective closure**: Expose management paging, details, create, version-safe edit, validate, legal lifecycle, duplicate, and safe Draft deletion endpoints in `src/Api/ConfigurationManagementEndpoints.cs`
+- [x] T045 [P] [US2] [RUNNABLE_NOW] **Corrective closure**: Build reusable Vietnamese table/filter/pagination/detail/editor/action/feedback primitives with loading, validation, conflict, forbidden, not-found, dependency, and runtime states in `src/Web/src/features/configuration/ConfigurationManagementComponents.tsx`
+- [x] T046 [US2] [RUNNABLE_NOW] **Corrective closure**: Implement Sites, Areas, Assets, Points, Sources, Mappings, and Simulator Configuration pages with real create/edit/detail/validate/duplicate/relationship-review/legal-lifecycle actions in `src/Web/src/features/configuration/ConfigurationManagementRoutes.tsx`
 - [x] T047 [US2] [RUNNABLE_NOW] Remove or replace decorative Open Hierarchy and Review Mapping actions in `src/Web/src/features/configuration/ConfigurationRoutes.tsx`
-- [x] T048 [US2] [RUNNABLE_NOW] Verify US2 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-02-checkpoint.md`
+- [ ] T048 [US2] [RUNNABLE_NOW] **Corrective closure incomplete**: Verification and review artifacts record the remaining public/browser evidence and activation-proof findings; do not close the Phase 2 checkpoint until those findings are resolved in `specs/003-operational-configuration-workspace/checklists/phase-02-checkpoint.md`
 
 ---
 
@@ -236,4 +237,4 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Phase 6 | 8 | T073-T080 |
 | **Total** | **80** | **T001-T080** |
 
-**MVP for this run**: Phase 1 / US1 only after completed Phase 0. Do not execute T037 or later.
+**MVP for the corrective run**: Phase 2 / US2 only. Do not execute T049 or later.

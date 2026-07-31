@@ -6,6 +6,7 @@
     <ProjectReference Include="..\..\src\BuildingBlocks\IUMP.BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\Modules\IAM\IUMP.Modules.IAM.csproj" />
     <ProjectReference Include="..\..\src\Api\IUMP.Api.csproj" />
+    <ProjectReference Include="..\..\src\Hosting\Abstractions\IUMP.Hosting.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\IUMP.Modules.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Modules\Organization\IUMP.Modules.Organization.csproj" />
     <ProjectReference Include="..\..\src\Modules\Acquisition\IUMP.Modules.Acquisition.csproj" />

@@ -1,3 +1,4 @@
+using IUMP.Api.Infrastructure;
 using IUMP.Modules.Acquisition.Application;
 using IUMP.Modules.Acquisition.Contracts;
 using IUMP.Modules.Catalog.Application;
@@ -50,6 +51,7 @@ public static class ConfigurationDuplicationTests
         await ScenarioAsync(ActivateVersionPromotesDraftAndKeepsHistoryAsync, failures);
         await ScenarioAsync(ActivateVersionRejectsStaleOrUnknownDraftAsync, failures);
         await ScenarioAsync(DuplicateConfigurationProducesNewHeadAsync, failures);
+        await ScenarioAsync(SimulatorManagementSearchMatchesSafeIdentifiersAsync, failures);
     }
 
     private static async Task ScenarioAsync(Func<List<string>, Task> scenario, List<string> failures)
@@ -429,6 +431,25 @@ public static class ConfigurationDuplicationTests
             failures, "Configuration duplicate is a fresh head at version 1 with the copied behavior as Draft content.");
         AssertT037(service.Events.Count == 2 && service.Events[1].Action == "Duplicated",
             failures, "Configuration duplicate emits exactly one Duplicated event.");
+    }
+
+    private static Task SimulatorManagementSearchMatchesSafeIdentifiersAsync(List<string> failures)
+    {
+        var configurationId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var sourceId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        AssertT037(ConfigurationManagementSearch.MatchesSimulatorConfiguration(
+                configurationId, sourceId, 7, configurationId.ToString("D")),
+            failures, "Simulator management search matches the configuration ID.");
+        AssertT037(ConfigurationManagementSearch.MatchesSimulatorConfiguration(
+                configurationId, sourceId, 7, sourceId.ToString("D")),
+            failures, "Simulator management search matches the Source ID.");
+        AssertT037(ConfigurationManagementSearch.MatchesSimulatorConfiguration(
+                configurationId, sourceId, 7, "7"),
+            failures, "Simulator management search matches the current version.");
+        AssertT037(!ConfigurationManagementSearch.MatchesSimulatorConfiguration(
+                configurationId, sourceId, 7, "999"),
+            failures, "Simulator management search excludes unrelated identifiers.");
+        return Task.CompletedTask;
     }
 
     private static bool SnapshotsSecretFree(IReadOnlyDictionary<string, object?> values) =>

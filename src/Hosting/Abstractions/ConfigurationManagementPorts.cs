@@ -58,7 +58,9 @@ public sealed record PointManagementItem(
     string UnitId,
     string DataOwnerUserId,
     string Status,
-    long Version);
+    long Version,
+    int ExpectedIntervalSeconds = 0,
+    int NoDataAfterSeconds = 0);
 
 public sealed record SourceManagementItem(
     Guid Id,
@@ -83,7 +85,12 @@ public sealed record SimulatorConfigurationManagementItem(
     Guid SourceId,
     long CurrentConfigurationVersion,
     long Version,
-    long? DraftConfigurationVersion = null);
+    long? DraftConfigurationVersion = null,
+    string? ScenarioType = null,
+    int? IntervalSeconds = null,
+    double? MinimumValue = null,
+    double? MaximumValue = null,
+    ulong? DeterministicSeed = null);
 
 public static class ConfigurationManagementResources
 {
@@ -97,6 +104,18 @@ public static class ConfigurationManagementResources
 
     public static bool IsKnown(string resource) => resource is Sites or Areas or Assets or Points or
         DataSources or SourcePointMappings or SimulatorConfigurations;
+}
+
+public static class ConfigurationManagementSearch
+{
+    public static bool MatchesSimulatorConfiguration(
+        Guid configurationId, Guid sourceId, long currentVersion, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return true;
+        return configurationId.ToString("D").Contains(search, StringComparison.OrdinalIgnoreCase) ||
+               sourceId.ToString("D").Contains(search, StringComparison.OrdinalIgnoreCase) ||
+               currentVersion.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 /// <summary>Typed paged management query seam. Scope-before-paging is enforced by the
@@ -120,6 +139,32 @@ public interface IConfigurationManagementQueryPort
 /// version transitions are explicit and optimistic-concurrency safe.</summary>
 public interface IConfigurationManagementCommandPort
 {
+    Task<CommandExecutionResult> CreateSiteAsync(
+        ConfigurationCommandRequest request,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default);
+
+    Task<CommandExecutionResult> UpdateSiteAsync(
+        ConfigurationCommandRequest request,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default);
+
+    Task<CommandExecutionResult> ExecuteAsync(
+        string operationCode,
+        ConfigurationCommandRequest request,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default);
+
+    Task<CommandExecutionResult> ValidateAsync(
+        string resource,
+        Guid targetId,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default);
+
     Task<CommandExecutionResult> DuplicateAsync(
         string resource,
         Guid targetId,
@@ -133,5 +178,7 @@ public interface IConfigurationManagementCommandPort
         long draftConfigurationVersion,
         ServerPrincipal principal,
         IHostTransaction transaction,
+        bool relationshipReviewConfirmed = false,
+        bool validationConfirmed = false,
         CancellationToken ct = default);
 }

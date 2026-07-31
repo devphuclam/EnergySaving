@@ -97,5 +97,9 @@ h2 { font-size: 1.15rem; margin: 0 0 .5rem; }
 .data-table tr:focus-within { background: #f0f6ff; }
 .actions-cell { white-space: nowrap; }
 .actions-stack { display: inline-flex; flex-wrap: wrap; gap: .4rem; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .75rem 1.25rem; margin: 0 0 1rem; }
+.detail-grid div { border-bottom: 1px solid var(--line); padding: .35rem 0; }
+.detail-grid dt { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+.detail-grid dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
 .pagination { align-items: center; display: flex; flex-wrap: wrap; gap: .65rem; justify-content: flex-end; margin-top: .85rem; }
 .sr-only { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }

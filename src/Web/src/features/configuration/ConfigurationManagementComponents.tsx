@@ -5,7 +5,7 @@ export type ManagementItem = Record<string, unknown> & { id?: string }
 
 export type { ManagementFilter, ManagementPage }
 
-export type ManagementState = 'loading' | 'ready' | 'forbidden' | 'expired' | 'no-data' | 'error'
+export type ManagementState = 'loading' | 'ready' | 'forbidden' | 'expired' | 'no-data' | 'validation' | 'conflict' | 'not-found' | 'dependency' | 'runtime' | 'error'
 
 export type ManagementFeedback = {
   tone: 'success' | 'warning' | 'error' | 'info'
@@ -101,6 +101,18 @@ export function ManagementTable(props: {
   if (state === 'error') {
     return <p className="notice notice-warning" role="alert">Không thể tải {resourceLabel(resource)}. Hãy thử lại sau.</p>
   }
+  if (state === 'dependency' || state === 'runtime') {
+    return <p className="notice notice-warning" role="alert">Dịch vụ dữ liệu hiện không sẵn sàng. Không hiển thị dữ liệu dự phòng.</p>
+  }
+  if (state === 'conflict') {
+    return <p className="notice notice-warning" role="alert">Dữ liệu đã thay đổi bởi người khác. Hãy tải lại trước khi lưu.</p>
+  }
+  if (state === 'validation') {
+    return <p className="notice notice-warning" role="alert">Dữ liệu chưa hợp lệ; hãy sửa các trường được đánh dấu.</p>
+  }
+  if (state === 'not-found') {
+    return <p className="notice notice-info" role="status">Không tìm thấy thực thể trong phạm vi được cấp quyền.</p>
+  }
   if (state === 'no-data' || items.length === 0) {
     return <p className="notice notice-info" role="status">{emptyMessage}</p>
   }
@@ -176,8 +188,9 @@ export function ActivateVersionButton(props: {
   item: ManagementItem
   busyItem?: string | null
   onActivate: (item: ManagementItem) => void
+  readyForActivation?: boolean
 }) {
-  const { item, busyItem, onActivate } = props
+  const { item, busyItem, onActivate, readyForActivation = true } = props
   const id = textValue(item.configurationId)
   const current = Number(item.currentConfigurationVersion ?? 0)
   const draft = Number(item.draftConfigurationVersion ?? 0)
@@ -185,12 +198,23 @@ export function ActivateVersionButton(props: {
   const busy = busyItem === id
   return (
     <button className="button button-primary" type="button"
-      disabled={!id || !hasDraft || busy}
-      title={hasDraft ? `Kích hoạt bản ${draft}` : 'Không có bản nháp để kích hoạt'}
+      disabled={!id || !hasDraft || busy || !readyForActivation}
+      title={!hasDraft ? 'Không có bản nháp để kích hoạt' : readyForActivation ? `Kích hoạt bản ${draft}` : 'Cần xem xét quan hệ và kiểm tra trước khi kích hoạt'}
       onClick={() => onActivate(item)}>
       {busy ? 'Đang kích hoạt…' : 'Kích hoạt'}
     </button>
   )
+}
+
+export function ManagementActionButton(props: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  tone?: 'primary' | 'secondary' | 'quiet' | 'danger'
+  title?: string
+}) {
+  const { label, onClick, disabled, tone = 'secondary', title } = props
+  return <button className={`button button-${tone}`} type="button" disabled={disabled} title={title} onClick={onClick}>{label}</button>
 }
 
 export function useDebouncedSearch(value: string, delay = 350): string {
