@@ -94,18 +94,18 @@ NO; explicit stop before T037.
 
 **User Story**: US2 — Manage Configuration Safely
 
-- [ ] T037 [P] [US2] [RUNNABLE_NOW] Add failing duplicate-to-Draft and exclusion tests for all eligible entity types in `tests/Unit/OperationalWorkspace/ConfigurationDuplicationTests.cs`
-- [ ] T038 [P] [US2] [RUNNABLE_NOW] Add failing PostgreSQL scoped search/filter/paging and dependency-safe lifecycle tests in `tests/Integration/OperationalWorkspace/ConfigurationManagementTests.cs`
-- [ ] T039 [US2] [RUNNABLE_NOW] Define typed paged management query and duplicate/version transition contracts in `src/Hosting/Abstractions/ConfigurationManagementPorts.cs`
-- [ ] T040 [US2] [RUNNABLE_NOW] Implement scope-before-paging management queries through owner contracts in `src/Composition/Postgres/PostgresConfigurationManagementPorts.cs`
-- [ ] T041 [US2] [RUNNABLE_NOW] Implement owner-domain duplicate-to-Draft behavior without history/secrets in `src/Modules/Organization/Application/ConfigurationDuplication.cs`
-- [ ] T042 [US2] [RUNNABLE_NOW] Implement Source/Mapping duplicate-to-Draft and dependency-safe lifecycle behavior in `src/Modules/Catalog/Application/ConfigurationDuplication.cs`
-- [ ] T043 [US2] [RUNNABLE_NOW] Preserve immutable Simulator Configuration version semantics for behavior changes in `src/Modules/Acquisition/Application/SimulatorConfiguration.cs`
-- [ ] T044 [US2] [RUNNABLE_NOW] Expose management paging, details, duplicate, version-safe edit, and lifecycle endpoints in `src/Api/ConfigurationManagementEndpoints.cs`
-- [ ] T045 [P] [US2] [RUNNABLE_NOW] Build reusable Vietnamese table/filter/pagination/feedback primitives in `src/Web/src/features/configuration/ConfigurationManagementComponents.tsx`
-- [ ] T046 [US2] [RUNNABLE_NOW] Implement Sites, Areas, Assets, Points, Sources, Mappings, and Simulator Configuration pages with real actions in `src/Web/src/features/configuration/ConfigurationManagementRoutes.tsx`
-- [ ] T047 [US2] [RUNNABLE_NOW] Remove or replace decorative Open Hierarchy and Review Mapping actions in `src/Web/src/features/configuration/ConfigurationRoutes.tsx`
-- [ ] T048 [US2] [RUNNABLE_NOW] Verify US2 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-02-checkpoint.md`
+- [x] T037 [P] [US2] [RUNNABLE_NOW] Add failing duplicate-to-Draft and exclusion tests for all eligible entity types in `tests/Unit/OperationalWorkspace/ConfigurationDuplicationTests.cs`
+- [x] T038 [P] [US2] [RUNNABLE_NOW] Add failing PostgreSQL scoped search/filter/paging and dependency-safe lifecycle tests in `tests/Integration/OperationalWorkspace/ConfigurationManagementTests.cs`
+- [x] T039 [US2] [RUNNABLE_NOW] Define typed paged management query and duplicate/version transition contracts in `src/Hosting/Abstractions/ConfigurationManagementPorts.cs`
+- [x] T040 [US2] [RUNNABLE_NOW] Implement scope-before-paging management queries through owner contracts in `src/Composition/Postgres/PostgresConfigurationManagementPorts.cs`
+- [x] T041 [US2] [RUNNABLE_NOW] Implement owner-domain duplicate-to-Draft behavior without history/secrets in `src/Modules/Organization/Application/ConfigurationDuplication.cs`
+- [x] T042 [US2] [RUNNABLE_NOW] Implement Source/Mapping duplicate-to-Draft and dependency-safe lifecycle behavior in `src/Modules/Catalog/Application/ConfigurationDuplication.cs`
+- [x] T043 [US2] [RUNNABLE_NOW] Preserve immutable Simulator Configuration version semantics for behavior changes in `src/Modules/Acquisition/Application/SimulatorConfiguration.cs`
+- [x] T044 [US2] [RUNNABLE_NOW] Expose management paging, details, duplicate, version-safe edit, and lifecycle endpoints in `src/Api/ConfigurationManagementEndpoints.cs`
+- [x] T045 [P] [US2] [RUNNABLE_NOW] Build reusable Vietnamese table/filter/pagination/feedback primitives in `src/Web/src/features/configuration/ConfigurationManagementComponents.tsx`
+- [x] T046 [US2] [RUNNABLE_NOW] Implement Sites, Areas, Assets, Points, Sources, Mappings, and Simulator Configuration pages with real actions in `src/Web/src/features/configuration/ConfigurationManagementRoutes.tsx`
+- [x] T047 [US2] [RUNNABLE_NOW] Remove or replace decorative Open Hierarchy and Review Mapping actions in `src/Web/src/features/configuration/ConfigurationRoutes.tsx`
+- [x] T048 [US2] [RUNNABLE_NOW] Verify US2 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-02-checkpoint.md`
 
 ---
 

@@ -39,6 +39,14 @@ Console.WriteLine(
     $"failures={OperationalWorkspaceEndpointTests.FailureCount}");
 failures.AddRange(operationalWorkspaceEndpointFailures);
 
+// Phase 2 — Configuration management duplicate-to-Draft RED tests
+var t037Failures = ConfigurationDuplicationTests.Run();
+Console.WriteLine(
+    $"T037: cases={ConfigurationDuplicationTests.TestCount}; " +
+    $"assertions={ConfigurationDuplicationTests.AssertionCount}; " +
+    $"failures={t037Failures.Count}");
+failures.AddRange(t037Failures);
+
 // Phase 2 — Catalog RED tests
 failures.AddRange(MetricUnitTests.Run());
 failures.AddRange(SourceMappingTests.Run());

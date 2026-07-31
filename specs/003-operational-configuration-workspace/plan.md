@@ -1,6 +1,6 @@
 # Implementation Plan: Operational Configuration Workspace
 
-**Branch**: `codex/003-operational-configuration-workspace` | **Date**: 2026-07-30 | **Spec**: [spec.md](spec.md)
+**Branch**: `003-operational-configuration-workspace` | **Date**: 2026-07-30 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from
 `specs/003-operational-configuration-workspace/spec.md`

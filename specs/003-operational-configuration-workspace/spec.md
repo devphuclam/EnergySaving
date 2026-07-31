@@ -1,6 +1,6 @@
 # Feature Specification: Operational Configuration Workspace
 
-**Feature Branch**: `codex/003-operational-configuration-workspace`
+**Feature Branch**: `003-operational-configuration-workspace`
 
 **Created**: 2026-07-30
 

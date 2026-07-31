@@ -117,6 +117,7 @@ app.MapSimulatorEndpoints();
 app.MapTelemetryQueryEndpoints();
 app.MapAuditEndpoints();
 app.MapOperationalWorkspaceEndpoints();
+app.MapConfigurationManagementEndpoints();
 
 app.MapGet("/", () => Results.Ok(new
 {
