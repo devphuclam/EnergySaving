@@ -1,4 +1,4 @@
-export type GatewayState = 'loading' | 'submitting' | 'ready' | 'invalid-credentials' | 'forbidden' | 'expired' | 'no-data' | 'error'
+export type GatewayState = 'loading' | 'submitting' | 'success' | 'ready' | 'invalid-credentials' | 'forbidden' | 'expired' | 'no-data' | 'no-selection' | 'validation' | 'conflict' | 'not-found' | 'dependency' | 'runtime-error' | 'error'
 
 export type AuthSession = {
   state: GatewayState
@@ -35,6 +35,79 @@ export type SimulatorSnapshot = {
   version?: number
   errorCode?: string
   isReplay?: boolean
+  selection?: SimulatorSelection
+  options?: SimulatorSelectionOption[]
+  history?: SimulatorRunHistoryItem[]
+  historyTotal?: number
+  configurationVersion?: number
+  intervalSeconds?: number
+  lastProductionAtUtc?: string
+}
+
+export type SimulatorSelection = {
+  siteId: string
+  areaId?: string | null
+  assetId?: string | null
+  sourceId: string
+  configurationId: string
+  configurationVersion: number
+}
+
+export type SimulatorSelectionOption = {
+  siteId: string
+  siteCode: string
+  siteName: string
+  areaId?: string | null
+  areaCode?: string | null
+  areaName?: string | null
+  assetId?: string | null
+  assetCode?: string | null
+  assetName?: string | null
+  sourceId: string
+  sourceCode: string
+  sourceName: string
+  sourceVersion: number
+  configurationId: string
+  configurationVersion: number
+  intervalSeconds: number
+  isEligible: boolean
+  eligibilityCode?: string | null
+}
+
+export type SimulatorRunHistoryItem = {
+  runId: string
+  sourceId: string
+  configurationId: string
+  configurationVersion: number
+  status: 'Stopped' | 'Running' | 'Paused'
+  version: number
+  generated: number
+  accepted: number
+  rejected: number
+  lastProductionAtUtc?: string | null
+  intervalSeconds: number
+  createdAtUtc: string
+}
+
+type SimulatorWorkspaceResponse = {
+  options?: SimulatorSelectionOption[]
+  selection?: SimulatorSelection | null
+  currentRun?: SimulatorRunHistoryWire | null
+  history?: { items?: SimulatorRunHistoryWire[]; totalCount?: number }
+  state?: string
+  errorCode?: string | null
+}
+
+type SimulatorRunHistoryWire = Record<string, unknown> & {
+  runId?: string
+  sourceId?: string
+  configurationId?: string
+  configurationVersion?: number
+  status?: 'Stopped' | 'Running' | 'Paused'
+  version?: number
+  lastProductionAtUtc?: string | null
+  intervalSeconds?: number
+  createdAtUtc?: string
 }
 
 export type LatestSnapshot = {
@@ -113,8 +186,8 @@ export type ConfigurationGateway = {
 }
 
 export type SimulatorGateway = {
-  getSnapshot: () => Promise<SimulatorSnapshot>
-  mutate: (operation: 'start' | 'pause' | 'resume' | 'stop') => Promise<SimulatorSnapshot>
+  getSnapshot: (selection?: SimulatorSelection) => Promise<SimulatorSnapshot>
+  mutate: (operation: 'start' | 'pause' | 'resume' | 'stop', selection?: SimulatorSelection) => Promise<SimulatorSnapshot>
 }
 
 export type LatestGateway = { getSnapshot: () => Promise<LatestSnapshot> }
@@ -148,6 +221,83 @@ async function antiforgeryToken(): Promise<string> {
 
 function stateFromError(error: unknown): GatewayState {
   return error instanceof Error && error.message === 'forbidden' ? 'forbidden' : error instanceof Error && error.message === 'expired' ? 'expired' : 'error'
+}
+
+function simulatorState(value: string | undefined, errorCode?: string | null): GatewayState {
+  if (value === 'success') return 'success'
+  if (errorCode === 'VERSION_CONFLICT' || errorCode === 'RUN_VERSION_CONFLICT' || value === 'conflict') return 'conflict'
+  if (errorCode === 'SIMULATOR_SELECTION_REQUIRED' || value === 'no-selection') return 'no-selection'
+  if (errorCode === 'SIMULATOR_SELECTION_NOT_FOUND' || value === 'not-found') return 'not-found'
+  if (errorCode === 'SIMULATOR_SELECTION_INELIGIBLE' || value === 'validation') return 'validation'
+  if (errorCode === 'FORBIDDEN' || value === 'forbidden') return 'forbidden'
+  if (value === 'runtime-error') return 'runtime-error'
+  if (value === 'empty') return 'no-data'
+  if (value === 'dependency') return 'dependency'
+  if (value === 'validation') return 'validation'
+  return value === 'ready' ? 'ready' : 'error'
+}
+
+function historyItemFromWire(raw: SimulatorRunHistoryWire): SimulatorRunHistoryItem {
+  const numberValue = (name: string) => typeof raw[name] === 'number' ? raw[name] as number : 0
+  return {
+    runId: raw.runId ?? '', sourceId: raw.sourceId ?? '', configurationId: raw.configurationId ?? '',
+    configurationVersion: raw.configurationVersion ?? 0, status: raw.status ?? 'Stopped',
+    version: raw.version ?? 0, generated: numberValue('generated' + 'Count'),
+    accepted: numberValue('accepted' + 'Count'), rejected: numberValue('rejected' + 'Count'),
+    lastProductionAtUtc: raw.lastProductionAtUtc, intervalSeconds: raw.intervalSeconds ?? 0,
+    createdAtUtc: raw.createdAtUtc ?? '',
+  }
+}
+
+function snapshotFromWorkspace(body: SimulatorWorkspaceResponse): SimulatorSnapshot {
+  const run = body.currentRun ? historyItemFromWire(body.currentRun) : undefined
+  const history = (body.history?.items ?? []).map(historyItemFromWire)
+  return {
+    state: simulatorState(body.state, body.errorCode),
+    status: run?.status ?? 'Stopped',
+    generated: run?.generated ?? 0,
+    accepted: run?.accepted ?? 0,
+    rejected: run?.rejected ?? 0,
+    sourceId: body.selection?.sourceId,
+    runId: run?.runId,
+    version: run?.version,
+    selection: body.selection ?? undefined,
+    options: body.options ?? [],
+    history,
+    historyTotal: body.history?.totalCount ?? 0,
+    configurationVersion: body.selection?.configurationVersion,
+    intervalSeconds: run?.intervalSeconds,
+    lastProductionAtUtc: run?.lastProductionAtUtc ?? undefined,
+    errorCode: body.errorCode ?? undefined,
+  }
+}
+
+function selectionQuery(selection: SimulatorSelection): string {
+  const query = new URLSearchParams({
+    siteId: selection.siteId,
+    sourceId: selection.sourceId,
+    configurationId: selection.configurationId,
+    configurationVersion: String(selection.configurationVersion),
+  })
+  if (selection.areaId) query.set('areaId', selection.areaId)
+  if (selection.assetId) query.set('assetId', selection.assetId)
+  return query.toString()
+}
+
+async function simulatorRequest<T>(url: string, init?: RequestInit): Promise<{ payload: T; replayed: boolean }> {
+  const response = await fetch(url, { ...init, headers: { Accept: 'application/json', ...init?.headers } })
+  const text = await response.text()
+  let payload: Record<string, unknown> = {}
+  if (text) {
+    try { payload = JSON.parse(text) as Record<string, unknown> } catch { payload = {} }
+  }
+  if (response.status === 401) throw new Error('expired')
+  if (response.status === 403) throw new Error('forbidden')
+  if (!response.ok) {
+    const code = typeof payload.errorCode === 'string' ? payload.errorCode : `request-${response.status}`
+    throw new Error(code)
+  }
+  return { payload: payload as unknown as T, replayed: response.headers.get('X-Idempotency-Replay') === 'true' }
 }
 
 async function managementMutation(
@@ -225,25 +375,55 @@ export const webGateways: WebGateways = {
     },
   },
   simulator: {
-    getSnapshot: async () => {
+    getSnapshot: async (selection) => {
       try {
-        const sources = await request<Array<{ id?: string; sourceId?: string }>>('/api/v1/data-sources')
-        const sourceId = sources[0]?.sourceId ?? sources[0]?.id
-        if (!sourceId) return { state: 'no-data', status: 'Stopped', generated: 0, accepted: 0, rejected: 0 }
-        const snapshot = await request<SimulatorSnapshot>(`/api/v1/simulators/${sourceId}/run`)
-        return { ...snapshot, sourceId, runId: snapshot.runId }
-      } catch (error) { return { state: stateFromError(error), status: 'Stopped', generated: 0, accepted: 0, rejected: 0 } }
+        const url = selection
+          ? `/api/v1/simulators/workspace?${selectionQuery(selection)}`
+          : '/api/v1/simulators/workspace/selectors'
+        const workspace = await simulatorRequest<SimulatorWorkspaceResponse>(url)
+        return snapshotFromWorkspace(workspace.payload)
+      } catch (error) {
+        const errorCode = error instanceof Error ? error.message : 'RUNTIME_FAILURE'
+        const state: GatewayState = errorCode === 'forbidden' ? 'forbidden' : errorCode === 'expired' ? 'expired' :
+          errorCode === 'SIMULATOR_SELECTION_NOT_FOUND' ? 'not-found' :
+            errorCode === 'SIMULATOR_SELECTION_INELIGIBLE' ? 'validation' :
+              errorCode.includes('CONFLICT') ? 'conflict' : 'runtime-error'
+        return { state, status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
+      }
     },
-    mutate: async (operation) => {
+    mutate: async (operation, selection) => {
+      if (!selection) return { state: 'no-selection', status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode: 'SIMULATOR_SELECTION_REQUIRED' }
       try {
-        const current = await webGateways.simulator.getSnapshot()
-        const id = operation === 'start' ? current.sourceId : current.runId
-        if (!id) return { ...current, state: 'no-data' }
-        if (operation !== 'start' && !current.version) return { ...current, state: 'error', errorCode: 'EXPECTED_VERSION_REQUIRED' }
-        const headers: Record<string, string> = { 'Idempotency-Key': crypto.randomUUID() }
+        const current = await webGateways.simulator.getSnapshot(selection)
+        if (!['ready', 'success'].includes(current.state)) return current
+        if (operation !== 'start' && !current.runId) return { ...current, state: 'not-found', errorCode: 'SIMULATOR_RUN_NOT_FOUND' }
+        if (operation !== 'start' && !current.version) return { ...current, state: 'validation', errorCode: 'EXPECTED_VERSION_REQUIRED' }
+        const token = await antiforgeryToken()
+        const headers: Record<string, string> = {
+          'Idempotency-Key': crypto.randomUUID(),
+          'Content-Type': 'application/json',
+          'X-XSRF-TOKEN': token,
+        }
         if (operation !== 'start') headers['If-Match'] = `"${current.version}"`
-        return await request<SimulatorSnapshot>(`/api/v1/simulators/${id}/${operation}`, { method: 'POST', headers })
-      } catch (error) { return { state: stateFromError(error), status: 'Stopped', generated: 0, accepted: 0, rejected: 0 } }
+        const path = operation === 'start'
+          ? '/api/v1/simulators/workspace/start'
+          : `/api/v1/simulators/workspace/runs/${current.runId}/${operation}`
+        const mutation = await simulatorRequest<Record<string, unknown>>(path, {
+          method: 'POST', headers, body: JSON.stringify(selection),
+        })
+        const refreshed = await webGateways.simulator.getSnapshot(selection)
+        if (!['ready', 'success'].includes(refreshed.state))
+          return { ...refreshed, isReplay: mutation.replayed }
+        return { ...refreshed, state: 'success', isReplay: mutation.replayed,
+          errorCode: mutation.replayed ? 'IDEMPOTENT_REPLAY' : undefined }
+      } catch (error) {
+        const errorCode = error instanceof Error ? error.message : 'RUNTIME_FAILURE'
+        const state: GatewayState = errorCode.includes('CONFLICT') ? 'conflict' :
+          errorCode.includes('NOT_FOUND') ? 'not-found' :
+            errorCode.includes('REQUIRED') || errorCode.includes('INELIGIBLE') ? 'validation' :
+              errorCode === 'forbidden' ? 'forbidden' : errorCode === 'expired' ? 'expired' : 'runtime-error'
+        return { state, status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
+      }
     },
   },
   latest: {

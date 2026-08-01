@@ -27,5 +27,6 @@
     <Compile Include="Operations\OperationsJobRepositoryTests.cs" />
     <Compile Include="OperationalWorkspace\OperationalSetupJourneyTests.cs" />
     <Compile Include="OperationalWorkspace\ConfigurationManagementTests.cs" />
+    <Compile Include="OperationalWorkspace\SimulatorOperationsTests.cs" />
   </ItemGroup>
 </Project>

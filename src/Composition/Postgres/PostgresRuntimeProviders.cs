@@ -1,4 +1,5 @@
 using IUMP.BuildingBlocks.Persistence;
+using IUMP.Api.Infrastructure;
 using IUMP.Infrastructure.Postgres;
 using IUMP.Modules.Acquisition.Application;
 using IUMP.Modules.Acquisition.Contracts;
@@ -461,6 +462,8 @@ public static class PostgresRuntimeProviderRegistration
         services.AddScoped<ISimulatorProductionCoordinator,
             SimulatorProductionCoordinator>();
         services.AddScoped<SimulatorRunCommandService>();
+        services.AddScoped<ISimulatorWorkspaceQueryPort,
+            PostgresSimulatorWorkspaceQueryPort>();
         services.AddScoped<IOrganizationAuthorization,
             OrganizationRoleScopeAuthorization>();
         return services;

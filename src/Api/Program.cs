@@ -27,6 +27,7 @@ builder.Services.AddScoped<IConfigurationCommandPort, PostgresConfigurationComma
 builder.Services.AddScoped<IConfigurationQueryPort, PostgresConfigurationQueryPort>();
 builder.Services.AddScoped<ISimulatorCommandPort, PostgresSimulatorCommandPort>();
 builder.Services.AddScoped<ISimulatorQueryPort, PostgresSimulatorQueryPort>();
+builder.Services.AddScoped<ISimulatorWorkspaceCommandPort, PostgresSimulatorWorkspaceCommandPort>();
 builder.Services.AddScoped<ITelemetryQueryPort, PostgresTelemetryQueryPort>();
 builder.Services.AddScoped<IAuditQueryPort, PostgresAuditQueryPort>();
 builder.Services.AddScoped<IdempotentCommandExecutor>();

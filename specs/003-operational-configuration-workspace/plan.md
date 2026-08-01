@@ -219,7 +219,7 @@ one implementation phase → Standards/Spec review → Fast → Full → accepta
 
 Every implementation phase executes red test, recorded red evidence, minimal green, review/refactor,
 architecture and repository-policy verification, checkpoint, and explicit stop. This run ends after
-Phase 1 and does not implement Phase 2 or later.
+Phase 3 only (T049–T056) and stops before Phase 4/T057; later phases are not implemented in this run.
 
 ## Evidence Vocabulary
 

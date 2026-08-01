@@ -27,6 +27,7 @@ failures.AddRange(await AcceptancePostgresTests.RunAsync(provider));
 failures.AddRange(await PostgresRuntimeLeafTests.RunAsync(provider));
 failures.AddRange(await OperationalSetupJourneyTests.RunAsync(provider));
 failures.AddRange(await ConfigurationManagementTests.RunAsync(provider));
+failures.AddRange(await SimulatorOperationsTests.RunAsync(provider));
 var operationsContract = new OperationsJobRepositoryContractRunner();
 await operationsContract.RunAllAsync(
     new PostgresOperationsJobRepositoryTestProviderFactory(provider));
@@ -34,7 +35,7 @@ failures.AddRange(operationsContract.Failures.Select(
     failure => $"T206 canonical Operations contract: {failure}"));
 
 Console.WriteLine(
-    $"postgres-integration target=127.0.0.1:5433/iump_dev suites=14 failures={failures.Count}");
+    $"postgres-integration target=127.0.0.1:5433/iump_dev suites=15 failures={failures.Count}");
 foreach (var failure in failures)
     Console.WriteLine($"FAIL: {failure}");
 Environment.ExitCode = failures.Count == 0 ? 0 : 1;

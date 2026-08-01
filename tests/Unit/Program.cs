@@ -39,6 +39,10 @@ Console.WriteLine(
     $"failures={OperationalWorkspaceEndpointTests.FailureCount}");
 failures.AddRange(operationalWorkspaceEndpointFailures);
 
+var t049Failures = SimulatorSelectionTests.Run();
+Console.WriteLine($"T049: cases={SimulatorSelectionTests.TestCount}; assertions={SimulatorSelectionTests.AssertionCount}; failures={t049Failures.Count}");
+failures.AddRange(t049Failures);
+
 // Phase 2 — Configuration management duplicate-to-Draft RED tests
 var t037Failures = ConfigurationDuplicationTests.Run();
 Console.WriteLine(

@@ -346,11 +346,11 @@ fallback data.
 ## Scope and Evidence Boundaries *(mandatory)*
 
 - **Included release/capability**: One Feature 003 operational workspace delivered in six reviewable
-  implementation phases; this execution implements Phase 1 only after clean analysis.
+  implementation phases; this execution implements Phase 3 (US3) only after clean analysis.
 - **Explicitly excluded**: Energy baselines, period comparison, anomaly detection, savings
   calculation or verification, savings claims, AI recommendations, equipment control/writeback,
   real meter integration, external customer/SaaS behavior, new charts, new real-time transport, and
-  later Feature 003 phases in the current implementation run.
+  later Feature 003 phases (T057+) in the current implementation run.
 - **External approvals/dependencies**: Approved local PostgreSQL at `127.0.0.1:5433/iump_dev`;
   existing approved package caches; company CI/container approvals remain separate blockers and do
   not authorize substitutes.

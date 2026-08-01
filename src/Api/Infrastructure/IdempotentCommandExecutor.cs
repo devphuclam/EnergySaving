@@ -23,6 +23,7 @@ public sealed class IdempotentHttpResult : IResult
         if (!string.IsNullOrWhiteSpace(Response.Location)) httpContext.Response.Headers["Location"] = Response.Location;
         if (!string.IsNullOrWhiteSpace(Response.ETag)) httpContext.Response.Headers["ETag"] = Response.ETag;
         if (!string.IsNullOrWhiteSpace(Response.CorrelationId)) httpContext.Response.Headers["X-Correlation-Id"] = Response.CorrelationId;
+        httpContext.Response.Headers["X-Idempotency-Replay"] = Response.IsReplay ? "true" : "false";
         await httpContext.Response.WriteAsync(Response.Body);
     }
 }
