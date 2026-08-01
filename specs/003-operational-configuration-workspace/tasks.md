@@ -8,8 +8,8 @@ approved runnable dependency exists.
 
 **Execution rule**: Phase 0 through Phase 3 are accepted historical checkpoints. This Phase 4
 corrective invocation starts from authoritative merged `main` baseline
-`8f7a9bd3ec3e98401ffba95ef6d2b4efe7190648` on branch
-`003-operational-configuration-workspace`, reopens T058–T064, reevaluates T057 only when additional
+`50f5579a520caf2af34d68f80e34a85354d22849` on branch
+`003-operational-configuration-workspace`, reopens T062–T064, reevaluates T057 only when additional
 Unit coverage is required, records new red/green evidence honestly, commits and pushes the feature
 branch, and stops before T065. It must not merge automatically or execute T065+.
 
@@ -18,10 +18,10 @@ baseline `2741429fb1a28d403adde69e36810bab16d12af5` addressed T054–T056. That 
 superseded by the Phase 4 execution gate below; it does not reopen Phase 3 and does not change the
 current T057–T064 scope. Feature 002 remains untouched.
 
-**Phase 4 corrective execution gate**: The current run is authorized only for T058–T064 from
-baseline `8f7a9bd3ec3e98401ffba95ef6d2b4efe7190648`; T057 may change only for necessary additional
+**Phase 4 corrective execution gate**: The current run is authorized only for T062–T064 from
+authoritative merged `main` baseline `50f5579a520caf2af34d68f80e34a85354d22849`; T057 may change only for necessary additional
 Unit coverage. Keep T065–T072 unchecked and stop immediately before T065. Feature 002 and accepted
-Phase 1–3 behavior remain out of scope. T064 stays unchecked until deterministic PostgreSQL,
+Phase 1–3 behavior remain out of scope. T064 is checked only after deterministic PostgreSQL,
 hosted HTTP, authenticated browser, and clean Standards/Specification review evidence complete.
 
 ## Checklist format
@@ -148,9 +148,9 @@ NO; explicit stop before T037.
 - [x] T059 [US4] [RUNNABLE_NOW] Add authorized hierarchy selector query contract with scope-before-paging in `src/Hosting/Abstractions/TelemetryWorkspacePorts.cs`
 - [x] T060 [US4] [RUNNABLE_NOW] Implement PostgreSQL Point selector and selected Latest/Health query adapter in `src/Composition/Postgres/PostgresTelemetryWorkspacePorts.cs`
 - [x] T061 [US4] [RUNNABLE_NOW] Expose authorized selector endpoints while preserving safe Point queries in `src/Api/TelemetryQueryEndpoints.cs`
-- [x] T062 [US4] [RUNNABLE_NOW] Replace implicit Point lookup with explicit Site/Area/Asset/Point selection in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
-- [x] T063 [US4] [RUNNABLE_NOW] Add ten-second default auto refresh, disable/manual refresh, timestamps, quality, Health, Run/counters, and explicit No Data in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
-- [x] T064 [US4] [RUNNABLE_NOW] Verify US4 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-04-checkpoint.md`
+- [x] T062 [US4] [RUNNABLE_NOW] Replace implicit Point lookup with explicit Site/Area/Asset/Point selection and server-authorized Point rehydration in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
+- [x] T063 [US4] [RUNNABLE_NOW] Add ten-second default auto refresh, disable/manual refresh, timestamps, quality, Health, Run/counters, explicit No Data, and same-selection request coordination in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
+- [x] T064 [US4] [RUNNABLE_NOW] Verify US4 rehydration/refresh behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-04-checkpoint.md`
 
 ---
 

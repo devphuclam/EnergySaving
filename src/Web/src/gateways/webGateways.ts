@@ -240,7 +240,7 @@ export type SimulatorGateway = {
 }
 
 export type LatestGateway = {
-  getSnapshot: (selection?: TelemetrySelection) => Promise<LatestSnapshot>
+  getSnapshot: (selection?: TelemetrySelection, signal?: AbortSignal) => Promise<LatestSnapshot>
   getOptions?: (query: TelemetryOptionQuery) => Promise<TelemetryOptionSnapshot>
 }
 export type AuditGateway = { getSnapshot: (cursor?: string) => Promise<AuditSnapshot> }
@@ -567,7 +567,7 @@ export const webGateways: WebGateways = {
         return { state: telemetryStateFromError(error), sites: [], areas: [], assets: [], points: [], errorCode: error instanceof Error ? error.message : 'RUNTIME_FAILURE' }
       }
     },
-    getSnapshot: async (selection) => {
+    getSnapshot: async (selection, signal) => {
       if (!selection?.siteId || !selection.areaId || !selection.assetId || !selection.pointId)
         return { state: 'no-selection', value: null, health: 'Chưa chọn điểm', dataState: 'NoSelection' }
       try {
@@ -588,7 +588,7 @@ export const webGateways: WebGateways = {
           run?: { runId?: string; status?: string; generated?: number; accepted?: number; rejected?: number; lastProductionAtUtc?: string }
           queriedAtUtc?: string
           errorCode?: string
-        }>(`/api/v1/telemetry/workspace/current?${query}`)
+        }>(`/api/v1/telemetry/workspace/current?${query}`, { signal })
         const noData = current.dataState === 'NoData' || current.dataState === 'NotConfigured'
         const state: GatewayState = current.dataState === 'Data' ? 'ready' : noData ? 'no-data' : 'conflict'
         return {

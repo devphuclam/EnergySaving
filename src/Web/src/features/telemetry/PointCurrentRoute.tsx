@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWebGateways } from '../../gateways/GatewayContext'
 import type { LatestSnapshot, TelemetryOptionSnapshot, TelemetrySelection } from '../../gateways/webGateways'
+import { LatestRefreshCoordinator, mergeSelectedPointOption, type RefreshRequestContext } from './telemetryRefreshCoordinator'
 
 type RequestedSelection = Partial<TelemetrySelection>
+type CompleteTelemetrySelection = TelemetrySelection & { areaId: string; assetId: string }
 type OptionLevel = 'sites' | 'areas' | 'assets' | 'points'
 
 const emptySnapshot: LatestSnapshot = { state: 'no-selection', value: null, health: 'Chưa chọn điểm', dataState: 'NoSelection' }
@@ -24,6 +26,20 @@ function writeSelection(selection: RequestedSelection) {
 
 function selectionKey(selection: RequestedSelection) { return [selection.siteId, selection.areaId, selection.assetId, selection.pointId].join('|') }
 
+function pointOptionFromSnapshot(selection: CompleteTelemetrySelection, snapshot: LatestSnapshot) {
+  if (snapshot.pointId !== selection.pointId || !snapshot.pointCode) return undefined
+  return {
+    pointId: selection.pointId,
+    siteId: selection.siteId,
+    areaId: selection.areaId,
+    assetId: selection.assetId,
+    code: snapshot.pointCode,
+    name: snapshot.pointName ?? snapshot.pointCode,
+    metric: snapshot.metric ?? snapshot.pointCode,
+    unit: snapshot.unit ?? '',
+  }
+}
+
 function failureMessage(state: LatestSnapshot['state']) {
   if (state === 'dependency') return 'Dịch vụ dữ liệu đo tạm thời không sẵn sàng.'
   if (state === 'runtime-error') return 'Không thể kết nối đến dịch vụ dữ liệu đo.'
@@ -42,11 +58,19 @@ export function PointCurrentRoute() {
   const [pointSearchDraft, setPointSearchDraft] = useState('')
   const [snapshot, setSnapshot] = useState<LatestSnapshot>(emptySnapshot)
   const [autoRefresh, setAutoRefresh] = useState(true)
-  const [refreshNonce, setRefreshNonce] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const [lastError, setLastError] = useState<LatestSnapshot['state'] | undefined>()
-  const requestSequence = useRef(0)
   const optionRequestSequences = useRef<Record<OptionLevel, number>>({ sites: 0, areas: 0, assets: 0, points: 0 })
+  const selectedPointOption = useRef<TelemetryOptionSnapshot['points'][number] | undefined>(undefined)
+  const refreshCoordinator = useRef<LatestRefreshCoordinator | null>(null)
+  if (refreshCoordinator.current === null) {
+    refreshCoordinator.current = new LatestRefreshCoordinator(
+      (callback, delayMs) => window.setTimeout(callback, delayMs),
+      handle => window.clearTimeout(handle),
+      10_000,
+      event => setRefreshing(event.type === 'started'),
+    )
+  }
 
   const loadLevel = useCallback(async (
     level: OptionLevel,
@@ -69,7 +93,8 @@ export function PointCurrentRoute() {
       if (level === 'sites') return { ...previous, state: 'ready', sites: next.sites, errorCode: undefined }
       if (level === 'areas') return { ...previous, state: 'ready', areas: next.areas, errorCode: undefined }
       if (level === 'assets') return { ...previous, state: 'ready', assets: next.assets, errorCode: undefined }
-      return { ...previous, state: 'ready', points: next.points, scopedCount: next.scopedCount, page: next.page, pageSize: next.pageSize, errorCode: undefined }
+      const preserved = request.pointId === selectedPointOption.current?.pointId ? selectedPointOption.current : undefined
+      return { ...previous, state: 'ready', points: mergeSelectedPointOption(next.points, preserved), scopedCount: next.scopedCount, page: next.page, pageSize: next.pageSize, errorCode: undefined }
     })
   }, [gateways.latest])
 
@@ -108,47 +133,66 @@ export function PointCurrentRoute() {
       siteId: selection.siteId,
       areaId: selection.areaId,
       assetId: selection.assetId,
+      pointId: selection.pointId,
     }, pointPage, pointSearch)
-  }, [selection.siteId, selection.areaId, selection.assetId, pointPage, pointSearch, loadLevel])
+  }, [selection.siteId, selection.areaId, selection.assetId, selection.pointId, pointPage, pointSearch, loadLevel])
 
-  const selected = useMemo(() => selection.siteId && selection.areaId && selection.assetId && selection.pointId ? selection as TelemetrySelection : undefined, [selection])
+  const selected = useMemo<CompleteTelemetrySelection | undefined>(() => {
+    if (!selection.siteId || !selection.areaId || !selection.assetId || !selection.pointId) return undefined
+    return { siteId: selection.siteId, areaId: selection.areaId, assetId: selection.assetId, pointId: selection.pointId }
+  }, [selection])
   const key = selectionKey(selection)
   const totalPointPages = Math.max(1, Math.ceil((options.scopedCount ?? 0) / (options.pageSize ?? 100)))
 
-  useEffect(() => {
-    if (!selected) { setSnapshot(emptySnapshot); setLastError(undefined); setRefreshing(false); return }
-    let active = true
-    const sequence = ++requestSequence.current
-    let timer: number | undefined
-    const refresh = async () => {
-      setRefreshing(true)
-      try {
-        const next = await gateways.latest.getSnapshot(selected)
-        if (active && requestSequence.current === sequence) {
-          const failed = ['dependency', 'runtime-error', 'forbidden', 'expired', 'not-found', 'validation', 'conflict', 'error'].includes(next.state)
-          if (failed) { setLastError(next.state); if (!['dependency', 'runtime-error', 'error'].includes(next.state)) setSnapshot(emptySnapshot) }
-          else { setLastError(undefined); setSnapshot(next) }
-          if (autoRefresh) timer = window.setTimeout(() => { void refresh() }, 10_000)
-        }
-      } catch {
-        if (active && requestSequence.current === sequence) { setLastError('runtime-error'); if (autoRefresh) timer = window.setTimeout(() => { void refresh() }, 10_000) }
-      } finally { if (active && requestSequence.current === sequence) setRefreshing(false) }
+  const applySnapshot = useCallback((currentSelection: CompleteTelemetrySelection, next: LatestSnapshot) => {
+    const selectedPoint = pointOptionFromSnapshot(currentSelection, next)
+    if (selectedPoint) {
+      selectedPointOption.current = selectedPoint
+      setOptions(previous => ({ ...previous, points: mergeSelectedPointOption(previous.points, selectedPoint) }))
     }
-    void refresh()
-    return () => { active = false; setRefreshing(false); if (timer !== undefined) window.clearTimeout(timer) }
-  }, [gateways.latest, selected, key, autoRefresh, refreshNonce])
+    const failed = ['dependency', 'runtime-error', 'forbidden', 'expired', 'not-found', 'validation', 'conflict', 'error'].includes(next.state)
+    if (failed) {
+      setLastError(next.state)
+      if (!['dependency', 'runtime-error', 'error'].includes(next.state)) setSnapshot(emptySnapshot)
+    } else {
+      setLastError(undefined)
+      setSnapshot(next)
+    }
+  }, [])
+
+  const requestSnapshot = useCallback(async (currentSelection: CompleteTelemetrySelection, context: RefreshRequestContext) => {
+    const next = await gateways.latest.getSnapshot(currentSelection, context.signal)
+    if (context.isCurrent()) applySnapshot(currentSelection, next)
+  }, [applySnapshot, gateways.latest])
+
+  useEffect(() => {
+    if (!selected) {
+      refreshCoordinator.current?.clear()
+      selectedPointOption.current = undefined
+      setSnapshot(emptySnapshot)
+      setLastError(undefined)
+      setRefreshing(false)
+      return
+    }
+    selectedPointOption.current = undefined
+    setSnapshot(emptySnapshot)
+    setLastError(undefined)
+    refreshCoordinator.current?.select(key, context => requestSnapshot(selected, context))
+    return () => refreshCoordinator.current?.clear()
+  }, [key, requestSnapshot, selected, selection])
+
+  useEffect(() => { refreshCoordinator.current?.setAutoRefresh(autoRefresh) }, [autoRefresh])
 
   const clearSelectionSnapshot = () => {
-    requestSequence.current++
     setSnapshot(emptySnapshot)
     setLastError(undefined)
     setRefreshing(false)
   }
-  const resetPoints = () => { setPointPage(1); setPointSearch(''); setPointSearchDraft(''); setOptions(previous => ({ ...previous, points: [], scopedCount: 0 })) }
+  const resetPoints = () => { selectedPointOption.current = undefined; setPointPage(1); setPointSearch(''); setPointSearchDraft(''); setOptions(previous => ({ ...previous, points: [], scopedCount: 0 })) }
   const changeSite = (siteId: string) => { const next = { siteId: siteId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); setOptions(previous => ({ ...previous, areas: [], assets: [] })); resetPoints() }
   const changeArea = (areaId: string) => { const next = { ...selection, areaId: areaId || undefined, assetId: undefined, pointId: undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); setOptions(previous => ({ ...previous, assets: [] })); resetPoints() }
   const changeAsset = (assetId: string) => { const next = { ...selection, assetId: assetId || undefined, pointId: undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); resetPoints() }
-  const changePoint = (pointId: string) => { const next = { ...selection, pointId: pointId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next) }
+  const changePoint = (pointId: string) => { selectedPointOption.current = undefined; const next = { ...selection, pointId: pointId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next) }
 
   const hasData = snapshot.state === 'ready' && snapshot.dataState === 'Data' && snapshot.value !== null
   const hasUsableSnapshot = snapshot.state === 'ready' || snapshot.state === 'no-data'
@@ -170,8 +214,8 @@ export function PointCurrentRoute() {
         {options.state === 'ready' && selection.assetId && <div className="toolbar" role="group" aria-label="Tìm và phân trang điểm đo"><label>Tìm điểm đo<input value={pointSearchDraft} maxLength={100} onChange={event => setPointSearchDraft(event.target.value)} /></label><button type="button" className="button button-secondary" onClick={() => { setPointPage(1); setPointSearch(pointSearchDraft.trim()) }}>Tìm</button><button type="button" className="button button-secondary" disabled={pointPage <= 1} onClick={() => setPointPage(value => Math.max(1, value - 1))}>Trang trước</button><span>{`Trang ${pointPage} / ${totalPointPages} · ${options.scopedCount ?? 0} điểm`}</span><button type="button" className="button button-secondary" disabled={pointPage >= totalPointPages} onClick={() => setPointPage(value => value + 1)}>Trang sau</button></div>}
         {options.state === 'ready' && options.sites.length === 0 && <p className="muted">Chưa có hierarchy được cấp quyền.</p>}
       </article>
-      {selected && <div className="toolbar" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => setRefreshNonce(value => value + 1)}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
-      {errorState && <div className="feedback feedback-error" role="alert"><p>{failureMessage(errorState)}</p><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => setRefreshNonce(value => value + 1)}>Thử lại</button></div>}
+      {selected && <div className="toolbar" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => { refreshCoordinator.current?.refresh() }}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
+      {errorState && <div className="feedback feedback-error" role="alert"><p>{failureMessage(errorState)}</p><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => { refreshCoordinator.current?.refresh() }}>Thử lại</button></div>}
       {showingStaleSnapshot && <p className="feedback feedback-info" role="status">Dữ liệu lần cuối vẫn được giữ trong khi chờ kết nối phục hồi.</p>}
       {!selected && <div className="feedback feedback-info" role="status"><p>Chưa chọn điểm đo.</p><p className="muted">Không có điểm đo nào được tự động chọn.</p></div>}
       {selected && !hasUsableSnapshot && !errorState && <p role="status">Đang tải dữ liệu mới nhất và sức khỏe nguồn…</p>}

@@ -1,33 +1,41 @@
 # Feature 003 Phase 4 corrective checkpoint — T057–T064
 
-Status: **ACCEPTED** for the bounded Phase 4 scope. T057–T064 are complete and the fresh
-Standards and Specification reviews report no Critical, High, or actionable Medium findings.
-Release-ready remains **NO** because mandatory Full-environment checks are company-approval
-blocked. Execution stops before T065.
+Status: **ACCEPTED** for the bounded T057–T064 Phase 4 scope. The two Web findings are closed:
+server-authorized Point rehydration beyond the default page and same-selection Latest request
+coordination. T065+ remains out of scope; Release-ready remains **NO**.
 
 ## Execution gate
 
 - Repository: `devphuclam/EnergySaving`
-- Baseline: `8f7a9bd3ec3e98401ffba95ef6d2b4efe7190648`
+- Baseline: `50f5579a520caf2af34d68f80e34a85354d22849`
 - Branch: `003-operational-configuration-workspace`
-- Scope: T057–T064 only. T065–T072 remain unchecked; Feature 002 is unchanged.
+- Scope: T062–T064 corrective closure only; T057–T061 remain accepted. T065–T072 remain unchecked;
+  Feature 002 is unchanged.
 - Database: PostgreSQL `127.0.0.1:5433/iump_dev` only. No port 5432, container, SQLite,
   InMemory substitute, package install, or public package download was used.
 
 ## Red-green evidence
 
-The final review identified a selection-change stale-data seam and it was repaired red/green. Before
-the fix, the browser loaded Point `...0004` with value `42`, the API was made unavailable, and the UI
-explicitly selected Point `...0003`. Red evidence showed the URL and selector had changed to
-`...0003` while the old `...0004` article and value `42` were still rendered. The implementation now
-increments the request sequence and clears selection-bound snapshot/error/loading state synchronously
-for every hierarchy or Point change. Repeating the same browser sequence produced green evidence:
-the new Point remained selected, the old article/value were absent, the new network error was visible,
-and reload/retry recovered the correct numeric zero. Browser console errors remained `0`.
+The corrective static contract was intentionally run against the merged baseline before production
+changes: `telemetry-phase4-closure.tests.ps1` exited `1` because the coordinator, AbortSignal path,
+and selected-Point rehydration tokens were absent. After the fix it exits `0` and runs the pure
+deferred-request test (`requests=5; events=8`). This is the approved provider-neutral red/green seam
+because no frontend behavior runner is installed.
 
-Earlier compile logs from the original Phase 4 implementation predate this corrective baseline and
-are not represented as corrective red evidence. The unrelated hosted-DLL lock described below is
-also not counted as behavioral red evidence.
+The authenticated browser then supplied green evidence. Point `P49295FAFDF50505` (page `6 / 6`,
+`506` authorized Points) was selected. After refresh and logout/login, the URL remained complete and
+the Site, Area, Asset, and exact Point options were visibly selected; the current-data card named the
+same Point. A mismatched URL Point returned the established safe hierarchy error, inserted no Point
+label/option, and displayed no data card.
+
+Changing Point cleared the prior selection-bound card before the new request completed; the old Point
+never reappeared. Rapid auto-refresh off/on and manual refresh were exercised in the browser; the pure
+deferred coordinator proved one in-flight request, no overlap, one post-completion timer, manual
+refresh while disabled, abort/invalidation on selection change, and timer/request cancellation on
+clear. Browser console errors remained `0`.
+
+The pre-fix static red is the only red evidence claimed for this Web corrective seam; no frontend
+behavior runner was installed or treated as available.
 
 ## Corrective implementation
 
@@ -41,9 +49,13 @@ also not counted as behavioral red evidence.
   `bigint`; no negative OFFSET is possible.
 - Parent changes clear all descendants. URL values are requests only; the server authorizes the
   complete hierarchy. Repository ordering never selects a Point.
-- Polling performs an immediate fetch, schedules the next fetch only after completion, cancels its
-  timer on disable/unmount, and invalidates old selection/option responses with request sequences.
-  A dependency/runtime error preserves the last valid value while displaying retry state.
+- Polling uses a pure `LatestRefreshCoordinator`: one immediate request per selection, an
+  AbortController and current-request guard, a timer only after completion, no duplicate on auto
+  toggles, manual refresh without overlap, and clear/unmount invalidation. A dependency/runtime error
+  preserves the last valid value while displaying retry state.
+- On a valid current response, `mergeSelectedPointOption` adds only the server-returned Point metadata
+  to the selector, so a Point beyond page 1/search remains visible without client fabrication. Safe
+  current errors never add URL-derived metadata.
 
 ## Deterministic PostgreSQL fixture and assertions
 
@@ -103,27 +115,24 @@ verifies the authoritative conflict behavior.
 
 ## Authenticated browser and polling journey
 
-The real browser journey ran end to end: sign in; open Latest/Health; verify no implicit Point;
-select Site/Area/Asset; page/search beyond row 500; explicitly select the Point; verify full URL,
-Metric, Unit, value, quality, timestamps, Health, related Run/status/counters; No Data; numeric zero;
-browser reload reconstruction; sign out/in reconstruction; dependency state; network state; retry.
+The authenticated journey ran: sign in; open Latest/Health; select the Site/Area/Asset; page to
+`6 / 6` beyond row 500; select `P49295FAFDF50505`; refresh; sign out/in; verify URL, selector identity,
+and current-card identity; exercise mismatched URL safety; toggle auto refresh off/on; run manual
+refresh; change Point and verify no stale old card. Browser console errors: `0`.
 
-A real Worker session produced 1,738 persisted Measurements while observed. With auto refresh on,
-the selected source timestamp advanced from `08:39:19.315060Z` to `08:39:30.234224Z` within one
-10-second interval. After disabling auto refresh it stayed at `08:39:42.490735Z` for 11 seconds;
-manual refresh then advanced it to `08:39:59.429259Z` without re-enabling auto. The valid value was
-retained across the disabled interval and the earlier network failure. Browser console errors: `0`.
-No browser action or read automatically started a Simulator Run. The temporary Worker, API, and Web
-processes were stopped after evidence collection.
+The pure coordinator's deferred request evidence is `requests=5; events=8`: initial request, one
+timer request, one manual request, then two selection requests with the old one aborted. The database
+`acquisition.simulator_run` count was `183` before and after the browser journey, proving no automatic
+Simulator Start. API, Web, and Worker were stopped after evidence collection.
 
 ## Fresh verification
 
 | Command | Exit | Classification |
 |---|---:|---|
-| `dotnet build .\IUMP.slnx --no-restore` | 0 | PASS; 0 warnings, 0 errors (fresh retry after stopping hosted API) |
+| `dotnet build .\IUMP.slnx --no-restore` | 0 | PASS; 0 warnings, 0 errors |
 | `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` | 0 | PASS; T057 17 assertions |
 | `dotnet run --project .\tests\Integration\IUMP.Tests.Integration.csproj --no-restore` | 0 | PASS; T058 13/19/0; PostgreSQL 15 suites/0 failures |
-| `npm run lint` from `src/Web` | 0 | PASS; only pre-existing Fast Refresh warnings outside the changed route |
+| `npm run lint` from `src/Web` | 0 | PASS; only pre-existing Fast Refresh warnings outside changed telemetry files |
 | `npm run build` from `src/Web` | 0 | PASS |
 | `architecture.tests.ps1` | 0 | PASS |
 | `repository-policy.tests.ps1` | 0 | PASS |
@@ -132,10 +141,6 @@ processes were stopped after evidence collection.
 | `telemetry-phase4-closure.tests.ps1` | 0 | PASS |
 | `harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS=10 |
 | `harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED_BY_COMPANY_APPROVAL=2, PASS=13, mandatory FAIL=0 |
-
-The first fresh build attempt exited `1` solely because the still-running hosted API held its output
-DLL. After stopping API/Web, the required fresh build exited `0`; this was a runtime lock, not a code
-failure.
 
 Full blockers remain separate and truthful:
 
