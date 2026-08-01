@@ -13,7 +13,7 @@ public static class TelemetryQueryEndpoints
         "/api/v1/points/{pointId}/latest",
         "/api/v1/points/{pointId}/source-health",
         "/api/v1/sites/{siteId}/points/current",
-        "/api/v1/telemetry/workspace/options",
+        "/api/v1/telemetry/workspace/options?level={sites|areas|assets|points}",
         "/api/v1/telemetry/workspace/current"
     };
     public static LatestQueryResult NoData(Guid pointId) => new(pointId, null, null, "No Data", true, "NO_DATA");
@@ -46,16 +46,23 @@ public static class TelemetryQueryEndpoints
         CancellationToken ct)
     {
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
+        if (!TryLevel(request.Query["level"], out var level))
+            return Results.UnprocessableEntity(new { errorCode = "INVALID_OPTION_LEVEL" });
         if (!TryNullableGuid(request.Query["siteId"], out var siteId) ||
             !TryNullableGuid(request.Query["areaId"], out var areaId) ||
             !TryNullableGuid(request.Query["assetId"], out var assetId))
             return Results.UnprocessableEntity(new { errorCode = "INVALID_SELECTION" });
-        var page = int.TryParse(request.Query["page"], out var parsedPage) ? parsedPage : 1;
-        var pageSize = int.TryParse(request.Query["pageSize"], out var parsedSize) ? parsedSize : 500;
+        if (!TryOptionalLong(request.Query["page"], 1, out var page) ||
+            !TryOptionalInt(request.Query["pageSize"], TelemetryOptionsQuery.DefaultPageSize, out var pageSize))
+            return Results.UnprocessableEntity(new { errorCode = "INVALID_PAGING" });
+        var optionsQuery = new TelemetryOptionsQuery(
+            level, page, pageSize, siteId, areaId, assetId, request.Query["search"]);
+        if (optionsQuery.Validate() is { } validationError)
+            return Results.UnprocessableEntity(new { errorCode = validationError });
         try
         {
             return Results.Ok(await query.GetOptionsAsync(
-                principal, new TelemetryOptionsQuery(page, pageSize, siteId, areaId, assetId), ct));
+                principal, optionsQuery, ct));
         }
         catch (TelemetryHierarchyConflictException exception)
         {
@@ -104,6 +111,21 @@ public static class TelemetryQueryEndpoints
 
     private static bool TryGuid(string? value, out Guid result) =>
         Guid.TryParse(value, out result);
+
+    private static bool TryLevel(string? value, out TelemetryOptionLevel level) =>
+        Enum.TryParse(value, true, out level) && Enum.IsDefined(level);
+
+    private static bool TryOptionalLong(string? value, long fallback, out long result)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { result = fallback; return true; }
+        return long.TryParse(value, out result);
+    }
+
+    private static bool TryOptionalInt(string? value, int fallback, out int result)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { result = fallback; return true; }
+        return int.TryParse(value, out result);
+    }
 
     private static bool TryNullableGuid(string? value, out Guid? result)
     {

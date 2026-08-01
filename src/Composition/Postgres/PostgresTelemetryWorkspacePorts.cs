@@ -15,66 +15,128 @@ public sealed class PostgresTelemetryWorkspacePorts(NpgsqlDataSource dataSource)
         TelemetryOptionsQuery query,
         CancellationToken ct = default)
     {
+        if (query.Validate() is { } validationError)
+            throw new ArgumentOutOfRangeException(nameof(query), validationError);
         await using var connection = await dataSource.OpenConnectionAsync(ct);
+        return query.Level switch
+        {
+            TelemetryOptionLevel.Sites => await ReadSitesAsync(connection, principal, query, ct),
+            TelemetryOptionLevel.Areas => await ReadAreasAsync(connection, principal, query, ct),
+            TelemetryOptionLevel.Assets => await ReadAssetsAsync(connection, principal, query, ct),
+            TelemetryOptionLevel.Points => await ReadPointsAsync(connection, principal, query, ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(query.Level))
+        };
+    }
+
+    private static async Task<TelemetryWorkspaceOptions> ReadSitesAsync(
+        NpgsqlConnection connection, ServerPrincipal principal, TelemetryOptionsQuery query, CancellationToken ct)
+    {
         await using var command = new NpgsqlCommand("""
-            SELECT s.id,s.code,s.name,
-                   ar.id,ar.site_id,ar.code,ar.name,
-                   a.id,a.site_id,a.area_id,a.code,a.name,
-                   p.id,p.site_id,p.area_id,p.asset_id,p.code,COALESCE(p.description,p.code),
-                   metric.code,u.symbol,
-                   count(*) over() as scoped_count
+            SELECT s.id,s.code,s.name
             FROM organization.sites s
-            JOIN organization.areas ar ON ar.site_id=s.id
-            JOIN organization.assets a ON a.area_id=ar.id AND a.site_id=s.id
-            JOIN organization.measurement_points p
-              ON p.asset_id=a.id AND p.area_id=ar.id AND p.site_id=s.id
+            WHERE s.status='Active'
+              AND (@is_admin OR s.id=ANY(@site_ids) OR EXISTS (
+                  SELECT 1 FROM organization.areas scoped_area
+                  WHERE scoped_area.site_id=s.id AND scoped_area.id=ANY(@area_ids)))
+            ORDER BY s.code,s.id
+            """, connection);
+        AddScope(command, principal);
+        var items = new List<TelemetrySiteOption>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) items.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+        return new(items, [], [], [], ScopedCount: items.Count, Page: query.Page, PageSize: query.PageSize);
+    }
+
+    private static async Task<TelemetryWorkspaceOptions> ReadAreasAsync(
+        NpgsqlConnection connection, ServerPrincipal principal, TelemetryOptionsQuery query, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand("""
+            SELECT ar.id,ar.site_id,ar.code,ar.name
+            FROM organization.areas ar
+            JOIN organization.sites s ON s.id=ar.site_id
+            WHERE ar.site_id=@site_id AND s.status='Active' AND ar.status='Active'
+              AND (@is_admin OR s.id=ANY(@site_ids) OR ar.id=ANY(@area_ids))
+            ORDER BY ar.code,ar.id
+            """, connection);
+        AddScope(command, principal);
+        command.Parameters.AddWithValue("site_id", query.SiteId!.Value);
+        var items = new List<TelemetryAreaOption>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) items.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3)));
+        return new([], items, [], [], ScopedCount: items.Count, Page: query.Page, PageSize: query.PageSize);
+    }
+
+    private static async Task<TelemetryWorkspaceOptions> ReadAssetsAsync(
+        NpgsqlConnection connection, ServerPrincipal principal, TelemetryOptionsQuery query, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand("""
+            SELECT a.id,a.site_id,a.area_id,a.code,a.name
+            FROM organization.assets a
+            JOIN organization.areas ar ON ar.id=a.area_id AND ar.site_id=a.site_id
+            JOIN organization.sites s ON s.id=a.site_id
+            WHERE a.site_id=@site_id AND a.area_id=@area_id
+              AND s.status='Active' AND ar.status='Active' AND a.status='Active'
+              AND (@is_admin OR s.id=ANY(@site_ids) OR ar.id=ANY(@area_ids))
+            ORDER BY a.code,a.id
+            """, connection);
+        AddScope(command, principal);
+        command.Parameters.AddWithValue("site_id", query.SiteId!.Value);
+        command.Parameters.AddWithValue("area_id", query.AreaId!.Value);
+        var items = new List<TelemetryAssetOption>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) items.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetString(3), reader.GetString(4)));
+        return new([], [], items, [], ScopedCount: items.Count, Page: query.Page, PageSize: query.PageSize);
+    }
+
+    private static async Task<TelemetryWorkspaceOptions> ReadPointsAsync(
+        NpgsqlConnection connection, ServerPrincipal principal, TelemetryOptionsQuery query, CancellationToken ct)
+    {
+        _ = query.TryGetOffset(out var offset);
+        await using var command = new NpgsqlCommand("""
+            SELECT count(*)
+            FROM organization.measurement_points p
+            JOIN organization.assets a ON a.id=p.asset_id AND a.area_id=p.area_id AND a.site_id=p.site_id
+            JOIN organization.areas ar ON ar.id=p.area_id AND ar.site_id=p.site_id
+            JOIN organization.sites s ON s.id=p.site_id
+            WHERE p.site_id=@site_id AND p.area_id=@area_id AND p.asset_id=@asset_id
+              AND s.status='Active' AND ar.status='Active' AND a.status='Active' AND p.status='Active'
+              AND (@is_admin OR s.id=ANY(@site_ids) OR ar.id=ANY(@area_ids))
+              AND (@search='' OR p.code ILIKE '%' || @search || '%' OR COALESCE(p.description,p.code) ILIKE '%' || @search || '%');
+
+            SELECT p.id,p.site_id,p.area_id,p.asset_id,p.code,COALESCE(p.description,p.code),
+                   metric.code,u.symbol
+            FROM organization.measurement_points p
+            JOIN organization.assets a ON a.id=p.asset_id AND a.area_id=p.area_id AND a.site_id=p.site_id
+            JOIN organization.areas ar ON ar.id=p.area_id AND ar.site_id=p.site_id
+            JOIN organization.sites s ON s.id=p.site_id
             LEFT JOIN catalog.metrics metric ON metric.id::text=p.metric_id
             LEFT JOIN catalog.units u ON u.id::text=p.unit_id
-            WHERE (@is_admin OR s.id = ANY(@site_ids) OR ar.id = ANY(@area_ids))
+            WHERE p.site_id=@site_id AND p.area_id=@area_id AND p.asset_id=@asset_id
               AND s.status='Active' AND ar.status='Active' AND a.status='Active' AND p.status='Active'
-              AND (@site_id IS NULL OR s.id=@site_id)
-              AND (@area_id IS NULL OR ar.id=@area_id)
-              AND (@asset_id IS NULL OR a.id=@asset_id)
-            ORDER BY s.id,ar.id,a.id,p.id
+              AND (@is_admin OR s.id=ANY(@site_ids) OR ar.id=ANY(@area_ids))
+              AND (@search='' OR p.code ILIKE '%' || @search || '%' OR COALESCE(p.description,p.code) ILIKE '%' || @search || '%')
+            ORDER BY p.code,p.id
             OFFSET @offset LIMIT @limit
             """, connection);
         AddScope(command, principal);
-        command.Parameters.Add("site_id", NpgsqlTypes.NpgsqlDbType.Uuid).Value = (object?)query.SiteId ?? DBNull.Value;
-        command.Parameters.Add("area_id", NpgsqlTypes.NpgsqlDbType.Uuid).Value = (object?)query.AreaId ?? DBNull.Value;
-        command.Parameters.Add("asset_id", NpgsqlTypes.NpgsqlDbType.Uuid).Value = (object?)query.AssetId ?? DBNull.Value;
-        command.Parameters.Add("offset", NpgsqlTypes.NpgsqlDbType.Bigint).Value =
-            (long)(query.EffectivePage - 1) * query.EffectivePageSize;
-        command.Parameters.AddWithValue("limit", query.EffectivePageSize);
-
-        var sites = new Dictionary<Guid, TelemetrySiteOption>();
-        var areas = new Dictionary<Guid, TelemetryAreaOption>();
-        var assets = new Dictionary<Guid, TelemetryAssetOption>();
-        var points = new List<TelemetryPointOption>();
-        var scopedCount = 0;
+        command.Parameters.AddWithValue("site_id", query.SiteId!.Value);
+        command.Parameters.AddWithValue("area_id", query.AreaId!.Value);
+        command.Parameters.AddWithValue("asset_id", query.AssetId!.Value);
+        command.Parameters.AddWithValue("search", query.Search?.Trim() ?? string.Empty);
+        command.Parameters.Add("offset", NpgsqlTypes.NpgsqlDbType.Bigint).Value = offset;
+        command.Parameters.AddWithValue("limit", query.PageSize);
+        var items = new List<TelemetryPointOption>();
         await using var reader = await command.ExecuteReaderAsync(ct);
+        _ = await reader.ReadAsync(ct);
+        var count = reader.GetInt64(0);
+        _ = await reader.NextResultAsync(ct);
         while (await reader.ReadAsync(ct))
         {
-            scopedCount = checked((int)reader.GetInt64(20));
-            var siteId = reader.GetGuid(0);
-            var areaId = reader.GetGuid(3);
-            var assetId = reader.GetGuid(7);
-            var pointId = reader.GetGuid(12);
-            sites.TryAdd(siteId, new(siteId, reader.GetString(1), reader.GetString(2)));
-            areas.TryAdd(areaId, new(areaId, siteId, reader.GetString(5), reader.GetString(6)));
-            assets.TryAdd(assetId, new(assetId, siteId, areaId, reader.GetString(10), reader.GetString(11)));
-            points.Add(new(
-                pointId, siteId, areaId, assetId, reader.GetString(16), reader.GetString(17),
-                reader.IsDBNull(18) ? reader.GetString(16) : reader.GetString(18),
-                reader.IsDBNull(19) ? "" : reader.GetString(19)));
+            items.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetGuid(3),
+                reader.GetString(4), reader.GetString(5), reader.IsDBNull(6) ? reader.GetString(4) : reader.GetString(6),
+                reader.IsDBNull(7) ? "" : reader.GetString(7)));
         }
-
-        return new TelemetryWorkspaceOptions(
-            sites.Values.OrderBy(value => value.SiteId).ToArray(),
-            areas.Values.OrderBy(value => value.AreaId).ToArray(),
-            assets.Values.OrderBy(value => value.AssetId).ToArray(),
-            points,
-            null,
-            scopedCount);
+        return new([], [], [], items, ScopedCount: count, Page: query.Page, PageSize: query.PageSize);
     }
 
     public async Task<TelemetryWorkspaceCurrent> GetCurrentAsync(

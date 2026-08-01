@@ -3,8 +3,9 @@ import { useWebGateways } from '../../gateways/GatewayContext'
 import type { LatestSnapshot, TelemetryOptionSnapshot, TelemetrySelection } from '../../gateways/webGateways'
 
 type RequestedSelection = Partial<TelemetrySelection>
+type OptionLevel = 'sites' | 'areas' | 'assets' | 'points'
 
-const emptySnapshot: LatestSnapshot = { state: 'no-selection', value: null, health: '\u0043h\u01b0a ch\u1ecd\u006e \u0111i\u1ec3m', dataState: 'NoSelection' }
+const emptySnapshot: LatestSnapshot = { state: 'no-selection', value: null, health: 'Chưa chọn điểm', dataState: 'NoSelection' }
 
 function readSelection(): RequestedSelection {
   const params = new URLSearchParams(window.location.search)
@@ -24,37 +25,95 @@ function writeSelection(selection: RequestedSelection) {
 function selectionKey(selection: RequestedSelection) { return [selection.siteId, selection.areaId, selection.assetId, selection.pointId].join('|') }
 
 function failureMessage(state: LatestSnapshot['state']) {
-  if (state === 'dependency') return '\u0044\u1ecbch v\u1ee5 d\u1eef li\u1ec7u \u0111o t\u1ea1m th\u1eddi kh\u00f4ng s\u1eb5n s\u00e0ng.'
-  if (state === 'runtime-error') return '\u004b h\u00f4ng th\u1ec3 k\u1ebft n\u1ed1i \u0111\u1ebfn d\u1ecbch v\u1ee5 d\u1eef li\u1ec7u \u0111o.'.replace(/^\u004b /, '\u004b')
-  if (state === 'forbidden') return 'B\u1ea1n kh\u00f4ng c\u00f3 quy\u1ec1n xem l\u1ef1a ch\u1ecdn n\u00e0y.'
-  if (state === 'not-found') return 'Kh\u00f4ng t\u00ecm th\u1ea5y l\u1ef1a ch\u1ecdn h\u1ee3p l\u1ec7.'
-  if (state === 'validation' || state === 'conflict') return 'Hierarchy \u0111\u00e3 ch\u1ecdn kh\u00f4ng h\u1ee3p l\u1ec7.'
-  return 'Kh\u00f4ng th\u1ec3 t\u1ea3i d\u1eef li\u1ec7u.'
+  if (state === 'dependency') return 'Dịch vụ dữ liệu đo tạm thời không sẵn sàng.'
+  if (state === 'runtime-error') return 'Không thể kết nối đến dịch vụ dữ liệu đo.'
+  if (state === 'forbidden') return 'Bạn không có quyền xem lựa chọn này.'
+  if (state === 'not-found') return 'Không tìm thấy lựa chọn hợp lệ.'
+  if (state === 'validation' || state === 'conflict') return 'Hierarchy đã chọn không hợp lệ.'
+  return 'Không thể tải dữ liệu.'
 }
 
 export function PointCurrentRoute() {
   const gateways = useWebGateways()
   const [selection, setSelection] = useState<RequestedSelection>(readSelection)
   const [options, setOptions] = useState<TelemetryOptionSnapshot>({ state: 'loading', sites: [], areas: [], assets: [], points: [] })
+  const [pointPage, setPointPage] = useState(1)
+  const [pointSearch, setPointSearch] = useState('')
+  const [pointSearchDraft, setPointSearchDraft] = useState('')
   const [snapshot, setSnapshot] = useState<LatestSnapshot>(emptySnapshot)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const [lastError, setLastError] = useState<LatestSnapshot['state'] | undefined>()
   const requestSequence = useRef(0)
+  const optionRequestSequences = useRef<Record<OptionLevel, number>>({ sites: 0, areas: 0, assets: 0, points: 0 })
 
-  const loadOptions = useCallback(() => {
-    if (!gateways.latest.getOptions) { setOptions(previous => ({ ...previous, state: 'ready' })); return Promise.resolve() }
-    setOptions(previous => ({ ...previous, state: 'loading' }))
-    return gateways.latest.getOptions().then(setOptions)
+  const loadLevel = useCallback(async (
+    level: OptionLevel,
+    request: RequestedSelection,
+    page = 1,
+    search = '',
+  ) => {
+    if (!gateways.latest.getOptions) { setOptions(previous => ({ ...previous, state: 'ready' })); return }
+    const sequence = ++optionRequestSequences.current[level]
+    if (level === 'sites') setOptions(previous => ({ ...previous, state: 'loading' }))
+    const next = await gateways.latest.getOptions({
+      level, siteId: request.siteId, areaId: request.areaId, assetId: request.assetId,
+      page: level === 'points' ? page : undefined,
+      pageSize: level === 'points' ? 100 : undefined,
+      search: level === 'points' ? search : undefined,
+    })
+    if (optionRequestSequences.current[level] !== sequence) return
+    setOptions(previous => {
+      if (next.state !== 'ready') return { ...previous, state: next.state, errorCode: next.errorCode }
+      if (level === 'sites') return { ...previous, state: 'ready', sites: next.sites, errorCode: undefined }
+      if (level === 'areas') return { ...previous, state: 'ready', areas: next.areas, errorCode: undefined }
+      if (level === 'assets') return { ...previous, state: 'ready', assets: next.assets, errorCode: undefined }
+      return { ...previous, state: 'ready', points: next.points, scopedCount: next.scopedCount, page: next.page, pageSize: next.pageSize, errorCode: undefined }
+    })
   }, [gateways.latest])
-  useEffect(() => { void loadOptions() }, [loadOptions])
+
+  const loadOptions = useCallback(async () => {
+    await loadLevel('sites', {})
+    if (selection.siteId) await loadLevel('areas', selection)
+    if (selection.siteId && selection.areaId) await loadLevel('assets', selection)
+    if (selection.siteId && selection.areaId && selection.assetId)
+      await loadLevel('points', selection, pointPage, pointSearch)
+  }, [loadLevel, selection, pointPage, pointSearch])
+
+  useEffect(() => { void loadLevel('sites', {}) }, [loadLevel])
+  useEffect(() => {
+    if (!selection.siteId) {
+      optionRequestSequences.current.areas++
+      setOptions(previous => ({ ...previous, areas: [], assets: [], points: [] }))
+      return
+    }
+    void loadLevel('areas', { siteId: selection.siteId })
+  }, [selection.siteId, loadLevel])
+  useEffect(() => {
+    if (!selection.siteId || !selection.areaId) {
+      optionRequestSequences.current.assets++
+      setOptions(previous => ({ ...previous, assets: [], points: [] }))
+      return
+    }
+    void loadLevel('assets', { siteId: selection.siteId, areaId: selection.areaId })
+  }, [selection.siteId, selection.areaId, loadLevel])
+  useEffect(() => {
+    if (!selection.siteId || !selection.areaId || !selection.assetId) {
+      optionRequestSequences.current.points++
+      setOptions(previous => ({ ...previous, points: [], scopedCount: 0 }))
+      return
+    }
+    void loadLevel('points', {
+      siteId: selection.siteId,
+      areaId: selection.areaId,
+      assetId: selection.assetId,
+    }, pointPage, pointSearch)
+  }, [selection.siteId, selection.areaId, selection.assetId, pointPage, pointSearch, loadLevel])
 
   const selected = useMemo(() => selection.siteId && selection.areaId && selection.assetId && selection.pointId ? selection as TelemetrySelection : undefined, [selection])
   const key = selectionKey(selection)
-  const areas = useMemo(() => options.areas.filter(area => area.siteId === selection.siteId), [options.areas, selection.siteId])
-  const assets = useMemo(() => options.assets.filter(asset => asset.areaId === selection.areaId), [options.assets, selection.areaId])
-  const points = useMemo(() => options.points.filter(point => point.assetId === selection.assetId), [options.points, selection.assetId])
+  const totalPointPages = Math.max(1, Math.ceil((options.scopedCount ?? 0) / (options.pageSize ?? 100)))
 
   useEffect(() => {
     if (!selected) { setSnapshot(emptySnapshot); setLastError(undefined); setRefreshing(false); return }
@@ -67,30 +126,29 @@ export function PointCurrentRoute() {
         const next = await gateways.latest.getSnapshot(selected)
         if (active && requestSequence.current === sequence) {
           const failed = ['dependency', 'runtime-error', 'forbidden', 'expired', 'not-found', 'validation', 'conflict', 'error'].includes(next.state)
-          if (failed) {
-            setLastError(next.state)
-            if (!['dependency', 'runtime-error', 'error'].includes(next.state)) setSnapshot(emptySnapshot)
-          }
+          if (failed) { setLastError(next.state); if (!['dependency', 'runtime-error', 'error'].includes(next.state)) setSnapshot(emptySnapshot) }
           else { setLastError(undefined); setSnapshot(next) }
           if (autoRefresh) timer = window.setTimeout(() => { void refresh() }, 10_000)
         }
       } catch {
-        if (active && requestSequence.current === sequence) {
-          setLastError('runtime-error')
-          if (autoRefresh) timer = window.setTimeout(() => { void refresh() }, 10_000)
-        }
-      } finally {
-        if (active && requestSequence.current === sequence) setRefreshing(false)
-      }
+        if (active && requestSequence.current === sequence) { setLastError('runtime-error'); if (autoRefresh) timer = window.setTimeout(() => { void refresh() }, 10_000) }
+      } finally { if (active && requestSequence.current === sequence) setRefreshing(false) }
     }
     void refresh()
     return () => { active = false; setRefreshing(false); if (timer !== undefined) window.clearTimeout(timer) }
   }, [gateways.latest, selected, key, autoRefresh, refreshNonce])
 
-  const changeSite = (siteId: string) => { const next = { siteId: siteId || undefined }; setSelection(next); writeSelection(next); setSnapshot(emptySnapshot); setLastError(undefined) }
-  const changeArea = (areaId: string) => { const next = { ...selection, areaId: areaId || undefined, assetId: undefined, pointId: undefined }; setSelection(next); writeSelection(next); setSnapshot(emptySnapshot); setLastError(undefined) }
-  const changeAsset = (assetId: string) => { const next = { ...selection, assetId: assetId || undefined, pointId: undefined }; setSelection(next); writeSelection(next); setSnapshot(emptySnapshot); setLastError(undefined) }
-  const changePoint = (pointId: string) => { const next = { ...selection, pointId: pointId || undefined }; setSelection(next); writeSelection(next) }
+  const clearSelectionSnapshot = () => {
+    requestSequence.current++
+    setSnapshot(emptySnapshot)
+    setLastError(undefined)
+    setRefreshing(false)
+  }
+  const resetPoints = () => { setPointPage(1); setPointSearch(''); setPointSearchDraft(''); setOptions(previous => ({ ...previous, points: [], scopedCount: 0 })) }
+  const changeSite = (siteId: string) => { const next = { siteId: siteId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); setOptions(previous => ({ ...previous, areas: [], assets: [] })); resetPoints() }
+  const changeArea = (areaId: string) => { const next = { ...selection, areaId: areaId || undefined, assetId: undefined, pointId: undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); setOptions(previous => ({ ...previous, assets: [] })); resetPoints() }
+  const changeAsset = (assetId: string) => { const next = { ...selection, assetId: assetId || undefined, pointId: undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); resetPoints() }
+  const changePoint = (pointId: string) => { const next = { ...selection, pointId: pointId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next) }
 
   const hasData = snapshot.state === 'ready' && snapshot.dataState === 'Data' && snapshot.value !== null
   const hasUsableSnapshot = snapshot.state === 'ready' || snapshot.state === 'no-data'
@@ -99,25 +157,26 @@ export function PointCurrentRoute() {
 
   return (
     <section className="page" aria-labelledby="telemetry-title">
-      <div className="page-heading"><div><p className="eyebrow">{'Gi\u00e1m s\u00e1t \u0111o l\u01b0\u1eddng'}</p><h1 id="telemetry-title">{'D\u1eef li\u1ec7u m\u1edbi nh\u1ea5t & s\u1ee9c kh\u1ecfe ngu\u1ed3n'}</h1><p className="lede">{'Ch\u1ecdn r\u00f5 Site, Area, Asset v\u00e0 \u0111i\u1ec3m \u0111o \u0111\u1ec3 xem d\u1eef li\u1ec7u.'}</p></div><span className="badge badge-neutral">{autoRefresh ? 'T\u1ef1 \u0111\u1ed9ng 10 gi\u00e2y' : 'T\u1ef1 \u0111\u1ed9ng \u0111\u00e3 t\u1eaft'}</span></div>
-      <article className="card" aria-label="B\u1ed9 ch\u1ecdn ph\u00e2n c\u1ea5p \u0111o l\u01b0\u1eddng"><div className="card-header"><div><p className="card-kicker">{'Ph\u1ea1m vi \u0111\u01b0\u1ee3c c\u1ea5p quy\u1ec1n'}</p><h2>{'Ch\u1ecdn ph\u00e2n c\u1ea5p'}</h2></div><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>{'T\u1ea3i l\u1ea1i l\u1ef1a ch\u1ecdn'}</button></div>
-        {options.state === 'loading' && <p role="status">{'\u0110ang t\u1ea3i l\u1ef1a ch\u1ecdn\u2026'}</p>}
-        {options.state !== 'loading' && options.state !== 'ready' && <div className="feedback feedback-error" role="alert"><p>{failureMessage(options.state)}</p><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>{'Th\u1eed l\u1ea1i'}</button></div>}
+      <div className="page-heading"><div><p className="eyebrow">Giám sát đo lường</p><h1 id="telemetry-title">Dữ liệu mới nhất & sức khỏe nguồn</h1><p className="lede">Chọn rõ Site, Area, Asset và điểm đo để xem dữ liệu.</p></div><span className="badge badge-neutral">{autoRefresh ? 'Tự động 10 giây' : 'Tự động đã tắt'}</span></div>
+      <article className="card" aria-label="Bộ chọn phân cấp đo lường"><div className="card-header"><div><p className="card-kicker">Phạm vi được cấp quyền</p><h2>Chọn phân cấp</h2></div><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại lựa chọn</button></div>
+        {options.state === 'loading' && <p role="status">Đang tải lựa chọn…</p>}
+        {options.state !== 'loading' && options.state !== 'ready' && <div className="feedback feedback-error" role="alert"><p>{failureMessage(options.state)}</p><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button></div>}
         {options.state === 'ready' && <div className="selector-grid">
-          <label>{'Site'}<select value={selection.siteId ?? ''} onChange={event => changeSite(event.target.value)}><option value="">{'Ch\u1ecdn Site'}</option>{options.sites.map(site => <option key={site.siteId} value={site.siteId}>{site.code} {'\u2014'} {site.name}</option>)}</select></label>
-          <label>{'Area'}<select value={selection.areaId ?? ''} disabled={!selection.siteId} onChange={event => changeArea(event.target.value)}><option value="">{selection.siteId ? 'Ch\u1ecdn Area' : 'Ch\u1ecdn Site tr\u01b0\u1edbc'}</option>{areas.map(area => <option key={area.areaId} value={area.areaId}>{area.code} {'\u2014'} {area.name}</option>)}</select></label>
-          <label>{'Asset'}<select value={selection.assetId ?? ''} disabled={!selection.areaId} onChange={event => changeAsset(event.target.value)}><option value="">{selection.areaId ? 'Ch\u1ecdn Asset' : 'Ch\u1ecdn Area tr\u01b0\u1edbc'}</option>{assets.map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.code} {'\u2014'} {asset.name}</option>)}</select></label>
-          <label>{'\u0110i\u1ec3m \u0111o'}<select value={selection.pointId ?? ''} disabled={!selection.assetId} onChange={event => changePoint(event.target.value)}><option value="">{selection.assetId ? 'Ch\u1ecdn \u0111i\u1ec3m \u0111o' : 'Ch\u1ecdn Asset tr\u01b0\u1edbc'}</option>{points.map(point => <option key={point.pointId} value={point.pointId}>{point.code} {'\u2014'} {point.name}</option>)}</select></label>
+          <label>Site<select value={selection.siteId ?? ''} onChange={event => changeSite(event.target.value)}><option value="">Chọn Site</option>{options.sites.map(site => <option key={site.siteId} value={site.siteId}>{site.code} — {site.name}</option>)}</select></label>
+          <label>Area<select value={selection.areaId ?? ''} disabled={!selection.siteId} onChange={event => changeArea(event.target.value)}><option value="">{selection.siteId ? 'Chọn Area' : 'Chọn Site trước'}</option>{options.areas.map(area => <option key={area.areaId} value={area.areaId}>{area.code} — {area.name}</option>)}</select></label>
+          <label>Asset<select value={selection.assetId ?? ''} disabled={!selection.areaId} onChange={event => changeAsset(event.target.value)}><option value="">{selection.areaId ? 'Chọn Asset' : 'Chọn Area trước'}</option>{options.assets.map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.code} — {asset.name}</option>)}</select></label>
+          <label>Điểm đo<select value={selection.pointId ?? ''} disabled={!selection.assetId} onChange={event => changePoint(event.target.value)}><option value="">{selection.assetId ? 'Chọn điểm đo' : 'Chọn Asset trước'}</option>{options.points.map(point => <option key={point.pointId} value={point.pointId}>{point.code} — {point.name}</option>)}</select></label>
         </div>}
-        {options.state === 'ready' && options.sites.length === 0 && <p className="muted">{'Ch\u01b0a c\u00f3 hierarchy \u0111\u01b0\u1ee3c c\u1ea5p quy\u1ec1n.'}</p>}
+        {options.state === 'ready' && selection.assetId && <div className="toolbar" role="group" aria-label="Tìm và phân trang điểm đo"><label>Tìm điểm đo<input value={pointSearchDraft} maxLength={100} onChange={event => setPointSearchDraft(event.target.value)} /></label><button type="button" className="button button-secondary" onClick={() => { setPointPage(1); setPointSearch(pointSearchDraft.trim()) }}>Tìm</button><button type="button" className="button button-secondary" disabled={pointPage <= 1} onClick={() => setPointPage(value => Math.max(1, value - 1))}>Trang trước</button><span>{`Trang ${pointPage} / ${totalPointPages} · ${options.scopedCount ?? 0} điểm`}</span><button type="button" className="button button-secondary" disabled={pointPage >= totalPointPages} onClick={() => setPointPage(value => value + 1)}>Trang sau</button></div>}
+        {options.state === 'ready' && options.sites.length === 0 && <p className="muted">Chưa có hierarchy được cấp quyền.</p>}
       </article>
-      {selected && <div className="toolbar" role="group" aria-label="B\u1ed9 \u0111i\u1ec1u khi\u1ec3n l\u00e0m m\u1edbi"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> {'T\u1ef1 \u0111\u1ed9ng l\u00e0m m\u1edbi m\u1ed7i 10 gi\u00e2y'}</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => setRefreshNonce(value => value + 1)}>{'L\u00e0m m\u1edbi ngay'}</button>{refreshing && <span role="status">{'\u0110ang l\u00e0m m\u1edbi\u2026'}</span>}</div>}
-      {errorState && <div className="feedback feedback-error" role="alert"><p>{failureMessage(errorState)}</p><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => setRefreshNonce(value => value + 1)}>{'Th\u1eed l\u1ea1i'}</button></div>}
-      {showingStaleSnapshot && <p className="feedback feedback-info" role="status">{'D\u1eef li\u1ec7u l\u1ea7n cu\u1ed1i v\u1eabn \u0111\u01b0\u1ee3c gi\u1eef trong khi ch\u1edd k\u1ebft n\u1ed1i ph\u1ee5c h\u1ed3i.'}</p>}
-      {!selected && <div className="feedback feedback-info" role="status"><p>{'Ch\u01b0a ch\u1ecdn \u0111i\u1ec3m \u0111o.'}</p><p className="muted">{'Kh\u00f4ng c\u00f3 \u0111i\u1ec3m \u0111o n\u00e0o \u0111\u01b0\u1ee3c t\u1ef1 \u0111\u1ed9ng ch\u1ecdn.'}</p></div>}
-      {selected && !hasUsableSnapshot && !errorState && <p role="status">{'\u0110ang t\u1ea3i d\u1eef li\u1ec7u m\u1edbi nh\u1ea5t v\u00e0 s\u1ee9c kh\u1ecfe ngu\u1ed3n\u2026'}</p>}
-      {selected && hasUsableSnapshot && <div className="card-grid two-up"><article className="card latest-card"><div className="card-header"><div><p className="card-kicker">{'\u0110i\u1ec3m \u0111o'} {snapshot.pointCode ?? selected.pointId}</p><h2>{snapshot.pointName ?? 'Quan s\u00e1t m\u1edbi nh\u1ea5t'}</h2></div><span className="badge badge-neutral">{snapshot.dataState ?? snapshot.state}</span></div><p className="muted">{'Ch\u1ec9 s\u1ed1: '}{snapshot.metric ?? '\u2014'} {'\u00b7'} {'\u0110\u01a1n v\u1ecb: '}{snapshot.unit ?? '\u2014'}</p><div className="latest-value"><strong>{hasData ? snapshot.value : 'Ch\u01b0a c\u00f3 d\u1eef li\u1ec7u'}</strong><span>{hasData ? snapshot.unit ?? 'value' : ''}</span></div><p className="muted">{'Ch\u1ea5t l\u01b0\u1ee3ng: '}{snapshot.quality ?? '\u2014'} {'\u00b7'} {snapshot.reason ?? (hasData ? 'Accepted' : 'NO_DATA')}</p><dl className="readiness-list"><div><dt>{'Th\u1eddi \u0111i\u1ec3m ngu\u1ed3n'}</dt><dd>{snapshot.sourceTimestamp ?? '\u2014'}</dd></div><div><dt>{'Th\u1eddi \u0111i\u1ec3m nh\u1eadn'}</dt><dd>{snapshot.receivedTimestamp ?? '\u2014'}</dd></div><div><dt>{'L\u1ea7n l\u00e0m m\u1edbi g\u1ea7n nh\u1ea5t'}</dt><dd>{snapshot.lastRefreshAt ?? '\u2014'}</dd></div></dl></article><article className="card"><p className="card-kicker">{'S\u1ee9c kh\u1ecfe ngu\u1ed3n / L\u01b0\u1ee3t ch\u1ea1y'}</p><h2>{snapshot.health}</h2><p className="muted">{'Ngu\u1ed3n: '}{snapshot.source?.name ?? '\u2014'}</p><dl className="readiness-list"><div><dt>{'M\u00e3 l\u01b0\u1ee3t ch\u1ea1y'}</dt><dd>{snapshot.runId ?? '\u2014'}</dd></div><div><dt>{'Tr\u1ea1ng th\u00e1i l\u01b0\u1ee3t ch\u1ea1y'}</dt><dd>{snapshot.runStatus ?? '\u2014'}</dd></div><div><dt>{'\u0110\u00e3 t\u1ea1o'}</dt><dd>{snapshot.generated ?? '\u2014'}</dd></div><div><dt>{'\u0110\u00e3 ch\u1ea5p nh\u1eadn / T\u1eeb ch\u1ed1i'}</dt><dd>{snapshot.accepted ?? '\u2014'} / {snapshot.rejected ?? '\u2014'}</dd></div><div><dt>{'L\u1ea7n s\u1ea3n xu\u1ea5t cu\u1ed1i'}</dt><dd>{snapshot.lastProductionAtUtc ?? '\u2014'}</dd></div></dl></article></div>}
-      {selected && hasUsableSnapshot && <p className="muted">{'Kho\u1ea3ng th\u1eddi gian: '}{snapshot.expectedIntervalSeconds ?? '\u2014'}s {'\u00b7'} {'Kh\u00f4ng c\u00f3 d\u1eef li\u1ec7u sau: '}{snapshot.noDataAfterSeconds ?? '\u2014'}s</p>}
+      {selected && <div className="toolbar" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => setRefreshNonce(value => value + 1)}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
+      {errorState && <div className="feedback feedback-error" role="alert"><p>{failureMessage(errorState)}</p><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => setRefreshNonce(value => value + 1)}>Thử lại</button></div>}
+      {showingStaleSnapshot && <p className="feedback feedback-info" role="status">Dữ liệu lần cuối vẫn được giữ trong khi chờ kết nối phục hồi.</p>}
+      {!selected && <div className="feedback feedback-info" role="status"><p>Chưa chọn điểm đo.</p><p className="muted">Không có điểm đo nào được tự động chọn.</p></div>}
+      {selected && !hasUsableSnapshot && !errorState && <p role="status">Đang tải dữ liệu mới nhất và sức khỏe nguồn…</p>}
+      {selected && hasUsableSnapshot && <div className="card-grid two-up"><article className="card latest-card"><div className="card-header"><div><p className="card-kicker">Điểm đo {snapshot.pointCode ?? selected.pointId}</p><h2>{snapshot.pointName ?? 'Quan sát mới nhất'}</h2></div><span className="badge badge-neutral">{snapshot.dataState ?? snapshot.state}</span></div><p className="muted">Chỉ số: {snapshot.metric ?? '—'} · Đơn vị: {snapshot.unit ?? '—'}</p><div className="latest-value"><strong>{hasData ? snapshot.value : 'Chưa có dữ liệu'}</strong><span>{hasData ? snapshot.unit ?? 'value' : ''}</span></div><p className="muted">Chất lượng: {snapshot.quality ?? '—'} · {snapshot.reason ?? (hasData ? 'Accepted' : 'NO_DATA')}</p><dl className="readiness-list"><div><dt>Thời điểm nguồn</dt><dd>{snapshot.sourceTimestamp ?? '—'}</dd></div><div><dt>Thời điểm nhận</dt><dd>{snapshot.receivedTimestamp ?? '—'}</dd></div><div><dt>Lần làm mới gần nhất</dt><dd>{snapshot.lastRefreshAt ?? '—'}</dd></div></dl></article><article className="card"><p className="card-kicker">Sức khỏe nguồn / Lượt chạy</p><h2>{snapshot.health}</h2><p className="muted">Nguồn: {snapshot.source?.name ?? '—'}</p><dl className="readiness-list"><div><dt>Mã lượt chạy</dt><dd>{snapshot.runId ?? '—'}</dd></div><div><dt>Trạng thái lượt chạy</dt><dd>{snapshot.runStatus ?? '—'}</dd></div><div><dt>Đã tạo</dt><dd>{snapshot.generated ?? '—'}</dd></div><div><dt>Đã chấp nhận / Từ chối</dt><dd>{snapshot.accepted ?? '—'} / {snapshot.rejected ?? '—'}</dd></div><div><dt>Lần sản xuất cuối</dt><dd>{snapshot.lastProductionAtUtc ?? '—'}</dd></div></dl></article></div>}
+      {selected && hasUsableSnapshot && <p className="muted">Khoảng thời gian: {snapshot.expectedIntervalSeconds ?? '—'}s · Không có dữ liệu sau: {snapshot.noDataAfterSeconds ?? '—'}s</p>}
     </section>
   )
 }

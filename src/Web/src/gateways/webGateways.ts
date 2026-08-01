@@ -158,7 +158,20 @@ export type TelemetryOptionSnapshot = {
   areas: Array<{ areaId: string; siteId: string; code: string; name: string }>
   assets: Array<{ assetId: string; siteId: string; areaId: string; code: string; name: string }>
   points: Array<{ pointId: string; siteId: string; areaId: string; assetId: string; code: string; name: string; metric: string; unit: string }>
+  scopedCount?: number
+  page?: number
+  pageSize?: number
   errorCode?: string
+}
+
+export type TelemetryOptionQuery = {
+  level: 'sites' | 'areas' | 'assets' | 'points'
+  siteId?: string
+  areaId?: string
+  assetId?: string
+  page?: number
+  pageSize?: number
+  search?: string
 }
 
 export type AuditSnapshot = {
@@ -228,7 +241,7 @@ export type SimulatorGateway = {
 
 export type LatestGateway = {
   getSnapshot: (selection?: TelemetrySelection) => Promise<LatestSnapshot>
-  getOptions?: () => Promise<TelemetryOptionSnapshot>
+  getOptions?: (query: TelemetryOptionQuery) => Promise<TelemetryOptionSnapshot>
 }
 export type AuditGateway = { getSnapshot: (cursor?: string) => Promise<AuditSnapshot> }
 
@@ -531,15 +544,25 @@ export const webGateways: WebGateways = {
     clearPendingMutation: () => { pendingSimulatorMutation = undefined },
   },
   latest: {
-    getOptions: async () => {
+    getOptions: async (query) => {
       try {
+        const parameters = new URLSearchParams({ level: query.level })
+        if (query.siteId) parameters.set('siteId', query.siteId)
+        if (query.areaId) parameters.set('areaId', query.areaId)
+        if (query.assetId) parameters.set('assetId', query.assetId)
+        if (query.page !== undefined) parameters.set('page', String(query.page))
+        if (query.pageSize !== undefined) parameters.set('pageSize', String(query.pageSize))
+        if (query.search) parameters.set('search', query.search)
         const body = await request<{
           sites?: TelemetryOptionSnapshot['sites']
           areas?: TelemetryOptionSnapshot['areas']
           assets?: TelemetryOptionSnapshot['assets']
           points?: TelemetryOptionSnapshot['points']
-        }>('/api/v1/telemetry/workspace/options')
-        return { state: 'ready', sites: body.sites ?? [], areas: body.areas ?? [], assets: body.assets ?? [], points: body.points ?? [] }
+          scopedCount?: number
+          page?: number
+          pageSize?: number
+        }>(`/api/v1/telemetry/workspace/options?${parameters}`)
+        return { state: 'ready', sites: body.sites ?? [], areas: body.areas ?? [], assets: body.assets ?? [], points: body.points ?? [], scopedCount: body.scopedCount, page: body.page, pageSize: body.pageSize }
       } catch (error) {
         return { state: telemetryStateFromError(error), sites: [], areas: [], assets: [], points: [], errorCode: error instanceof Error ? error.message : 'RUNTIME_FAILURE' }
       }
@@ -566,8 +589,8 @@ export const webGateways: WebGateways = {
           queriedAtUtc?: string
           errorCode?: string
         }>(`/api/v1/telemetry/workspace/current?${query}`)
-        const noData = current.dataState === 'NoData'
-        const state: GatewayState = current.dataState === 'Data' ? 'ready' : noData ? 'no-data' : current.dataState === 'NotConfigured' ? 'validation' : 'conflict'
+        const noData = current.dataState === 'NoData' || current.dataState === 'NotConfigured'
+        const state: GatewayState = current.dataState === 'Data' ? 'ready' : noData ? 'no-data' : 'conflict'
         return {
           state,
           value: current.value ?? null,

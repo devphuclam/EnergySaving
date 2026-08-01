@@ -1,20 +1,66 @@
 namespace IUMP.Api.Infrastructure;
 
+using System.Text.Json.Serialization;
+
 public sealed record TelemetryHierarchySelection(
     Guid SiteId,
     Guid? AreaId,
     Guid? AssetId,
     Guid PointId);
 
+public enum TelemetryOptionLevel
+{
+    Sites,
+    Areas,
+    Assets,
+    Points
+}
+
 public sealed record TelemetryOptionsQuery(
-    int Page,
-    int PageSize,
+    TelemetryOptionLevel Level,
+    long Page = 1,
+    int PageSize = 100,
     Guid? SiteId = null,
     Guid? AreaId = null,
-    Guid? AssetId = null)
+    Guid? AssetId = null,
+    string? Search = null)
 {
-    public int EffectivePage => Math.Clamp(Page, 1, 100_000);
-    public int EffectivePageSize => Math.Clamp(PageSize, 1, 500);
+    public const int DefaultPageSize = 100;
+    public const int MaximumPageSize = 100;
+    public const int MaximumSearchLength = 100;
+    public const long MaximumPage = 10_000_000;
+
+    public string? Validate()
+    {
+        if (Level == TelemetryOptionLevel.Areas && SiteId is null)
+            return "SITE_SELECTION_REQUIRED";
+        if (Level == TelemetryOptionLevel.Assets && (SiteId is null || AreaId is null))
+            return "AREA_SELECTION_REQUIRED";
+        if (Level == TelemetryOptionLevel.Points &&
+            (SiteId is null || AreaId is null || AssetId is null))
+            return "COMPLETE_HIERARCHY_REQUIRED";
+        if (Page < 1 || Page > MaximumPage)
+            return "INVALID_PAGE";
+        if (PageSize < 1 || PageSize > MaximumPageSize)
+            return "INVALID_PAGE_SIZE";
+        if (Search?.Length > MaximumSearchLength)
+            return "INVALID_SEARCH";
+        return TryGetOffset(out _) ? null : "INVALID_PAGE";
+    }
+
+    public bool TryGetOffset(out long offset)
+    {
+        try
+        {
+            offset = checked((Page - 1) * PageSize);
+            return offset >= 0;
+        }
+        catch (OverflowException)
+        {
+            offset = 0;
+            return false;
+        }
+    }
 }
 
 public sealed record TelemetrySiteOption(Guid SiteId, string Code, string Name);
@@ -36,7 +82,9 @@ public sealed record TelemetryWorkspaceOptions(
     IReadOnlyList<TelemetryAssetOption> Assets,
     IReadOnlyList<TelemetryPointOption> Points,
     Guid? SelectedPointId = null,
-    int ScopedCount = 0);
+    long ScopedCount = 0,
+    long Page = 1,
+    int PageSize = TelemetryOptionsQuery.DefaultPageSize);
 
 public sealed record TelemetrySourceSummary(Guid SourceId, string Code, string Name);
 
@@ -61,6 +109,7 @@ public sealed record TelemetryRunSummary(
     long Rejected,
     DateTime? LastProductionAtUtc);
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TelemetryDataState
 {
     NoSelection,
