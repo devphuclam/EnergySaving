@@ -441,6 +441,21 @@ public static class ConfigurationDuplicationTests
             service.Events[1].AggregateVersion == newHead?.Version &&
             service.Events[1].After["configurationVersion"]?.ToString() == "2",
             failures, "Configuration duplicate emits one Duplicated event for the persisted Draft aggregate version.");
+
+        var refreshedHead = await acqRepo.GetHeadAsync(newId);
+        AssertT037(refreshedHead is not null && refreshedHead.Version == 2 &&
+            refreshedHead.CurrentConfigurationVersion == 1,
+            failures, "A duplicated Draft remains discoverable after a fresh head read before review.");
+        var draftVersion = duplicated.DraftConfigurationVersion ?? 0;
+        AssertT037((await service.ReviewDraftAsync(newId, draftVersion, "admin")).IsSuccess,
+            failures, "A duplicated Draft can be reviewed after refresh using its persisted version.");
+        AssertT037((await service.ValidateDraftAsync(newId, draftVersion, "admin")).IsSuccess,
+            failures, "A reviewed duplicated Draft can be validated before activation.");
+        var activated = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            newId, refreshedHead!.Version, draftVersion, "admin", "corr-dup-activate", "caus-dup-activate"));
+        var activatedHead = await acqRepo.GetHeadAsync(newId);
+        AssertT037(activated.IsSuccess && activatedHead?.CurrentConfigurationVersion == draftVersion,
+            failures, "A duplicated Draft activates only after fresh persisted review and validation receipts.");
     }
 
     private static Task SimulatorManagementSearchMatchesSafeIdentifiersAsync(List<string> failures)

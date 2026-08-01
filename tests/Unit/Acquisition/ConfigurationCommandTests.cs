@@ -102,7 +102,7 @@ public static class ConfigurationCommandTests
         var sourceId = Guid.NewGuid();
         var pointId = Guid.NewGuid();
         var repository = new FakeAcquisitionConfigurationRepository();
-        var (adapter, _, callers) = CreateAdapterChain(sourceId, pointId,
+        var (adapter, catalog, callers) = CreateAdapterChain(sourceId, pointId,
             "receipt-site", "receipt-area", SiteStatus.Active, AreaStatus.Active, AssetStatus.Active,
             PointStatus.Draft, 60, 300);
         var service = new SimulatorConfigurationService(repository, callers, adapter);
@@ -120,6 +120,25 @@ public static class ConfigurationCommandTests
             "Activation rejects a Draft without a persisted relationship receipt.");
         AssertT079((await service.ReviewDraftAsync(head.ConfigurationId, draft, "admin")).IsSuccess,
             failures, "Authorized review persists a receipt for the exact Draft version.");
+        var sourceBeforeRelationshipChange = await catalog.GetDataSourceAsync(new DataSourceId(sourceId));
+        AssertT079(sourceBeforeRelationshipChange is not null, failures,
+            "Relationship-change fixture resolves the mapped Source before mutation.");
+        if (sourceBeforeRelationshipChange is not null)
+        {
+            await catalog.UpdateDataSourceAsync(new DataSource(sourceBeforeRelationshipChange.Id,
+                sourceBeforeRelationshipChange.Code, sourceBeforeRelationshipChange.Name,
+                sourceBeforeRelationshipChange.SourceType, sourceBeforeRelationshipChange.Status,
+                sourceBeforeRelationshipChange.Version + 1, sourceBeforeRelationshipChange.SiteId));
+        }
+        var staleActivation = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
+            head.ConfigurationId, head.Version, draft, "admin", "receipt-activate-stale-relationship", null));
+        AssertT079(staleActivation.Code == "REVIEW_REQUIRED",
+            failures, "Activation rejects a reviewed Draft when its current Source relationship fingerprint is stale.");
+        var staleRelationship = await service.ValidateDraftAsync(head.ConfigurationId, draft, "admin");
+        AssertT079(staleRelationship.Code == "REVIEW_REQUIRED", failures,
+            "Validation rejects a reviewed Draft when the current Source relationship fingerprint changes.");
+        AssertT079((await service.ReviewDraftAsync(head.ConfigurationId, draft, "admin")).IsSuccess,
+            failures, "A changed Source relationship can be reviewed again for the same Draft.");
         var missingValidation = await service.ActivateVersionAsync(new SimulatorConfigurationActivateVersionCommand(
             head.ConfigurationId, head.Version, draft, "admin", "receipt-activate-before-validation", null));
         AssertT079(missingValidation.Code == "VALIDATION_REQUIRED", failures,

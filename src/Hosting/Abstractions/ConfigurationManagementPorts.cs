@@ -92,7 +92,15 @@ public sealed record SimulatorConfigurationManagementItem(
     double? MaximumValue = null,
     ulong? DeterministicSeed = null,
     bool RelationshipReviewed = false,
-    bool ValidationRecorded = false);
+    bool ValidationRecorded = false,
+    string? SourceCode = null,
+    string? SourceName = null,
+    string? SourceStatus = null,
+    long? SourceVersion = null,
+    IReadOnlyList<string>? ReviewRelationships = null,
+    IReadOnlyList<string>? ExcludedFields = null,
+    bool RelationshipReceiptStale = false,
+    bool ValidationReceiptStale = false);
 
 public static class ConfigurationManagementResources
 {

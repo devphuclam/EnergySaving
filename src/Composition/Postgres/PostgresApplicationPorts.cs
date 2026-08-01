@@ -510,6 +510,10 @@ public sealed class PostgresConfigurationCommandPort(
                 return Failure(409, "NO_OP");
             try
             {
+                // A behavior-changing edit creates a fresh Draft. Any review or
+                // validation receipt for the superseded version is no longer valid.
+                await configurations.InvalidateReceiptAsync(
+                    configurationId, current.ConfigurationVersion, ct);
                 await configurations.AppendDraftVersionAsync(
                     configurationId, head.Version, next, ct);
             }

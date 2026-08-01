@@ -198,6 +198,72 @@ public static class ConfigurationManagementTests
             new ManagementQueryFilter(Search: "1", Page: 1, PageSize: 1), admin);
         Check(byVersion.TotalCount >= 2 && byVersion.Items.Count == 1,
             "T040 Simulator search filters by current version before paging.", failures);
+
+        var configurationCommands = services.GetRequiredService<IConfigurationCommandPort>();
+        var managementCommands = services.GetRequiredService<IConfigurationManagementCommandPort>();
+        var transactionFactory = services.GetRequiredService<IHostTransactionFactory>();
+        var editFields = new[]
+        {
+            CommandFingerprintField.String("scenarioType", "Constant"),
+            CommandFingerprintField.Int64("intervalSeconds", 60),
+            CommandFingerprintField.Decimal("minimumValue", 43),
+            CommandFingerprintField.Decimal("maximumValue", 43),
+            CommandFingerprintField.String("deterministicSeed", "8")
+        };
+        await using (var transaction = await transactionFactory.BeginAsync())
+        {
+            var edited = await configurationCommands.ExecuteAsync(
+                "Acquisition.UpdateSimulatorConfiguration.v1",
+                new ConfigurationCommandRequest(configurationA, string.Empty, 1, editFields),
+                admin, transaction);
+            await ((IHostTransactionController)transaction).CommitAsync();
+            Check(edited.StatusCode == 200,
+                "T043 behavior-changing edit creates a new Simulator Draft.", failures);
+        }
+        var afterEdit = await query.GetDetailAsync("simulator-configurations", configurationA, admin);
+        Check(afterEdit is SimulatorConfigurationManagementItem editedItem &&
+              editedItem.DraftConfigurationVersion == 2 &&
+              !editedItem.RelationshipReviewed && !editedItem.ValidationRecorded &&
+              editedItem.SourceCode is not null && editedItem.ReviewRelationships?.Contains("Data Source") == true,
+            "T043 management detail reconstructs an unreviewed edited Draft from server state.", failures);
+
+        await using (var transaction = await transactionFactory.BeginAsync())
+        {
+            var reviewed = await managementCommands.ReviewSimulatorConfigurationAsync(
+                configurationA, 2, admin, transaction);
+            await ((IHostTransactionController)transaction).CommitAsync();
+            Check(reviewed.StatusCode == 200,
+                "T043 server relationship review persists for the Draft version.", failures);
+        }
+        var afterReview = await query.GetDetailAsync("simulator-configurations", configurationA, admin);
+        Check(afterReview is SimulatorConfigurationManagementItem reviewedItem &&
+              reviewedItem.RelationshipReviewed && !reviewedItem.ValidationRecorded,
+            "T043 refresh/detail returns the persisted relationship receipt.", failures);
+
+        await using (var transaction = await transactionFactory.BeginAsync())
+        {
+            var validated = await managementCommands.ValidateAsync(
+                "simulator-configurations", configurationA, admin, transaction);
+            await ((IHostTransactionController)transaction).CommitAsync();
+            Check(validated.StatusCode == 200,
+                "T043 exact Draft validation persists after review.", failures);
+        }
+        await using (var transaction = await transactionFactory.BeginAsync())
+        {
+            var editedAgain = await configurationCommands.ExecuteAsync(
+                "Acquisition.UpdateSimulatorConfiguration.v1",
+                new ConfigurationCommandRequest(configurationA, string.Empty, 2,
+                    [.. editFields.Take(4), CommandFingerprintField.String("deterministicSeed", "9")]),
+                admin, transaction);
+            await ((IHostTransactionController)transaction).CommitAsync();
+            Check(editedAgain.StatusCode == 200,
+                "T043 second behavior-changing edit creates the next Draft.", failures);
+        }
+        var afterSecondEdit = await query.GetDetailAsync("simulator-configurations", configurationA, admin);
+        Check(afterSecondEdit is SimulatorConfigurationManagementItem freshItem &&
+              freshItem.DraftConfigurationVersion == 3 &&
+              !freshItem.RelationshipReviewed && !freshItem.ValidationRecorded,
+            "T043 refresh/detail invalidates review and validation receipts after Draft edit.", failures);
     }
 
     private static async Task DetailAndDuplicateJourneyAsync(

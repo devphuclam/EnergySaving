@@ -762,9 +762,34 @@ public sealed class PostgresConfigurationManagementPorts(
             ? draft : value.CurrentConfigurationVersion;
         var current = await configurations.GetVersionAsync(
             value.ConfigurationId, displayedVersion, ct);
+        var draftVersion = draft > value.CurrentConfigurationVersion
+            ? await configurations.GetVersionAsync(value.ConfigurationId, draft, ct)
+            : null;
         var receipt = draft > value.CurrentConfigurationVersion
             ? await configurations.GetReceiptAsync(value.ConfigurationId, draft, ct)
             : null;
+        var source = await catalog.GetDataSourceSnapshotAsync(value.SourceId, ct);
+        var relationship = draftVersion is not null
+            ? await sourceScopes.GetSourceScopeAsync(value.SourceId, ct)
+            : null;
+        var relationshipFingerprint = relationship is null
+            ? null
+            : SimulatorConfigurationReceiptFingerprint.Relationship(relationship);
+        var relationshipReviewed = receipt is not null &&
+            relationshipFingerprint is not null &&
+            receipt.SourceId == value.SourceId &&
+            string.Equals(receipt.RelationshipFingerprint, relationshipFingerprint,
+                StringComparison.Ordinal);
+        var payloadFingerprint = draftVersion is null
+            ? null
+            : SimulatorConfigurationReceiptFingerprint.Payload(value, draftVersion);
+        var validationRecorded = relationshipReviewed &&
+            receipt is not null &&
+            payloadFingerprint is not null &&
+            string.Equals(receipt.ValidatedPayloadFingerprint, payloadFingerprint,
+                StringComparison.Ordinal) &&
+            receipt.ValidatedByUserId is not null &&
+            receipt.ValidatedAtUtc is not null;
         return new SimulatorConfigurationManagementItem(
             value.ConfigurationId, value.SourceId,
             value.CurrentConfigurationVersion, value.Version,
@@ -772,8 +797,16 @@ public sealed class PostgresConfigurationManagementPorts(
             current?.ScenarioType.ToString(), current?.IntervalSeconds,
             current?.MinimumValue, current?.MaximumValue,
             current?.DeterministicSeed,
-            receipt is not null,
-            !string.IsNullOrWhiteSpace(receipt?.ValidatedPayloadFingerprint));
+            relationshipReviewed,
+            validationRecorded,
+            source?.Code,
+            source?.Name,
+            source?.Status,
+            source?.Version,
+            ["Data Source"],
+            ExcludedDuplicationFields,
+            receipt is not null && !relationshipReviewed,
+            receipt?.ValidatedPayloadFingerprint is not null && !validationRecorded);
     }
 
     private sealed class CatalogCallerBridge(

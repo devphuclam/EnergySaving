@@ -34,6 +34,7 @@ export function resourceLabel(resource: string): string {
 
 export function textValue(value: unknown): string {
   if (value === null || value === undefined) return ''
+  if (Array.isArray(value)) return value.map(item => textValue(item)).filter(Boolean).join(', ')
   if (typeof value === 'object') {
     const raw = (value as Record<string, unknown>).value
     return raw === null || raw === undefined ? '' : String(raw)
