@@ -6,16 +6,21 @@
 defined in `plan.md`. The frontend behavior runner remains package-policy blocked unless an already
 approved runnable dependency exists.
 
-**Execution rule**: Phase 0, Phase 1, and Phase 2 are historical checkpoints. This corrective
-invocation reopens only Phase 3 tasks T049–T056 from authoritative merged `main` baseline
-`b07261ff8affd16eef7c2473b5ead3ab0719d25a`, records new red/green evidence honestly, commits and
-pushes the feature branch, and stops before T057. It must not merge automatically.
-Do not begin Phase 4 in the same implementation run.
+**Execution rule**: Phase 0 through Phase 3 are accepted historical checkpoints. This Phase 4
+invocation executes only T057–T064 from authoritative merged `main` baseline
+`ebb4a17c6bb48ca1c90abd2f6c9a7583ac8ee8ab` on branch `003-operational-configuration-workspace`,
+records new red/green evidence honestly, commits and pushes the feature branch, and stops before
+T065. It must not merge automatically. Do not begin Phase 5 or execute T065+ in the same run.
 
-**Final corrective closure rule**: From merged `main` baseline
-`2741429fb1a28d403adde69e36810bab16d12af5`, only T054–T056 were reopened for the
-dependency-versus-runtime Web error-state correction. No new task IDs were created, T057 and
-later remain out of scope, and Feature 002 remains untouched.
+**Historical note (not operative for this run)**: Earlier corrective closure from merged `main`
+baseline `2741429fb1a28d403adde69e36810bab16d12af5` addressed T054–T056. That wording is
+superseded by the Phase 4 execution gate below; it does not reopen Phase 3 and does not change the
+current T057–T064 scope. Feature 002 remains untouched.
+
+**Phase 4 execution gate**: The current run is authorized only for T057-T064 from baseline
+`ebb4a17c6bb48ca1c90abd2f6c9a7583ac8ee8ab`. Keep T065-T072 unchecked and stop immediately
+before T065. Feature 002 and accepted Phase 1-3 behavior remain out of scope. Any historical
+Phase 3 wording above is superseded by this gate and is not operative for the current run.
 
 ## Checklist format
 
@@ -136,14 +141,14 @@ NO; explicit stop before T037.
 
 **User Story**: US4 — Observe Selected Latest and Source Health
 
-- [ ] T057 [P] [US4] [RUNNABLE_NOW] Add failing selected-Point/no-first-Point/No-Data-not-zero tests in `tests/Unit/Api/LatestSelectionTests.cs`
-- [ ] T058 [P] [US4] [RUNNABLE_NOW] Add failing PostgreSQL Latest/Health/counter scope tests in `tests/Integration/OperationalWorkspace/LatestHealthTests.cs`
-- [ ] T059 [US4] [RUNNABLE_NOW] Add authorized hierarchy selector query contract with scope-before-paging in `src/Hosting/Abstractions/TelemetryWorkspacePorts.cs`
-- [ ] T060 [US4] [RUNNABLE_NOW] Implement PostgreSQL Point selector and selected Latest/Health query adapter in `src/Composition/Postgres/PostgresTelemetryWorkspacePorts.cs`
-- [ ] T061 [US4] [RUNNABLE_NOW] Expose authorized selector endpoints while preserving safe Point queries in `src/Api/TelemetryQueryEndpoints.cs`
-- [ ] T062 [US4] [RUNNABLE_NOW] Replace implicit Point lookup with explicit Site/Area/Asset/Point selection in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
-- [ ] T063 [US4] [RUNNABLE_NOW] Add ten-second default auto refresh, disable/manual refresh, timestamps, quality, Health, Run/counters, and explicit No Data in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
-- [ ] T064 [US4] [RUNNABLE_NOW] Verify US4 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-04-checkpoint.md`
+- [x] T057 [P] [US4] [RUNNABLE_NOW] Add failing selected-Point/no-first-Point/No-Data-not-zero tests in `tests/Unit/Api/LatestSelectionTests.cs`
+- [x] T058 [P] [US4] [RUNNABLE_NOW] Add failing PostgreSQL Latest/Health/counter scope tests in `tests/Integration/OperationalWorkspace/LatestHealthTests.cs`
+- [x] T059 [US4] [RUNNABLE_NOW] Add authorized hierarchy selector query contract with scope-before-paging in `src/Hosting/Abstractions/TelemetryWorkspacePorts.cs`
+- [x] T060 [US4] [RUNNABLE_NOW] Implement PostgreSQL Point selector and selected Latest/Health query adapter in `src/Composition/Postgres/PostgresTelemetryWorkspacePorts.cs`
+- [x] T061 [US4] [RUNNABLE_NOW] Expose authorized selector endpoints while preserving safe Point queries in `src/Api/TelemetryQueryEndpoints.cs`
+- [x] T062 [US4] [RUNNABLE_NOW] Replace implicit Point lookup with explicit Site/Area/Asset/Point selection in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
+- [x] T063 [US4] [RUNNABLE_NOW] Add ten-second default auto refresh, disable/manual refresh, timestamps, quality, Health, Run/counters, and explicit No Data in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
+- [x] T064 [US4] [RUNNABLE_NOW] Verify US4 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-04-checkpoint.md`
 
 ---
 
@@ -244,4 +249,4 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Phase 6 | 8 | T073-T080 |
 | **Total** | **80** | **T001-T080** |
 
-**MVP for this implementation run**: Phase 3 / US3 only. Do not execute T057 or later.
+**MVP for this implementation run**: Phase 4 / US4 only. Do not execute T065 or later.

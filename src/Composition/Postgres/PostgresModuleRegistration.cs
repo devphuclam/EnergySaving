@@ -60,6 +60,7 @@ public static class PostgresModuleRegistration
             provider.GetRequiredService<PostgresSimulatorCommandPort>());
         services.AddScoped<ISimulatorQueryPort, PostgresSimulatorQueryPort>();
         services.AddScoped<ISimulatorWorkspaceCommandPort, PostgresSimulatorWorkspaceCommandPort>();
+        services.AddScoped<ITelemetryWorkspaceQueryPort, PostgresTelemetryWorkspacePorts>();
         services.AddIumpPostgresRuntimeProviders();
         return services;
     }

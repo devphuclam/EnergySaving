@@ -18,6 +18,7 @@ $results.Add((Test-FeatureArtifacts -FeatureResolution $featureResolution -Mode 
 $checkPlan = @(Get-HarnessCheckPlan -Mode $Mode)
 if ($Feature -eq '003-operational-configuration-workspace') {
     $checkPlan += 'simulator-phase3-closure'
+    $checkPlan += 'telemetry-phase4-closure'
 }
 
 function Add-ScriptCheck {
@@ -46,6 +47,7 @@ $scriptChecks = [ordered]@{
 }
 if ($Feature -eq '003-operational-configuration-workspace') {
     $scriptChecks['simulator-phase3-closure'] = 'tests\Verification\simulator-phase3-closure.tests.ps1'
+    $scriptChecks['telemetry-phase4-closure'] = 'tests\Verification\telemetry-phase4-closure.tests.ps1'
 }
 foreach ($entry in $scriptChecks.GetEnumerator()) {
     if ($entry.Key -in $checkPlan) {

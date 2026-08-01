@@ -129,9 +129,36 @@ export type LatestSnapshot = {
   receivedTimestamp?: string
   reason?: string
   runStatus?: string
+  runId?: string
   generated?: number
   accepted?: number
   rejected?: number
+  dataState?: 'NoSelection' | 'Data' | 'NoData' | 'NotConfigured' | 'Ambiguous' | 'HierarchyConflict'
+  pointCode?: string
+  pointName?: string
+  metric?: string
+  source?: { sourceId: string; code: string; name: string }
+  lastProductionAtUtc?: string
+  lastRefreshAt?: string
+  expectedIntervalSeconds?: number
+  noDataAfterSeconds?: number
+  errorCode?: string
+}
+
+export type TelemetrySelection = {
+  siteId: string
+  areaId?: string
+  assetId?: string
+  pointId: string
+}
+
+export type TelemetryOptionSnapshot = {
+  state: GatewayState
+  sites: Array<{ siteId: string; code: string; name: string }>
+  areas: Array<{ areaId: string; siteId: string; code: string; name: string }>
+  assets: Array<{ assetId: string; siteId: string; areaId: string; code: string; name: string }>
+  points: Array<{ pointId: string; siteId: string; areaId: string; assetId: string; code: string; name: string; metric: string; unit: string }>
+  errorCode?: string
 }
 
 export type AuditSnapshot = {
@@ -199,7 +226,10 @@ export type SimulatorGateway = {
   clearPendingMutation: () => void
 }
 
-export type LatestGateway = { getSnapshot: () => Promise<LatestSnapshot> }
+export type LatestGateway = {
+  getSnapshot: (selection?: TelemetrySelection) => Promise<LatestSnapshot>
+  getOptions?: () => Promise<TelemetryOptionSnapshot>
+}
 export type AuditGateway = { getSnapshot: (cursor?: string) => Promise<AuditSnapshot> }
 
 export type WebGateways = {
@@ -230,6 +260,16 @@ async function antiforgeryToken(): Promise<string> {
 
 function stateFromError(error: unknown): GatewayState {
   return error instanceof Error && error.message === 'forbidden' ? 'forbidden' : error instanceof Error && error.message === 'expired' ? 'expired' : 'error'
+}
+
+function telemetryStateFromError(error: unknown): GatewayState {
+  if (!(error instanceof Error)) return 'runtime-error'
+  if (error.message === 'forbidden') return 'forbidden'
+  if (error.message === 'expired') return 'expired'
+  if (error.message === 'request-404') return 'not-found'
+  if (error.message === 'request-422') return 'validation'
+  if (error.message === 'request-503') return 'dependency'
+  return 'runtime-error'
 }
 
 function simulatorState(value: string | undefined, errorCode?: string | null): GatewayState {
@@ -491,41 +531,70 @@ export const webGateways: WebGateways = {
     clearPendingMutation: () => { pendingSimulatorMutation = undefined },
   },
   latest: {
-    getSnapshot: async () => {
+    getOptions: async () => {
       try {
-        const points = await request<Array<{ id?: string; pointId?: string }>>('/api/v1/points')
-        const pointId = points[0]?.pointId ?? points[0]?.id
-        if (!pointId) return { state: 'no-data', value: null, health: 'No Data' }
-        const latest = await request<{
-          numericValue: number | null
-          unitCode?: string
-          status: string
-          isNoData: boolean
+        const body = await request<{
+          sites?: TelemetryOptionSnapshot['sites']
+          areas?: TelemetryOptionSnapshot['areas']
+          assets?: TelemetryOptionSnapshot['assets']
+          points?: TelemetryOptionSnapshot['points']
+        }>('/api/v1/telemetry/workspace/options')
+        return { state: 'ready', sites: body.sites ?? [], areas: body.areas ?? [], assets: body.assets ?? [], points: body.points ?? [] }
+      } catch (error) {
+        return { state: telemetryStateFromError(error), sites: [], areas: [], assets: [], points: [], errorCode: error instanceof Error ? error.message : 'RUNTIME_FAILURE' }
+      }
+    },
+    getSnapshot: async (selection) => {
+      if (!selection?.siteId || !selection.areaId || !selection.assetId || !selection.pointId)
+        return { state: 'no-selection', value: null, health: 'Chưa chọn điểm', dataState: 'NoSelection' }
+      try {
+        const query = new URLSearchParams({ siteId: selection.siteId, pointId: selection.pointId })
+        if (selection.areaId) query.set('areaId', selection.areaId)
+        if (selection.assetId) query.set('assetId', selection.assetId)
+        const current = await request<{
+          point?: { pointId?: string; code?: string; name?: string; metric?: string; unit?: string }
+          dataState?: LatestSnapshot['dataState']
+          hasData?: boolean
+          value?: number | null
+          quality?: string
           reasonCode?: string
           sourceTimestampUtc?: string
           receivedAtUtc?: string
-          runStatus?: string
-          generated?: number
-          accepted?: number
-          rejected?: number
-        }>(`/api/v1/points/${pointId}/latest`)
-        const health = await request<{ status?: string }>(`/api/v1/points/${pointId}/source-health`)
+          source?: LatestSnapshot['source']
+          health?: { status?: string; lastAcceptedReceivedAtUtc?: string; runStatus?: string; generated?: number; accepted?: number; rejected?: number; evaluatedAtUtc?: string; expectedIntervalSeconds?: number; noDataAfterSeconds?: number }
+          run?: { runId?: string; status?: string; generated?: number; accepted?: number; rejected?: number; lastProductionAtUtc?: string }
+          queriedAtUtc?: string
+          errorCode?: string
+        }>(`/api/v1/telemetry/workspace/current?${query}`)
+        const noData = current.dataState === 'NoData'
+        const state: GatewayState = current.dataState === 'Data' ? 'ready' : noData ? 'no-data' : current.dataState === 'NotConfigured' ? 'validation' : 'conflict'
         return {
-          state: latest.isNoData ? 'no-data' : 'ready',
-          value: latest.numericValue,
-          unit: latest.unitCode,
-          quality: latest.status,
-          health: health.status ?? (latest.isNoData ? 'No Data' : 'Unavailable'),
-          pointId,
-          sourceTimestamp: latest.sourceTimestampUtc,
-          receivedTimestamp: latest.receivedAtUtc,
-          reason: latest.reasonCode,
-          runStatus: latest.runStatus,
-          generated: latest.generated,
-          accepted: latest.accepted,
-          rejected: latest.rejected,
+          state,
+          value: current.value ?? null,
+          unit: current.point?.unit,
+          quality: current.quality,
+          health: current.health?.status ?? (noData ? 'Chưa có dữ liệu' : 'Unavailable'),
+          pointId: current.point?.pointId ?? selection.pointId,
+          pointCode: current.point?.code,
+          pointName: current.point?.name,
+          metric: current.point?.metric,
+          dataState: current.dataState,
+          sourceTimestamp: current.sourceTimestampUtc,
+          receivedTimestamp: current.receivedAtUtc,
+          reason: current.reasonCode,
+          source: current.source,
+          runStatus: current.run?.status ?? current.health?.runStatus,
+          runId: current.run?.runId,
+          generated: current.run?.generated ?? current.health?.generated,
+          accepted: current.run?.accepted ?? current.health?.accepted,
+          rejected: current.run?.rejected ?? current.health?.rejected,
+          lastProductionAtUtc: current.run?.lastProductionAtUtc,
+          lastRefreshAt: current.queriedAtUtc ?? new Date().toISOString(),
+          expectedIntervalSeconds: current.health?.expectedIntervalSeconds,
+          noDataAfterSeconds: current.health?.noDataAfterSeconds,
+          errorCode: current.errorCode,
         } satisfies LatestSnapshot
-      } catch (error) { return { state: stateFromError(error), value: null, health: 'Unavailable' } }
+      } catch (error) { return { state: telemetryStateFromError(error), value: null, health: 'Unavailable', errorCode: error instanceof Error ? error.message : 'RUNTIME_FAILURE' } }
     },
   },
   audit: {
