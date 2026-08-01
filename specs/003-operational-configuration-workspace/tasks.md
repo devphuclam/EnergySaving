@@ -150,7 +150,7 @@ NO; explicit stop before T037.
 - [x] T061 [US4] [RUNNABLE_NOW] Expose authorized selector endpoints while preserving safe Point queries in `src/Api/TelemetryQueryEndpoints.cs`
 - [x] T062 [US4] [RUNNABLE_NOW] Replace implicit Point lookup with explicit Site/Area/Asset/Point selection in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
 - [x] T063 [US4] [RUNNABLE_NOW] Add ten-second default auto refresh, disable/manual refresh, timestamps, quality, Health, Run/counters, and explicit No Data in `src/Web/src/features/telemetry/PointCurrentRoute.tsx`
-- [ ] T064 [US4] [RUNNABLE_NOW] Verify US4 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-04-checkpoint.md`
+- [x] T064 [US4] [RUNNABLE_NOW] Verify US4 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-04-checkpoint.md`
 
 ---
 

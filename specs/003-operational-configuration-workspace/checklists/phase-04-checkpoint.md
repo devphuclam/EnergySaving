@@ -1,8 +1,9 @@
 # Feature 003 Phase 4 corrective checkpoint — T057–T064
 
-Status: implementation and runnable evidence are complete. T057–T063 are complete; T064 remains
-unchecked until the fresh Standards and Specification reviews finish with no actionable High or
-Medium findings. Release-ready remains **NO** and execution stops before T065.
+Status: **ACCEPTED** for the bounded Phase 4 scope. T057–T064 are complete and the fresh
+Standards and Specification reviews report no Critical, High, or actionable Medium findings.
+Release-ready remains **NO** because mandatory Full-environment checks are company-approval
+blocked. Execution stops before T065.
 
 ## Execution gate
 
@@ -75,8 +76,9 @@ Fresh result: `cases=13; assertions=19; failures=0`; PostgreSQL suites `15`, fai
 
 ## Hosted HTTP matrix
 
-API `http://127.0.0.1:5000` and Web `http://localhost:5173` were started with repository scripts and
-an approved local credential that was never printed or persisted. Hosted results:
+API `http://localhost:5000` (listener bound to `127.0.0.1:5000`) and Web
+`http://localhost:5173` were started with repository scripts and an approved local credential that
+was never printed or persisted. Hosted results:
 
 - live/ready/login, authorized Sites/Areas/Assets, Point page 1/page 6, exact search, no-Mapping,
   accepted zero, accepted non-zero: HTTP 200;
@@ -129,7 +131,7 @@ processes were stopped after evidence collection.
 | `simulator-phase3-closure.tests.ps1` | 0 | PASS |
 | `telemetry-phase4-closure.tests.ps1` | 0 | PASS |
 | `harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS=10 |
-| `harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | PASS=13, mandatory FAIL=0, mandatory blockers=2 |
+| `harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED_BY_COMPANY_APPROVAL=2, PASS=13, mandatory FAIL=0 |
 
 The first fresh build attempt exited `1` solely because the still-running hosted API held its output
 DLL. After stopping API/Web, the required fresh build exited `0`; this was a runtime lock, not a code
@@ -160,14 +162,16 @@ Spec Kit governance is not counted in T057–T064.
 
 ## Review and ledger
 
-Fresh Standards and Specification review results are pending. Until both report Critical `0`, High
-`0`, and actionable Medium `0`, T064 and Phase 4 acceptance remain **NO**.
+Fresh final reviews against the corrective baseline report:
+
+- Standards: Critical `0`, High `0`, actionable Medium `0` (one optional Low note about repeated
+  selector switches; no acceptance impact).
+- Specification: Critical `0`, High `0`, actionable Medium `0`.
 
 | Range | Current disposition |
 |---|---|
-| T057–T063 | PASS: 7 |
-| T064 | PENDING REVIEW |
+| T057–T064 | PASS: 8 |
 | T065–T072 | NOT STARTED; unchecked |
 
-Current ledger: PASS **7**, FAIL **0**, runnable NOT_RUN **0**, PENDING **1**. Release-ready: **NO**.
-Explicit stop before T065.
+Current ledger: PASS **8**, FAIL **0**, runnable NOT_RUN **0**, PENDING **0**. Phase 4 accepted:
+**YES**. Release-ready: **NO**. Explicit stop before T065.
