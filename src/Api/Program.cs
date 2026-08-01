@@ -31,6 +31,7 @@ builder.Services.AddScoped<ISimulatorSelectedStartCommandPort>(provider =>
 builder.Services.AddScoped<ISimulatorQueryPort, PostgresSimulatorQueryPort>();
 builder.Services.AddScoped<ISimulatorWorkspaceCommandPort, PostgresSimulatorWorkspaceCommandPort>();
 builder.Services.AddScoped<ITelemetryQueryPort, PostgresTelemetryQueryPort>();
+builder.Services.AddScoped<ITelemetryWorkspaceQueryPort, PostgresTelemetryWorkspacePorts>();
 builder.Services.AddScoped<IAuditQueryPort, PostgresAuditQueryPort>();
 builder.Services.AddScoped<IdempotentCommandExecutor>();
 builder.Services.AddSingleton<IUtcClock, SystemUtcClock>();

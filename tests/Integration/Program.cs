@@ -28,6 +28,9 @@ failures.AddRange(await PostgresRuntimeLeafTests.RunAsync(provider));
 failures.AddRange(await OperationalSetupJourneyTests.RunAsync(provider));
 failures.AddRange(await ConfigurationManagementTests.RunAsync(provider));
 failures.AddRange(await SimulatorOperationsTests.RunAsync(provider));
+var latestHealth = await LatestHealthTests.RunAsync(provider);
+failures.AddRange(latestHealth);
+Console.WriteLine($"T058 latest-health target=127.0.0.1:5433/iump_dev cases={LatestHealthTests.TestCount}; assertions={LatestHealthTests.AssertionCount}; failures={latestHealth.Count}");
 var operationsContract = new OperationsJobRepositoryContractRunner();
 await operationsContract.RunAllAsync(
     new PostgresOperationsJobRepositoryTestProviderFactory(provider));
