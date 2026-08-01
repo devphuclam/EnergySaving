@@ -42,7 +42,7 @@ public sealed class PostgresSimulatorWorkspaceQueryPort(
         var history = selectedOption is null
             ? new SimulatorRunHistoryPage(Array.Empty<SimulatorRunHistoryItem>(), 0,
                 boundedPage, boundedPageSize)
-            : await ReadHistoryAsync(connection, selectedOption, principal.IsAdministrator,
+            : await ReadHistoryAsync(connection, selectedOption, selection, principal.IsAdministrator,
                 siteIds.Select(value => value.ToString("D")).ToArray(),
                 areaIds.Select(value => value.ToString("D")).ToArray(),
                 boundedPage, boundedPageSize, ct);
@@ -130,6 +130,7 @@ public sealed class PostgresSimulatorWorkspaceQueryPort(
     private static async Task<SimulatorRunHistoryPage> ReadHistoryAsync(
         NpgsqlConnection connection,
         SimulatorSelectionOption selected,
+        SimulatorSelection? selection,
         bool isGlobal,
         string[] siteIds,
         string[] areaIds,
@@ -158,6 +159,13 @@ public sealed class PostgresSimulatorWorkspaceQueryPort(
                   WHERE ps.run_id=r.run_id
                     AND (@is_global OR ps.site_id=ANY(@site_ids)
                          OR ps.area_id=ANY(@area_ids))
+                    AND (@selected_site_id='' OR ps.site_id=@selected_site_id)
+                    AND (@selected_area_id='' OR ps.area_id=@selected_area_id)
+                    AND (@selected_asset_id='' OR EXISTS (
+                        SELECT 1
+                        FROM organization.measurement_points mp
+                        WHERE mp.id=ps.point_id
+                          AND mp.asset_id=NULLIF(@selected_asset_id,'')::uuid))
               )
             ORDER BY r.created_at_utc DESC,r.run_id DESC
             OFFSET @offset LIMIT @limit
@@ -169,6 +177,9 @@ public sealed class PostgresSimulatorWorkspaceQueryPort(
         command.Parameters.AddWithValue("is_global", isGlobal);
         command.Parameters.AddWithValue("site_ids", siteIds);
         command.Parameters.AddWithValue("area_ids", areaIds);
+        command.Parameters.AddWithValue("selected_site_id", selection?.SiteId.ToString("D") ?? string.Empty);
+        command.Parameters.AddWithValue("selected_area_id", selection?.AreaId?.ToString("D") ?? string.Empty);
+        command.Parameters.AddWithValue("selected_asset_id", selection?.AssetId?.ToString("D") ?? string.Empty);
         command.Parameters.AddWithValue("offset", (page - 1) * pageSize);
         command.Parameters.AddWithValue("limit", pageSize);
 
@@ -242,6 +253,7 @@ public sealed class PostgresSimulatorWorkspaceQueryPort(
 /// Bridges the selected-context contract to the existing transactional run command port.
 public sealed class PostgresSimulatorWorkspaceCommandPort(
     ISimulatorWorkspaceQueryPort workspace,
+    ISimulatorSelectedStartCommandPort selectedStarts,
     ISimulatorCommandPort commands) : ISimulatorWorkspaceCommandPort
 {
     public async Task<CommandExecutionResult> ExecuteAsync(
@@ -268,9 +280,10 @@ public sealed class PostgresSimulatorWorkspaceCommandPort(
                 return Failure(404, "SIMULATOR_RUN_NOT_FOUND");
         }
 
-        return await commands.ExecuteAsync(operationCode,
-            operationCode == CommandOperationCodes.StartSimulator
-                ? selection.SourceId : runId!.Value,
+        if (operationCode == CommandOperationCodes.StartSimulator)
+            return await selectedStarts.ExecuteSelectedStartAsync(selection, principal, transaction, ct);
+
+        return await commands.ExecuteAsync(operationCode, runId!.Value,
             expectedVersion, principal, transaction, ct);
     }
 

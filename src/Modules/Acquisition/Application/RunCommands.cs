@@ -37,7 +37,33 @@ public sealed class SimulatorRunCommandService
         var existing = await _runs.GetCurrentBySourceAsync(command.SourceId, ct);
         if (existing is not null)
         {
+            SimulatorStartSnapshot? selectedSnapshot = null;
+            if (command.Selection is { } selected)
+            {
+                selectedSnapshot = await _snapshots.ResolveAsync(
+                    command.SourceId, _clock.UtcNow, selected, ct);
+                if (selectedSnapshot is null || selectedSnapshot.RequestedSelection != selected)
+                    return RunCommandResult.Failure("NOT_FOUND", "The target is not visible.");
+                if (existing.ConfigurationId != selected.ConfigurationId ||
+                    existing.ConfigurationVersion != selected.ConfigurationVersion)
+                    return RunCommandResult.Failure(
+                        "PROVIDER_VERSION_DRIFT", "The selected configuration is not pinned by the current Run.");
+            }
             var pinnedPoints = await _runs.ListPointStatesAsync(existing.RunId, ct);
+            if (selectedSnapshot is not null)
+            {
+                var requestedPoints = selectedSnapshot.Points
+                    .Select(point => $"{point.PointId:D}|{point.SiteId}|{point.AreaId}")
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray();
+                var existingPoints = pinnedPoints
+                    .Select(point => $"{point.PointId:D}|{point.SiteId}|{point.AreaId}")
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray();
+                if (!requestedPoints.SequenceEqual(existingPoints, StringComparer.Ordinal))
+                    return RunCommandResult.Failure(
+                        "PROVIDER_VERSION_DRIFT", "The selected hierarchy is not pinned by the current Run.");
+            }
             var existingAuthorization = Authorize(
                 caller, pinnedPoints.Select(point => (point.SiteId, point.AreaId)));
             if (!existingAuthorization.Allowed)
@@ -50,8 +76,9 @@ public sealed class SimulatorRunCommandService
         }
 
         var now = _clock.UtcNow;
-        var snapshot = await _snapshots.ResolveAsync(command.SourceId, now, ct);
-        if (snapshot is null || snapshot.SourceId != command.SourceId)
+        var snapshot = await _snapshots.ResolveAsync(command.SourceId, now, command.Selection, ct);
+        if (snapshot is null || snapshot.SourceId != command.SourceId ||
+            command.Selection is not null && snapshot.RequestedSelection != command.Selection)
             return RunCommandResult.Failure("NOT_FOUND", "The target is not visible.");
         var authorization = Authorize(
             caller, snapshot.Points.Select(point => (point.SiteId, point.AreaId)));

@@ -26,6 +26,8 @@ builder.Services.AddScoped<IServerPrincipalAccessor, HttpServerPrincipalAccessor
 builder.Services.AddScoped<IConfigurationCommandPort, PostgresConfigurationCommandPort>();
 builder.Services.AddScoped<IConfigurationQueryPort, PostgresConfigurationQueryPort>();
 builder.Services.AddScoped<ISimulatorCommandPort, PostgresSimulatorCommandPort>();
+builder.Services.AddScoped<ISimulatorSelectedStartCommandPort>(provider =>
+    provider.GetRequiredService<PostgresSimulatorCommandPort>());
 builder.Services.AddScoped<ISimulatorQueryPort, PostgresSimulatorQueryPort>();
 builder.Services.AddScoped<ISimulatorWorkspaceCommandPort, PostgresSimulatorWorkspaceCommandPort>();
 builder.Services.AddScoped<ITelemetryQueryPort, PostgresTelemetryQueryPort>();

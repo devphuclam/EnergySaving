@@ -106,10 +106,11 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
     public async Task<SimulatorStartSnapshot?> ResolveAsync(
         Guid sourceId,
         DateTime atUtc,
+        SimulatorStartSelection? selection = null,
         CancellationToken ct = default)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
-        return await ReadAsync(connection, null, sourceId, atUtc, ct);
+        return await ReadAsync(connection, null, sourceId, atUtc, selection, ct);
     }
 
     public async Task<bool> RecheckAsync(
@@ -120,7 +121,8 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
     {
         var postgres = PostgresTransactionResolver.Require(transaction);
         var current = await ReadAsync(
-            postgres.Connection, postgres.Transaction, snapshot.SourceId, atUtc, ct);
+            postgres.Connection, postgres.Transaction, snapshot.SourceId, atUtc,
+            snapshot.RequestedSelection, ct);
         return current is not null && HeaderEqual(snapshot, current) &&
             snapshot.Points.SequenceEqual(current.Points);
     }
@@ -130,6 +132,7 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
         NpgsqlTransaction? transaction,
         Guid sourceId,
         DateTime atUtc,
+        SimulatorStartSelection? selection,
         CancellationToken ct)
     {
         await using var header = new NpgsqlCommand("""
@@ -143,8 +146,14 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
               ON v.configuration_id=c.configuration_id
              AND v.configuration_version=c.current_configuration_version
             WHERE ds.id=@source_id
+              AND (@has_selection=false OR (
+                   c.configuration_id=@configuration_id
+               AND c.current_configuration_version=@configuration_version))
             """, connection, transaction);
         header.Parameters.AddWithValue("source_id", sourceId);
+        header.Parameters.AddWithValue("has_selection", selection is not null);
+        header.Parameters.AddWithValue("configuration_id", selection?.ConfigurationId ?? Guid.Empty);
+        header.Parameters.AddWithValue("configuration_version", selection?.ConfigurationVersion ?? 0L);
         SimulatorStartSnapshot? result;
         await using (var reader = await header.ExecuteReaderAsync(ct))
         {
@@ -155,7 +164,7 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
                 reader.GetInt32(6), reader.GetDouble(7), reader.GetDouble(8),
                 checked((ulong)reader.GetInt64(9)),
                 Enum.Parse<SimulatorScenario>(reader.GetString(10), false),
-                reader.GetString(11), reader.GetInt32(12), []);
+                reader.GetString(11), reader.GetInt32(12), [], selection);
         }
 
         await using var points = new NpgsqlCommand("""
@@ -176,10 +185,19 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
               AND m.status='Active'
               AND m.effective_from<=@at_utc
               AND (m.effective_to IS NULL OR m.effective_to>@at_utc)
+              AND (@has_selection=false OR p.site_id=@site_id)
+              AND (@has_area=false OR p.area_id=@area_id)
+              AND (@has_asset=false OR p.asset_id=@asset_id)
             ORDER BY p.id,m.mapping_id
             """, connection, transaction);
         points.Parameters.AddWithValue("source_id", sourceId);
         points.Parameters.AddWithValue("at_utc", atUtc.ToUniversalTime());
+        points.Parameters.AddWithValue("has_selection", selection is not null);
+        points.Parameters.AddWithValue("site_id", selection?.SiteId ?? Guid.Empty);
+        points.Parameters.AddWithValue("has_area", selection?.AreaId is not null);
+        points.Parameters.AddWithValue("area_id", selection?.AreaId ?? Guid.Empty);
+        points.Parameters.AddWithValue("has_asset", selection?.AssetId is not null);
+        points.Parameters.AddWithValue("asset_id", selection?.AssetId ?? Guid.Empty);
         await using var pointReader = await points.ExecuteReaderAsync(ct);
         var values = new List<SimulatorStartPointSnapshot>();
         while (await pointReader.ReadAsync(ct))
@@ -212,7 +230,8 @@ public sealed class PostgresSimulatorStartSnapshotProvider(
         expected.DeterministicSeed == current.DeterministicSeed &&
         expected.Scenario == current.Scenario &&
         expected.AlgorithmId == current.AlgorithmId &&
-        expected.AlgorithmVersion == current.AlgorithmVersion;
+        expected.AlgorithmVersion == current.AlgorithmVersion &&
+        expected.RequestedSelection == current.RequestedSelection;
 }
 
 public sealed class PostgresSimulatorRunOwnerEventWriter(

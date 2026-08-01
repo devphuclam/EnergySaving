@@ -1,3 +1,10 @@
+import {
+  createPendingSimulatorMutation,
+  mutationIdentityMatches,
+  type PendingSimulatorMutation,
+  type SimulatorRetryOperation,
+} from './simulatorRetry'
+
 export type GatewayState = 'loading' | 'submitting' | 'success' | 'ready' | 'invalid-credentials' | 'forbidden' | 'expired' | 'no-data' | 'no-selection' | 'validation' | 'conflict' | 'not-found' | 'dependency' | 'runtime-error' | 'error'
 
 export type AuthSession = {
@@ -188,6 +195,7 @@ export type ConfigurationGateway = {
 export type SimulatorGateway = {
   getSnapshot: (selection?: SimulatorSelection) => Promise<SimulatorSnapshot>
   mutate: (operation: 'start' | 'pause' | 'resume' | 'stop', selection?: SimulatorSelection) => Promise<SimulatorSnapshot>
+  clearPendingMutation: () => void
 }
 
 export type LatestGateway = { getSnapshot: () => Promise<LatestSnapshot> }
@@ -300,6 +308,22 @@ async function simulatorRequest<T>(url: string, init?: RequestInit): Promise<{ p
   return { payload: payload as unknown as T, replayed: response.headers.get('X-Idempotency-Replay') === 'true' }
 }
 
+let pendingSimulatorMutation: PendingSimulatorMutation | undefined
+
+function isRetryableSimulatorError(error: unknown): boolean {
+  if (!(error instanceof Error)) return true
+  return error.name === 'TypeError' || error.message === 'RUNTIME_DEPENDENCY_UNAVAILABLE' ||
+    error.message === 'TRANSIENT_DATABASE_CONFLICT' ||
+    error.message.startsWith('request-5') || error.message.startsWith('antiforgery-5')
+}
+
+function mutationStateFromError(errorCode: string): GatewayState {
+  return errorCode.includes('CONFLICT') ? 'conflict' :
+    errorCode.includes('NOT_FOUND') ? 'not-found' :
+      errorCode.includes('REQUIRED') || errorCode.includes('INELIGIBLE') ? 'validation' :
+        errorCode === 'forbidden' ? 'forbidden' : errorCode === 'expired' ? 'expired' : 'runtime-error'
+}
+
 async function managementMutation(
   path: string,
   method: 'POST' | 'PUT' | 'DELETE',
@@ -355,7 +379,11 @@ export const webGateways: WebGateways = {
         return { state: error instanceof Error && error.message === 'expired' ? 'invalid-credentials' : stateFromError(error) }
       }
     },
-    signOut: async () => { const token = await antiforgeryToken(); await request('/api/v1/auth/logout', { method: 'POST', headers: { 'X-XSRF-TOKEN': token } }) },
+    signOut: async () => {
+      const token = await antiforgeryToken()
+      await request('/api/v1/auth/logout', { method: 'POST', headers: { 'X-XSRF-TOKEN': token } })
+      pendingSimulatorMutation = undefined
+    },
   },
   configuration: {
     getSummary: async () => {
@@ -396,35 +424,51 @@ export const webGateways: WebGateways = {
       try {
         const current = await webGateways.simulator.getSnapshot(selection)
         if (!['ready', 'success'].includes(current.state)) return current
-        if (operation !== 'start' && !current.runId) return { ...current, state: 'not-found', errorCode: 'SIMULATOR_RUN_NOT_FOUND' }
-        if (operation !== 'start' && !current.version) return { ...current, state: 'validation', errorCode: 'EXPECTED_VERSION_REQUIRED' }
+
+        const retryOperation = operation as SimulatorRetryOperation
+        const samePendingRequest = mutationIdentityMatches(pendingSimulatorMutation, retryOperation,
+          selection, pendingSimulatorMutation?.runId, pendingSimulatorMutation?.expectedVersion)
+        const retryRunId = samePendingRequest ? pendingSimulatorMutation?.runId : current.runId
+        const retryVersion = samePendingRequest ? pendingSimulatorMutation?.expectedVersion : current.version
+        if (operation !== 'start' && !retryRunId) return { ...current, state: 'not-found', errorCode: 'SIMULATOR_RUN_NOT_FOUND' }
+        if (operation !== 'start' && !retryVersion) return { ...current, state: 'validation', errorCode: 'EXPECTED_VERSION_REQUIRED' }
+        const pending = samePendingRequest
+          ? pendingSimulatorMutation!
+          : createPendingSimulatorMutation(retryOperation, selection,
+            operation === 'start' ? undefined : retryRunId,
+            operation === 'start' ? undefined : retryVersion,
+            crypto.randomUUID())
+        pendingSimulatorMutation = pending
+        const expectedVersion = pending.expectedVersion
+        const runId = pending.runId
         const token = await antiforgeryToken()
         const headers: Record<string, string> = {
-          'Idempotency-Key': crypto.randomUUID(),
+          'Idempotency-Key': pending.idempotencyKey,
           'Content-Type': 'application/json',
           'X-XSRF-TOKEN': token,
         }
-        if (operation !== 'start') headers['If-Match'] = `"${current.version}"`
+        if (operation !== 'start' && expectedVersion) headers['If-Match'] = `"${expectedVersion}"`
         const path = operation === 'start'
           ? '/api/v1/simulators/workspace/start'
-          : `/api/v1/simulators/workspace/runs/${current.runId}/${operation}`
+          : `/api/v1/simulators/workspace/runs/${runId}/${operation}`
         const mutation = await simulatorRequest<Record<string, unknown>>(path, {
           method: 'POST', headers, body: JSON.stringify(selection),
         })
         const refreshed = await webGateways.simulator.getSnapshot(selection)
-        if (!['ready', 'success'].includes(refreshed.state))
+        if (!['ready', 'success'].includes(refreshed.state)) {
+          if (!['runtime-error', 'dependency'].includes(refreshed.state)) pendingSimulatorMutation = undefined
           return { ...refreshed, isReplay: mutation.replayed }
+        }
+        pendingSimulatorMutation = undefined
         return { ...refreshed, state: 'success', isReplay: mutation.replayed,
           errorCode: mutation.replayed ? 'IDEMPOTENT_REPLAY' : undefined }
       } catch (error) {
         const errorCode = error instanceof Error ? error.message : 'RUNTIME_FAILURE'
-        const state: GatewayState = errorCode.includes('CONFLICT') ? 'conflict' :
-          errorCode.includes('NOT_FOUND') ? 'not-found' :
-            errorCode.includes('REQUIRED') || errorCode.includes('INELIGIBLE') ? 'validation' :
-              errorCode === 'forbidden' ? 'forbidden' : errorCode === 'expired' ? 'expired' : 'runtime-error'
-        return { state, status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
+        if (!isRetryableSimulatorError(error)) pendingSimulatorMutation = undefined
+        return { state: mutationStateFromError(errorCode), status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
       }
     },
+    clearPendingMutation: () => { pendingSimulatorMutation = undefined },
   },
   latest: {
     getSnapshot: async () => {

@@ -53,7 +53,11 @@ public static class PostgresModuleRegistration
         services.AddScoped<IConfigurationManagementCommandPort>(provider =>
             provider.GetRequiredService<PostgresConfigurationManagementPorts>());
         services.AddScoped<IConfigurationCommandPort, PostgresConfigurationCommandPort>();
-        services.AddScoped<ISimulatorCommandPort, PostgresSimulatorCommandPort>();
+        services.AddScoped<PostgresSimulatorCommandPort>();
+        services.AddScoped<ISimulatorCommandPort>(provider =>
+            provider.GetRequiredService<PostgresSimulatorCommandPort>());
+        services.AddScoped<ISimulatorSelectedStartCommandPort>(provider =>
+            provider.GetRequiredService<PostgresSimulatorCommandPort>());
         services.AddScoped<ISimulatorQueryPort, PostgresSimulatorQueryPort>();
         services.AddScoped<ISimulatorWorkspaceCommandPort, PostgresSimulatorWorkspaceCommandPort>();
         services.AddIumpPostgresRuntimeProviders();

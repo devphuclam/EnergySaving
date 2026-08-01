@@ -135,13 +135,24 @@ public sealed record SimulatorStartSnapshot(
     SimulatorScenario Scenario,
     string AlgorithmId,
     int AlgorithmVersion,
-    IReadOnlyList<SimulatorStartPointSnapshot> Points);
+    IReadOnlyList<SimulatorStartPointSnapshot> Points,
+    SimulatorStartSelection? RequestedSelection = null);
+
+/// <summary>Complete caller-selected context carried into the transactional Start owner.</summary>
+public sealed record SimulatorStartSelection(
+    Guid SiteId,
+    Guid? AreaId,
+    Guid? AssetId,
+    Guid SourceId,
+    Guid ConfigurationId,
+    long ConfigurationVersion);
 
 public sealed record StartSimulatorCommand(
     Guid SourceId,
     string ActorUserId,
     string CorrelationId,
-    string? CausationId);
+    string? CausationId,
+    SimulatorStartSelection? Selection = null);
 
 public sealed record ChangeSimulatorRunStatusCommand(
     Guid RunId,
@@ -179,7 +190,8 @@ public interface IRunCallerSnapshotProvider
 
 public interface ISimulatorStartSnapshotProvider
 {
-    Task<SimulatorStartSnapshot?> ResolveAsync(Guid sourceId, DateTime atUtc, CancellationToken ct = default);
+    Task<SimulatorStartSnapshot?> ResolveAsync(Guid sourceId, DateTime atUtc,
+        SimulatorStartSelection? selection = null, CancellationToken ct = default);
     Task<bool> RecheckAsync(
         SimulatorStartSnapshot snapshot,
         ISimulatorRunTransaction transaction,

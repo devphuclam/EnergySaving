@@ -84,6 +84,16 @@ public interface ISimulatorWorkspaceCommandPort
         CancellationToken ct = default);
 }
 
+/// <summary>Owner seam for a Start that carries the complete selected context into the transaction.</summary>
+public interface ISimulatorSelectedStartCommandPort
+{
+    Task<CommandExecutionResult> ExecuteSelectedStartAsync(
+        SimulatorSelection selection,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default);
+}
+
 public static class SimulatorWorkspaceSelectionRules
 {
     public static bool IsExplicit(SimulatorSelection? selection) => selection is not null &&
@@ -97,8 +107,8 @@ public static class SimulatorWorkspaceSelectionRules
         if (!IsExplicit(selection)) return null;
         return options.FirstOrDefault(option =>
             option.SiteId == selection!.SiteId &&
-            option.AreaId == selection.AreaId &&
-            option.AssetId == selection.AssetId &&
+            (selection.AreaId is null || option.AreaId == selection.AreaId) &&
+            (selection.AssetId is null || option.AssetId == selection.AssetId) &&
             option.SourceId == selection.SourceId &&
             option.ConfigurationId == selection.ConfigurationId &&
             option.ConfigurationVersion == selection.ConfigurationVersion &&

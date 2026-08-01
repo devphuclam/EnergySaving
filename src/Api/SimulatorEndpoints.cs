@@ -59,22 +59,6 @@ public static class SimulatorEndpoints
             CancellationToken ct) => ExecuteWorkspaceAsync(runId, CommandOperationCodes.StopSimulator,
                 request, commands, executor, principalAccessor, transactionFactory, ct))
             .WithMetadata(new RequireAntiforgeryCheckAttribute());
-        group.MapPost("/{sourceId:guid}/start", (Guid sourceId, HttpRequest request,
-            ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-            ExecuteAsync(sourceId, CommandOperationCodes.StartSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
-        group.MapPost("/{runId:guid}/pause", (Guid runId, HttpRequest request,
-            ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-            ExecuteAsync(runId, CommandOperationCodes.PauseSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
-        group.MapPost("/{runId:guid}/resume", (Guid runId, HttpRequest request,
-            ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-            ExecuteAsync(runId, CommandOperationCodes.ResumeSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
-        group.MapPost("/{runId:guid}/stop", (Guid runId, HttpRequest request,
-            ISimulatorCommandPort commands, IdempotentCommandExecutor executor,
-            IServerPrincipalAccessor principalAccessor, IHostTransactionFactory transactionFactory, CancellationToken ct) =>
-            ExecuteAsync(runId, CommandOperationCodes.StopSimulator, request, commands, executor, principalAccessor, transactionFactory, ct));
         return endpoints;
     }
 

@@ -115,6 +115,85 @@ public static class RunControlTests
             "provider drift rolls back all Run state and owner events", failures);
 
         TestCount++;
+        var selectedContext = new SimulatorStartSelection(
+            Guid.Parse("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"),
+            Guid.Parse("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"),
+            Guid.Parse("cccccccc-3333-4333-8333-cccccccccccc"),
+            Phase6Fixtures.SourceId, Phase6Fixtures.ConfigurationId, 7);
+        var selectedSnapshots = new FakeSimulatorStartSnapshotProvider
+        {
+            Snapshot = Phase6Fixtures.StartSnapshot() with { RequestedSelection = selectedContext },
+            SnapshotOnRecheck = Phase6Fixtures.StartSnapshot() with
+            {
+                ConfigurationVersion = 8,
+                RequestedSelection = selectedContext with { ConfigurationVersion = 8 }
+            },
+            RecheckResult = false
+        };
+        var selectedRepositories = new FakeAcquisitionRunRepositories();
+        var selectedService = new SimulatorRunCommandService(
+            callers, selectedSnapshots, selectedRepositories, selectedRepositories,
+            selectedRepositories, new DeterministicGenerator(), clock);
+        var selectedDrift = await selectedService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "admin", "corr-selected-drift", null, selectedContext));
+        Check(!selectedDrift.IsSuccess && selectedDrift.Code == "PROVIDER_VERSION_DRIFT" &&
+              selectedSnapshots.LastSelection == selectedContext &&
+              await selectedRepositories.GetCurrentBySourceAsync(Phase6Fixtures.SourceId) is null &&
+              selectedRepositories.CommittedEvents.Count == 0,
+            "Selected Start must recheck the exact configuration context and create no Run after concurrent activation drift.", failures);
+
+        TestCount++;
+        var existingSelection = selectedContext with { ConfigurationVersion = 8 };
+        var existingSnapshots = new FakeSimulatorStartSnapshotProvider
+        {
+            Snapshot = Phase6Fixtures.StartSnapshot() with
+            {
+                ConfigurationVersion = 8,
+                RequestedSelection = existingSelection
+            }
+        };
+        var existingRepositories = new FakeAcquisitionRunRepositories();
+        var existingRun = Phase6Fixtures.Run(
+            Guid.Parse("40000000-0000-4000-8000-000000000004"),
+            SimulatorRunStatus.Running) with
+        {
+            ConfigurationVersion = 7
+        };
+        existingRepositories.Seed(existingRun, Phase6Fixtures.Point(existingRun.RunId));
+        var existingService = new SimulatorRunCommandService(
+            callers, existingSnapshots, existingRepositories, existingRepositories,
+            existingRepositories, new DeterministicGenerator(), clock);
+        var existingMismatch = await existingService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "admin", "corr-existing-mismatch", null, existingSelection));
+        Check(!existingMismatch.IsSuccess && existingMismatch.Code == "PROVIDER_VERSION_DRIFT" &&
+              existingRepositories.CommittedEvents.Count == 0,
+            "A selected Start must not reuse a current Run pinned to a different configuration version.", failures);
+
+        TestCount++;
+        var hierarchyContext = selectedContext with { ConfigurationVersion = 7 };
+        var hierarchySnapshots = new FakeSimulatorStartSnapshotProvider
+        {
+            Snapshot = Phase6Fixtures.StartSnapshot() with
+            {
+                RequestedSelection = hierarchyContext,
+                Points = [Phase6Fixtures.StartPoint(Phase6Fixtures.PointId,
+                    Phase6Fixtures.MappingId, "site-b")]
+            }
+        };
+        var hierarchyRepositories = new FakeAcquisitionRunRepositories();
+        var hierarchyRun = Phase6Fixtures.Run(
+            Guid.Parse("50000000-0000-4000-8000-000000000005"), SimulatorRunStatus.Running);
+        hierarchyRepositories.Seed(hierarchyRun, Phase6Fixtures.Point(hierarchyRun.RunId));
+        var hierarchyService = new SimulatorRunCommandService(
+            callers, hierarchySnapshots, hierarchyRepositories, hierarchyRepositories,
+            hierarchyRepositories, new DeterministicGenerator(), clock);
+        var hierarchyMismatch = await hierarchyService.StartAsync(new StartSimulatorCommand(
+            Phase6Fixtures.SourceId, "admin", "corr-existing-hierarchy", null, hierarchyContext));
+        Check(!hierarchyMismatch.IsSuccess && hierarchyMismatch.Code == "PROVIDER_VERSION_DRIFT" &&
+              hierarchyRepositories.CommittedEvents.Count == 0,
+            "A selected Start must not reuse a current Run pinned to a different Site/Area/Asset context.", failures);
+
+        TestCount++;
         var beforePoint = points[0];
         var paused = await service.ChangeStatusAsync(new ChangeSimulatorRunStatusCommand(
             run.RunId, run.Version, SimulatorRunStatus.Paused, "admin", "corr-pause", null));

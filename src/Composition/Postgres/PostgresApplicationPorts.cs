@@ -11,6 +11,7 @@ using IUMP.Modules.Organization.Application;
 using IUMP.Modules.Organization.Contracts;
 using IUMP.Modules.Organization.Domain;
 using IUMP.Modules.Telemetry.Contracts;
+using IUMP.Infrastructure.Postgres;
 
 namespace IUMP.Api.Infrastructure;
 
@@ -1001,8 +1002,43 @@ public sealed class PostgresSimulatorQueryPort(
 }
 
 public sealed class PostgresSimulatorCommandPort(
-    SimulatorRunCommandService commands) : ISimulatorCommandPort
+    SimulatorRunCommandService commands) : ISimulatorCommandPort, ISimulatorSelectedStartCommandPort
 {
+    public async Task<CommandExecutionResult> ExecuteSelectedStartAsync(
+        SimulatorSelection selection,
+        ServerPrincipal principal,
+        IHostTransaction transaction,
+        CancellationToken ct = default)
+    {
+        // ExecuteTransactionalAsync establishes this host transaction in the scoped
+        // PostgresTransactionContext. The Acquisition unit of work deliberately borrows that
+        // ambient transaction, so owner Run, outbox, and idempotency completion commit together.
+        _ = PostgresTransactionResolver.Require(transaction);
+        var started = await commands.StartAsync(new StartSimulatorCommand(
+            selection.SourceId, principal.UserId.ToString("D"),
+            $"simulator-selected-start-{selection.SourceId:D}-{selection.ConfigurationId:D}", null,
+            new SimulatorStartSelection(selection.SiteId, selection.AreaId, selection.AssetId,
+                selection.SourceId, selection.ConfigurationId, selection.ConfigurationVersion)), ct);
+        return started.IsSuccess
+            ? CommandExecutionResult.Ok(202,
+                JsonSerializer.Serialize(new
+                {
+                    runId = started.RunId,
+                    status = "Running",
+                    version = started.Version,
+                    sourceId = selection.SourceId,
+                    configurationId = selection.ConfigurationId,
+                    configurationVersion = selection.ConfigurationVersion
+                }),
+                started.RunId?.ToString("D"),
+                $"/api/v1/simulators/{started.RunId:D}",
+                $"\"{started.Version}\"")
+            : new(started.Code is "FORBIDDEN" or "NOT_VISIBLE" ? 403 :
+                started.Code == "NOT_FOUND" ? 404 :
+                started.Code is "PROVIDER_VERSION_DRIFT" or "DOMAIN_CONFLICT" or "SIMULATOR_RUN_CONFLICT" ? 409 : 422,
+                JsonSerializer.Serialize(new { errorCode = started.Code }), null);
+    }
+
     public async Task<CommandExecutionResult> ExecuteAsync(
         string operationCode, Guid targetId, long? expectedVersion, ServerPrincipal principal,
         IHostTransaction transaction, CancellationToken ct = default)

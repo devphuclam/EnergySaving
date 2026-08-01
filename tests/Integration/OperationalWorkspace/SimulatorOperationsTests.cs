@@ -75,6 +75,14 @@ public static class SimulatorOperationsTests
                 Check(invalid.StatusCode == 422 && invalid.Body.Contains("SIMULATOR_SELECTION_NOT_FOUND", StringComparison.Ordinal),
                     "An ineligible configuration must be rejected before Start creates a Run.", failures);
 
+                var mismatchedSource = await workspaceCommands.ExecuteAsync(
+                    CommandOperationCodes.StartSimulator,
+                    selection with { SourceId = Guid.NewGuid() }, null, null,
+                    principal, new TestTransaction(), CancellationToken.None);
+                Check(mismatchedSource.StatusCode == 422 &&
+                      mismatchedSource.Body.Contains("SIMULATOR_SELECTION_NOT_FOUND", StringComparison.Ordinal),
+                    "A mismatched Source/configuration selection must fail closed before Start.", failures);
+
                 var outOfScope = await query.GetAsync(
                     selection with { SiteId = Guid.NewGuid() }, 1, 20, principal);
                 Check(outOfScope.ErrorCode == "SIMULATOR_SELECTION_NOT_FOUND" &&
@@ -112,6 +120,22 @@ public static class SimulatorOperationsTests
                 Check(missingKey is ProblemHttpResult { StatusCode: 400 },
                     "Selected Start must require an idempotency key.", failures);
 
+                foreach (var controlOperation in new[]
+                {
+                    CommandOperationCodes.PauseSimulator,
+                    CommandOperationCodes.ResumeSimulator,
+                    CommandOperationCodes.StopSimulator
+                })
+                {
+                    var missingControlKeyContext = Context(selection);
+                    var missingControlKey = await SimulatorEndpoints.ExecuteWorkspaceAsync(
+                        Guid.NewGuid(), controlOperation, missingControlKeyContext.Request,
+                        workspaceCommands, executor, accessor,
+                        scope.ServiceProvider.GetRequiredService<IHostTransactionFactory>(), CancellationToken.None);
+                    Check(missingControlKey is ProblemHttpResult { StatusCode: 400 },
+                        $"Selected {controlOperation} must require an idempotency key.", failures);
+                }
+
                 var noVersionContext = Context(selection);
                 noVersionContext.Request.Headers["Idempotency-Key"] = "t050-no-version";
                 var noVersion = await SimulatorEndpoints.ExecuteWorkspaceAsync(
@@ -134,11 +158,14 @@ public static class SimulatorOperationsTests
                     if (started is null || started.Response.StatusCode != 202) return failures;
                     run = ReadRun(started.Response.Body, selection);
                     createdHere = true;
+                    Check(run.ConfigurationId == selection.ConfigurationId &&
+                          run.ConfigurationVersion == selection.ConfigurationVersion,
+                        "Created Run must persist the exact selected Configuration identity and version.", failures);
 
                     var replay = await MutateAsync(null, CommandOperationCodes.StartSimulator,
                         selection, startKey, null, workspaceCommands, executor, accessor, factory);
                     Check(replay is not null && replay.Response.IsReplay,
-                        "Repeating the same Start key and request must replay the original result.", failures);
+                        "A lost-response retry with the same Start key must replay the original result without a second Run.", failures);
 
                     var conflictSelection = selection with
                     {
@@ -223,22 +250,23 @@ public static class SimulatorOperationsTests
         var endpoints = ((IEndpointRouteBuilder)app).DataSources
             .SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.RoutePattern.RawText?.Contains(
-                "/api/v1/simulators/workspace", StringComparison.Ordinal) == true)
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith(
+                "/api/v1/simulators/", StringComparison.Ordinal) == true)
             .ToArray();
         var mutationEndpoints = endpoints.Where(endpoint =>
-                     endpoint.RoutePattern.RawText?.Contains("/start", StringComparison.Ordinal) == true ||
-                     endpoint.RoutePattern.RawText?.Contains("/pause", StringComparison.Ordinal) == true ||
-                     endpoint.RoutePattern.RawText?.Contains("/resume", StringComparison.Ordinal) == true ||
-                     endpoint.RoutePattern.RawText?.Contains("/stop", StringComparison.Ordinal) == true)
-            .ToArray();
+            endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                .Contains("POST", StringComparer.OrdinalIgnoreCase) == true).ToArray();
         foreach (var endpoint in mutationEndpoints)
         {
             Check(endpoint.Metadata.GetMetadata<IAntiforgeryMetadata>()?.RequiresValidation == true,
                 $"Mutation endpoint {endpoint.RoutePattern.RawText} must require antiforgery validation.", failures);
         }
         Check(mutationEndpoints.Length == 4,
-            "The selected Simulator workspace must expose exactly four protected mutation routes.", failures);
+            "The selected Simulator workspace must expose exactly four protected mutation routes and no legacy bypass.", failures);
+        Check(mutationEndpoints.All(endpoint => endpoint.RoutePattern.RawText?.Contains(
+                "/workspace/", StringComparison.Ordinal) == true || endpoint.RoutePattern.RawText?.EndsWith(
+                "/workspace/start", StringComparison.Ordinal) == true),
+            "Every operational mutation route must require the selected workspace context.", failures);
     }
 
     private static DefaultHttpContext Context(SimulatorSelection selection)
@@ -290,9 +318,13 @@ public static class SimulatorOperationsTests
         var status = statusValue.ValueKind == JsonValueKind.String
             ? statusValue.GetString() ?? "Running"
             : statusValue.GetInt32() switch { 0 => "Running", 1 => "Paused", _ => "Stopped" };
+        var configurationId = root.TryGetProperty("configurationId", out var configurationIdValue)
+            ? configurationIdValue.GetGuid() : selection.ConfigurationId;
+        var configurationVersion = root.TryGetProperty("configurationVersion", out var versionValue)
+            ? versionValue.GetInt64() : selection.ConfigurationVersion;
         return new SimulatorRunHistoryItem(
-            root.GetProperty("runId").GetGuid(), selection.SourceId, selection.ConfigurationId,
-            selection.ConfigurationVersion, status,
+            root.GetProperty("runId").GetGuid(), selection.SourceId, configurationId,
+            configurationVersion, status,
             root.GetProperty("version").GetInt64(), 0, 0, 0, null, 1, DateTime.UtcNow);
     }
 

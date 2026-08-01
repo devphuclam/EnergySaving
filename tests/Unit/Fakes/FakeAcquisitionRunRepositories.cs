@@ -55,15 +55,18 @@ public sealed class FakeSimulatorStartSnapshotProvider : ISimulatorStartSnapshot
     public SimulatorStartSnapshot? Snapshot { get; set; }
     public bool ReturnSnapshotForAnySource { get; set; }
     public bool RecheckResult { get; set; } = true;
+    public SimulatorStartSnapshot? SnapshotOnRecheck { get; set; }
     public int ResolveCount { get; private set; }
     public int RecheckCount { get; private set; }
+    public SimulatorStartSelection? LastSelection { get; private set; }
     public IReadOnlyList<SimulatorStartLock> LastRecheckLockTrace { get; private set; } =
         Array.Empty<SimulatorStartLock>();
 
     public Task<SimulatorStartSnapshot?> ResolveAsync(Guid sourceId, DateTime atUtc,
-        CancellationToken ct = default)
+        SimulatorStartSelection? selection = null, CancellationToken ct = default)
     {
         ResolveCount++;
+        LastSelection = selection;
         return Task.FromResult(
             ReturnSnapshotForAnySource || Snapshot?.SourceId == sourceId ? Snapshot : null);
     }
@@ -78,6 +81,7 @@ public sealed class FakeSimulatorStartSnapshotProvider : ISimulatorStartSnapshot
         if (transaction.IsCompleted)
             throw new InvalidOperationException("TRANSACTION_REQUIRED");
         LastRecheckLockTrace = transaction.LockTrace.ToList();
+        if (SnapshotOnRecheck is not null) Snapshot = SnapshotOnRecheck;
         return Task.FromResult(RecheckResult);
     }
 }

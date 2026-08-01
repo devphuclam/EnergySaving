@@ -16,6 +16,9 @@ $results = [System.Collections.Generic.List[object]]::new()
 $featureResolution = Resolve-HarnessFeature -RepoRoot $repoRoot -Feature $Feature
 $results.Add((Test-FeatureArtifacts -FeatureResolution $featureResolution -Mode $Mode))
 $checkPlan = @(Get-HarnessCheckPlan -Mode $Mode)
+if ($Feature -eq '003-operational-configuration-workspace') {
+    $checkPlan += 'simulator-phase3-closure'
+}
 
 function Add-ScriptCheck {
     [CmdletBinding()]
@@ -40,6 +43,9 @@ $scriptChecks = [ordered]@{
     'repository-scope' = 'tests\Verification\repository-scope.tests.ps1'
     'architecture' = 'tests\Verification\architecture.tests.ps1'
     'architecture-red-fixture' = 'tests\Verification\architecture-red-fixture.tests.ps1'
+}
+if ($Feature -eq '003-operational-configuration-workspace') {
+    $scriptChecks['simulator-phase3-closure'] = 'tests\Verification\simulator-phase3-closure.tests.ps1'
 }
 foreach ($entry in $scriptChecks.GetEnumerator()) {
     if ($entry.Key -in $checkPlan) {

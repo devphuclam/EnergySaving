@@ -6,9 +6,10 @@
 defined in `plan.md`. The frontend behavior runner remains package-policy blocked unless an already
 approved runnable dependency exists.
 
-**Execution rule**: Phase 0, Phase 1, and Phase 2 are historical checkpoints. This invocation
-executes only Phase 3 tasks T049–T056 from authoritative merged baseline `b3ccfcd1f86a…`,
-records red/green evidence honestly, commits and pushes the feature branch, and stops before T057.
+**Execution rule**: Phase 0, Phase 1, and Phase 2 are historical checkpoints. This corrective
+invocation reopens only Phase 3 tasks T049–T056 from authoritative merged `main` baseline
+`b07261ff8affd16eef7c2473b5ead3ab0719d25a`, records new red/green evidence honestly, commits and
+pushes the feature branch, and stops before T057. It must not merge automatically.
 Do not begin Phase 4 in the same implementation run.
 
 ## Checklist format
@@ -115,14 +116,14 @@ NO; explicit stop before T037.
 
 **User Story**: US3 — Operate an Explicitly Selected Simulator
 
-- [x] T049 [P] [US3] [RUNNABLE_NOW] Add failing selected-Source/configuration and no-first-Source tests in `tests/Unit/Api/SimulatorSelectionTests.cs`
-- [x] T050 [P] [US3] [RUNNABLE_NOW] Add failing PostgreSQL control/history/idempotency/conflict tests in `tests/Integration/OperationalWorkspace/SimulatorOperationsTests.cs`
-- [x] T051 [US3] [RUNNABLE_NOW] Add authorized Source/configuration eligibility and recent Run history query contracts in `src/Hosting/Abstractions/SimulatorWorkspacePorts.cs`
-- [x] T052 [US3] [RUNNABLE_NOW] Implement PostgreSQL selected Simulator workspace queries in `src/Composition/Postgres/PostgresSimulatorWorkspacePorts.cs`
-- [x] T053 [US3] [RUNNABLE_NOW] Extend Simulator endpoints with selected configuration eligibility and paged Run history in `src/Api/SimulatorEndpoints.cs`
-- [x] T054 [US3] [RUNNABLE_NOW] Replace implicit Source lookup with explicit Site/Area/Asset/Source/configuration selection and Run controls in `src/Web/src/features/simulator/SimulatorRoute.tsx`
-- [x] T055 [US3] [RUNNABLE_NOW] Add Run ID/version/status/counters/last production/interval/history and complete feedback states in `src/Web/src/features/simulator/SimulatorRoute.tsx`
-- [x] T056 [US3] [RUNNABLE_NOW] Verify US3 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-03-checkpoint.md`
+- [x] T049 [P] [US3] [RUNNABLE_NOW] Add failing selected-Source/configuration, no-first-Source, legacy-route retirement, and retry-key tests in `tests/Unit/Api/SimulatorSelectionTests.cs`
+- [x] T050 [P] [US3] [RUNNABLE_NOW] Add failing PostgreSQL control/history/idempotency/conflict, exact pinning, and concurrency tests in `tests/Integration/OperationalWorkspace/SimulatorOperationsTests.cs`
+- [x] T051 [US3] [RUNNABLE_NOW] Define selected-start ownership and retry-key contracts in `src/Hosting/Abstractions/SimulatorWorkspacePorts.cs` and Web pure helpers
+- [x] T052 [US3] [RUNNABLE_NOW] Implement PostgreSQL selected Simulator queries and atomic exact-configuration Start recheck in `src/Composition/Postgres/PostgresSimulatorWorkspacePorts.cs`
+- [x] T053 [US3] [RUNNABLE_NOW] Retire legacy Simulator mutations and enforce the four selected workspace routes in `src/Api/SimulatorEndpoints.cs`
+- [x] T054 [US3] [RUNNABLE_NOW] Implement URL-backed dependent Site/Area/Asset/Source/configuration selectors and explicit retry UX in `src/Web/src/features/simulator/SimulatorRoute.tsx`
+- [x] T055 [US3] [RUNNABLE_NOW] Implement true Web retry-key state, refresh/logout reconstruction, Run details/history/states in `src/Web/src/gateways/webGateways.ts` and `src/Web/src/features/simulator/SimulatorRoute.tsx`
+- [x] T056 [US3] [RUNNABLE_NOW] Complete hosted matrix, authenticated browser journey, reviews, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-03-checkpoint.md`
 
 ---
 

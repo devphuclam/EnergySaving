@@ -92,6 +92,7 @@ function createFakeWebGateways(
           ? { state: 'ready', status: 'Running', generated: 1, accepted: 1, rejected: 0, isReplay: true }
           : { state: mutationState, status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode: 'VERSION_CONFLICT' }
       },
+      clearPendingMutation: () => undefined,
     },
     latest: {
       getSnapshot: async () => ({ state: 'no-data', value: null, health: 'No Data' }),
