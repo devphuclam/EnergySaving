@@ -33,7 +33,7 @@ foreground terminal session.
 | # | Criterion | Classification | Notes |
 |---:|---|---|---|
 | 1 | DOC-01 through DOC-07 readable | PASS | Read in full; source register created |
-| 2 | Spec Kit and Matt skills available | PASS | Spec Kit 0.13.2 and required project-local skills |
+| 2 | Spec Kit and Matt skills available | PASS | Spec Kit 0.15.1 and required project-local skills |
 | 3 | Constitution and feature artifacts complete | PASS | Constitution/spec/plan/research/model/contracts/checklists/tasks/analysis |
 | 4 | Context, source register, decision log, ADR | PASS | Present and reviewed |
 | 5 | Backend restore/build/test from permitted source | PASS for R0 graph | No-source framework restore, build, PowerShell tests pass |

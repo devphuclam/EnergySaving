@@ -14,7 +14,7 @@ change, PATH change, service change, or administrator operation was performed.
 | NuGet user configuration | `nuget.org` plus Visual Studio offline packages | Yes for nuget.org | BLOCKED_BY_POLICY for future package restore | `dotnet nuget list source`; user `NuGet.Config` inspection |
 | NuGet R0 configuration | Repository `NuGet.Config` contains `<clear />`; R0 projects have zero PackageReference entries | No | AVAILABLE_AND_APPROVED for current R0 graph | `dotnet nuget list source --configfile .\NuGet.Config` returned “No sources found”; restore/build passed |
 | npm cache | `C:\Users\TD-999\AppData\Local\npm-cache` | No if complete | AVAILABLE_BUT_SOURCE_UNVERIFIED | Lock has 82 entries; installed tree lacks 49 lock entries, many optional/platform packages |
-| Spec Kit | 0.13.2; project `.specify/` and `.agents/skills/speckit-*` | No | AVAILABLE_AND_APPROVED | `specify --version`; local skill inventory |
+| Spec Kit | 0.15.1; project `.specify/` and `.agents/skills/speckit-*` | No | AVAILABLE_AND_APPROVED | `specify --version`; local skill inventory |
 | Matt Pocock Skills | Project-local `.agents/skills/` | No | AVAILABLE_AND_APPROVED | required skill directories and `SKILL.md` files inspected |
 | CI runner/actions | Existing workflow uses public actions and a container service | Yes/downloads actions and image | BLOCKED_BY_POLICY | `.github/workflows/ci.yml` inspection; no approved runner/template supplied |
 

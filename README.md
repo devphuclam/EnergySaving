@@ -49,7 +49,7 @@ Do not run `npm ci --offline` until lockfile cache completeness and company appr
 
 - DOC-01 through DOC-07 read in full; source hierarchy, glossary, decisions, ADRs, and Spec Kit
   artifacts exist.
-- Git 2.54.0, .NET SDK 10.0.300, Node 24.16.0, npm 11.13.0, Spec Kit 0.13.2.
+- Git 2.54.0, .NET SDK 10.0.300, Node 24.16.0, npm 11.13.0, Spec Kit 0.15.1.
 - No-source backend restore and Release build: 17 projects, 0 warnings, 0 errors.
 - PowerShell verification contracts: result classification, repository policy, permanent product
   invariants, and module boundaries PASS.
