@@ -12,6 +12,11 @@ invocation reopens only Phase 3 tasks T049–T056 from authoritative merged `mai
 pushes the feature branch, and stops before T057. It must not merge automatically.
 Do not begin Phase 4 in the same implementation run.
 
+**Final corrective closure rule**: From merged `main` baseline
+`2741429fb1a28d403adde69e36810bab16d12af5`, only T054–T056 were reopened for the
+dependency-versus-runtime Web error-state correction. No new task IDs were created, T057 and
+later remain out of scope, and Feature 002 remains untouched.
+
 ## Checklist format
 
 Every task uses `- [ ] T### [P?] [Story?] [classification] description with exact file path`.

@@ -95,8 +95,12 @@ public static class SimulatorSelectionTests
         var gatewayPath = root is null
             ? string.Empty
             : Path.Combine(root.FullName, "src", "Web", "src", "gateways", "webGateways.ts");
+        var routePath = root is null
+            ? string.Empty
+            : Path.Combine(root.FullName, "src", "Web", "src", "features", "simulator", "SimulatorRoute.tsx");
         var helper = File.Exists(helperPath) ? File.ReadAllText(helperPath) : string.Empty;
         var gateway = File.Exists(gatewayPath) ? File.ReadAllText(gatewayPath) : string.Empty;
+        var route = File.Exists(routePath) ? File.ReadAllText(routePath) : string.Empty;
         Check(!string.IsNullOrWhiteSpace(helper),
             "The pure Web Simulator retry helper must be present.", failures);
         Check(helper.Contains("operation") && helper.Contains("selection") &&
@@ -106,9 +110,20 @@ public static class SimulatorSelectionTests
         Check(helper.Contains("selectionFingerprint") && helper.Contains("mutationIdentityMatches") &&
               helper.Contains("createPendingSimulatorMutation"),
             "Retry identity must expose pure fingerprint, match, and creation helpers.", failures);
+        Check(helper.Contains("RUNTIME_DEPENDENCY_UNAVAILABLE") &&
+              helper.Contains("DEPENDENCY_UNAVAILABLE") && helper.Contains("status === 503") &&
+              helper.Contains("runtime-error"),
+            "Dependency HTTP/code states and runtime error states must be distinguished by a pure helper.", failures);
         Check(gateway.Contains("mutationIdentityMatches") && gateway.Contains("pending.idempotencyKey") &&
               gateway.Contains("pending.expectedVersion") && gateway.Contains("clearPendingMutation"),
             "The Web gateway must reuse pending identity/version and expose cancellation cleanup.", failures);
+        Check(gateway.Contains("simulatorErrorKind") && gateway.Contains("isRetryableSimulatorError") &&
+              gateway.Contains("request-503") && gateway.Contains("TypeError") &&
+              gateway.Contains("MALFORMED_RESPONSE") &&
+              gateway.Contains("error.message === 'MALFORMED_RESPONSE'"),
+            "Simulator gateway must map dependency responses separately from network failures while retaining retryability.", failures);
+        Check(route.Contains("dependencyMessage") && route.Contains("runtimeMessage"),
+            "Simulator UI must display distinct Vietnamese dependency and runtime messages.", failures);
     }
 
     private static void Check(bool condition, string message, List<string> failures)

@@ -16,6 +16,9 @@ const empty: SimulatorSnapshot = {
   options: [], history: [], historyTotal: 0,
 }
 
+const dependencyMessage = 'Dịch vụ dữ liệu Simulator tạm thời không sẵn sàng.'
+const runtimeMessage = 'Không thể kết nối đến dịch vụ Simulator.'
+
 function completeSelection(draft: SelectionDraft): SimulatorSelection | undefined {
   if (!draft.siteId || !draft.sourceId || !draft.configurationId || !draft.configurationVersion) return undefined
   return {
@@ -203,8 +206,10 @@ export function SimulatorRoute() {
               ? `Lựa chọn chưa hợp lệ (${snapshot.errorCode ?? 'VALIDATION_FAILED'}).`
               : snapshot.state === 'conflict'
                 ? `Có xung đột phiên bản (${snapshot.errorCode ?? 'VERSION_CONFLICT'}). Hãy tải lại Run trước khi thử lại.`
-                : snapshot.state === 'runtime-error' || snapshot.state === 'dependency'
-                  ? `Không thể kết nối dịch vụ Simulator (${snapshot.errorCode ?? snapshot.state}).`
+                : snapshot.state === 'dependency'
+                  ? dependencyMessage
+                  : snapshot.state === 'runtime-error'
+                    ? runtimeMessage
                   : undefined
 
   const retryLoading = snapshot.state === 'runtime-error' || snapshot.state === 'dependency' || snapshot.state === 'error'

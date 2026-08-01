@@ -17,6 +17,23 @@ export type PendingSimulatorMutation = {
   idempotencyKey: string
 }
 
+export type SimulatorErrorKind = 'dependency' | 'runtime-error'
+
+const simulatorDependencyErrorCodes = new Set([
+  'RUNTIME_DEPENDENCY_UNAVAILABLE',
+  'DEPENDENCY_UNAVAILABLE',
+  'DEPENDENCY_NOT_READY',
+  'SERVICE_UNAVAILABLE',
+  'DATABASE_UNAVAILABLE',
+  'request-503',
+  'antiforgery-503',
+])
+
+export function simulatorErrorKind(errorCode?: string | null, status?: number): SimulatorErrorKind {
+  if (status === 503 || (errorCode && simulatorDependencyErrorCodes.has(errorCode))) return 'dependency'
+  return 'runtime-error'
+}
+
 export function selectionFingerprint(selection: SimulatorRetrySelection): string {
   return [selection.siteId, selection.areaId ?? '', selection.assetId ?? '', selection.sourceId,
     selection.configurationId, selection.configurationVersion].join('|')

@@ -41,6 +41,24 @@ if ($routeSource -notmatch 'id="simulator-site"' -or
 if ($gatewaySource -notmatch 'pendingSimulatorMutation|idempotencyKey') {
     $issues += 'Web gateway has no persisted pending mutation identity.'
 }
+if ($retryHelper -notmatch 'RUNTIME_DEPENDENCY_UNAVAILABLE' -or
+    $retryHelper -notmatch 'DEPENDENCY_UNAVAILABLE' -or
+    $retryHelper -notmatch 'status === 503' -or
+    $retryHelper -notmatch 'runtime-error') {
+    $issues += 'Pure Simulator error helper must distinguish dependency codes/status from runtime errors.'
+}
+if ($gatewaySource -notmatch 'simulatorErrorKind' -or
+    $gatewaySource -notmatch 'isRetryableSimulatorError' -or
+    $gatewaySource -notmatch 'request-503' -or
+    $gatewaySource -notmatch 'TypeError' -or
+    $gatewaySource -notmatch 'MALFORMED_RESPONSE' -or
+    $gatewaySource -notmatch "error.message === 'MALFORMED_RESPONSE'") {
+    $issues += 'Simulator gateway must apply dependency/runtime mapping and preserve retryable failures.'
+}
+if ($routeSource -notmatch 'dependencyMessage' -or
+    $routeSource -notmatch 'runtimeMessage') {
+    $issues += 'Simulator UI must expose distinct Vietnamese dependency and runtime messages.'
+}
 
 if ($issues.Count -gt 0) {
     $issues | ForEach-Object { Write-Error $_ }

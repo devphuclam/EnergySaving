@@ -1,6 +1,7 @@
 import {
   createPendingSimulatorMutation,
   mutationIdentityMatches,
+  simulatorErrorKind,
   type PendingSimulatorMutation,
   type SimulatorRetryOperation,
 } from './simulatorRetry'
@@ -233,6 +234,7 @@ function stateFromError(error: unknown): GatewayState {
 
 function simulatorState(value: string | undefined, errorCode?: string | null): GatewayState {
   if (value === 'success') return 'success'
+  if (simulatorErrorKind(errorCode) === 'dependency') return 'dependency'
   if (errorCode === 'VERSION_CONFLICT' || errorCode === 'RUN_VERSION_CONFLICT' || value === 'conflict') return 'conflict'
   if (errorCode === 'SIMULATOR_SELECTION_REQUIRED' || value === 'no-selection') return 'no-selection'
   if (errorCode === 'SIMULATOR_SELECTION_NOT_FOUND' || value === 'not-found') return 'not-found'
@@ -296,28 +298,45 @@ async function simulatorRequest<T>(url: string, init?: RequestInit): Promise<{ p
   const response = await fetch(url, { ...init, headers: { Accept: 'application/json', ...init?.headers } })
   const text = await response.text()
   let payload: Record<string, unknown> = {}
+  let malformed = false
   if (text) {
-    try { payload = JSON.parse(text) as Record<string, unknown> } catch { payload = {} }
+    try { payload = JSON.parse(text) as Record<string, unknown> } catch { malformed = true }
   }
-  if (response.status === 401) throw new Error('expired')
-  if (response.status === 403) throw new Error('forbidden')
+  if (malformed || !text) throw new Error('MALFORMED_RESPONSE')
+  if (response.status === 401) throw new SimulatorHttpError(response.status, 'expired')
+  if (response.status === 403) throw new SimulatorHttpError(response.status, 'forbidden')
   if (!response.ok) {
     const code = typeof payload.errorCode === 'string' ? payload.errorCode : `request-${response.status}`
-    throw new Error(code)
+    throw new SimulatorHttpError(response.status, code)
   }
   return { payload: payload as unknown as T, replayed: response.headers.get('X-Idempotency-Replay') === 'true' }
+}
+
+class SimulatorHttpError extends Error {
+  readonly status: number
+  readonly errorCode: string
+
+  constructor(status: number, errorCode: string) {
+    super(errorCode)
+    this.name = 'SimulatorHttpError'
+    this.status = status
+    this.errorCode = errorCode
+  }
 }
 
 let pendingSimulatorMutation: PendingSimulatorMutation | undefined
 
 function isRetryableSimulatorError(error: unknown): boolean {
   if (!(error instanceof Error)) return true
-  return error.name === 'TypeError' || error.message === 'RUNTIME_DEPENDENCY_UNAVAILABLE' ||
-    error.message === 'TRANSIENT_DATABASE_CONFLICT' ||
-    error.message.startsWith('request-5') || error.message.startsWith('antiforgery-5')
+  const status = error instanceof SimulatorHttpError ? error.status : undefined
+  return simulatorErrorKind(error.message, status) === 'dependency' || error.name === 'TypeError' ||
+    error.message === 'MALFORMED_RESPONSE' || error.message === 'TRANSIENT_DATABASE_CONFLICT' ||
+    error.message === 'request-503' || error.message.startsWith('request-5') ||
+    error.message.startsWith('antiforgery-5')
 }
 
-function mutationStateFromError(errorCode: string): GatewayState {
+function mutationStateFromError(errorCode: string, status?: number): GatewayState {
+  if (simulatorErrorKind(errorCode, status) === 'dependency') return 'dependency'
   return errorCode.includes('CONFLICT') ? 'conflict' :
     errorCode.includes('NOT_FOUND') ? 'not-found' :
       errorCode.includes('REQUIRED') || errorCode.includes('INELIGIBLE') ? 'validation' :
@@ -413,7 +432,8 @@ export const webGateways: WebGateways = {
       } catch (error) {
         const errorCode = error instanceof Error ? error.message : 'RUNTIME_FAILURE'
         const state: GatewayState = errorCode === 'forbidden' ? 'forbidden' : errorCode === 'expired' ? 'expired' :
-          errorCode === 'SIMULATOR_SELECTION_NOT_FOUND' ? 'not-found' :
+          simulatorErrorKind(errorCode, error instanceof SimulatorHttpError ? error.status : undefined) === 'dependency' ? 'dependency' :
+            errorCode === 'SIMULATOR_SELECTION_NOT_FOUND' ? 'not-found' :
             errorCode === 'SIMULATOR_SELECTION_INELIGIBLE' ? 'validation' :
               errorCode.includes('CONFLICT') ? 'conflict' : 'runtime-error'
         return { state, status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
@@ -465,7 +485,7 @@ export const webGateways: WebGateways = {
       } catch (error) {
         const errorCode = error instanceof Error ? error.message : 'RUNTIME_FAILURE'
         if (!isRetryableSimulatorError(error)) pendingSimulatorMutation = undefined
-        return { state: mutationStateFromError(errorCode), status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
+        return { state: mutationStateFromError(errorCode, error instanceof SimulatorHttpError ? error.status : undefined), status: 'Stopped', generated: 0, accepted: 0, rejected: 0, errorCode }
       }
     },
     clearPendingMutation: () => { pendingSimulatorMutation = undefined },
