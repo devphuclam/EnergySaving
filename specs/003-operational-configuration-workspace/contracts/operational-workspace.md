@@ -138,7 +138,8 @@ are evaluated before paging. A caller may receive a correlation ID only with the
 permission (`AUDIT_CORRELATION`, granted to Administrators only); otherwise it is omitted. Before/after maps are a server-side redacted safe diff:
 passwords, hashes, tokens, credentials, connection strings, and secret references are removed or
 replaced with `[REDACTED]` before serialization. Out-of-scope rows are indistinguishable from
-not-found rows.
+not-found rows. The response's `itemCount` is the count in the returned page, not a total-record
+count, and `nextCursor` is present only when another page exists.
 
 ## GET `/api/v1/operational-workspace/engineers`
 

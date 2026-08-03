@@ -150,6 +150,30 @@ public sealed class PostgresAcquisitionRunRepository : IAcquisitionRunRepository
             """, command => command.Parameters.AddWithValue("source_ids", sourceIds.ToArray()), MapRun, ct);
     }
 
+    public async Task<IReadOnlyList<SimulatorRun>> ListOperationalAsync(CancellationToken ct = default) =>
+        await QueryAsync("""
+            SELECT run_id,source_id,source_version,configuration_id,configuration_version,
+                   algorithm_id,algorithm_version,status,version,generated_count,accepted_count,
+                   rejected_count,latest_error_code,latest_error_message,created_at_utc,started_at_utc,
+                   paused_at_utc,resumed_at_utc,stopped_at_utc,actor_id,actor_username,correlation_id,causation_id
+            FROM acquisition.simulator_run WHERE status IN ('Running','Paused') ORDER BY run_id
+            """, null, MapRun, ct);
+
+    public async Task<IReadOnlyList<SimulatorRun>> ListOperationalForSourcesAsync(
+        IReadOnlyCollection<Guid> sourceIds, CancellationToken ct = default)
+    {
+        if (sourceIds.Count == 0) return [];
+        return await QueryAsync("""
+            SELECT run_id,source_id,source_version,configuration_id,configuration_version,
+                   algorithm_id,algorithm_version,status,version,generated_count,accepted_count,
+                   rejected_count,latest_error_code,latest_error_message,created_at_utc,started_at_utc,
+                   paused_at_utc,resumed_at_utc,stopped_at_utc,actor_id,actor_username,correlation_id,causation_id
+            FROM acquisition.simulator_run
+            WHERE status IN ('Running','Paused') AND source_id = ANY(@source_ids)
+            ORDER BY run_id
+            """, command => command.Parameters.AddWithValue("source_ids", sourceIds.ToArray()), MapRun, ct);
+    }
+
     public async Task<IReadOnlyList<SimulatorRunPointState>> ListPointStatesAsync(
         Guid runId, CancellationToken ct = default) =>
         await QueryAsync(PointSelect + " WHERE run_id=@run_id ORDER BY point_id",

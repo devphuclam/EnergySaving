@@ -224,6 +224,18 @@ public sealed class FakeAcquisitionRunRepositories :
             .Where(run => run.Status == SimulatorRunStatus.Running && sourceIds.Contains(run.SourceId))
             .OrderBy(run => run.RunId).Select(Clone).ToList());
 
+    public Task<IReadOnlyList<SimulatorRun>> ListOperationalAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SimulatorRun>>(_committed.Runs.Values
+            .Where(run => run.Status is SimulatorRunStatus.Running or SimulatorRunStatus.Paused)
+            .OrderBy(run => run.RunId).Select(Clone).ToList());
+
+    public Task<IReadOnlyList<SimulatorRun>> ListOperationalForSourcesAsync(
+        IReadOnlyCollection<Guid> sourceIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SimulatorRun>>(_committed.Runs.Values
+            .Where(run => (run.Status is SimulatorRunStatus.Running or SimulatorRunStatus.Paused) &&
+                sourceIds.Contains(run.SourceId))
+            .OrderBy(run => run.RunId).Select(Clone).ToList());
+
     public Task<IReadOnlyList<SimulatorRunPointState>> ListPointStatesAsync(Guid runId,
         CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<SimulatorRunPointState>>(_committed.Points.Values

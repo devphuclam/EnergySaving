@@ -1,6 +1,8 @@
 using IUMP.Api.Infrastructure;
+using IUMP.Modules.Acquisition.Contracts;
 using IUMP.Modules.Audit.Application;
 using IUMP.Modules.Audit.Contracts;
+using IUMP.Tests.Unit.Fakes;
 
 namespace IUMP.Tests.Unit.OperationalWorkspace;
 
@@ -16,9 +18,94 @@ public static class AuditDashboardTests
         AssertionCount = 0;
         var failures = new List<string>();
         await AuditResultsAreRedactedAndCorrelationIsPermissionGated(failures);
+        await AuditValidationAndKeysetPagingAreStrict(failures);
+        OperationalRunListingPreservesPausedState(failures);
         DashboardNeverLeaksCountsWithoutScope(failures);
         DashboardSummaryContractIsPublicAndScoped(failures);
         return failures;
+    }
+
+    private static void OperationalRunListingPreservesPausedState(ICollection<string> failures)
+    {
+        TestCount++;
+        var repository = new FakeAcquisitionRunRepositories();
+        var now = DateTime.UtcNow;
+        var source = Guid.NewGuid();
+        SimulatorRun Run(Guid id, SimulatorRunStatus status, Guid sourceId) => new(
+            id, sourceId, 1, Guid.NewGuid(), 1, "Constant", 1, status, 1, 0, 0, 0,
+            null, null, now, now, status == SimulatorRunStatus.Paused ? now : null,
+            null, status == SimulatorRunStatus.Stopped ? now : null,
+            "actor", "operator", "corr", null);
+        repository.Seed(Run(Guid.NewGuid(), SimulatorRunStatus.Running, source));
+        repository.Seed(Run(Guid.NewGuid(), SimulatorRunStatus.Paused, source));
+        repository.Seed(Run(Guid.NewGuid(), SimulatorRunStatus.Stopped, source));
+        var operational = repository.ListOperationalAsync().GetAwaiter().GetResult();
+        Check(operational.Count == 2 && operational.Any(item => item.Status == SimulatorRunStatus.Paused) &&
+              operational.All(item => item.Status is SimulatorRunStatus.Running or SimulatorRunStatus.Paused),
+            "T065 corrective: Dashboard operational run listing must include Paused and exclude Stopped.", failures);
+        var otherSource = repository.ListOperationalForSourcesAsync(new[] { Guid.NewGuid() })
+            .GetAwaiter().GetResult();
+        Check(otherSource.Count == 0,
+            "T065 corrective: scoped operational run listing must not leak another Source.", failures);
+    }
+
+    private static async Task AuditValidationAndKeysetPagingAreStrict(
+        ICollection<string> failures)
+    {
+        TestCount++;
+        var row = new AuditEventRecord(
+            Guid.NewGuid(), Guid.NewGuid(), "Configuration.v1", "Source", "one",
+            "Update", "one", DateTime.UtcNow.AddMinutes(-3), DateTime.UtcNow,
+            null, null, null, new Dictionary<string, object?>(),
+            new Dictionary<string, object?>(), "site-1", null, null);
+        var repository = new CountingAuditRepository(row);
+        var service = new AuditQueryService(repository, new AuditAuthorization());
+        var caller = new AuditCaller(false, true, new HashSet<string> { "site-1" }, new HashSet<string>());
+
+        foreach (var pageSize in new[] { 0, -1, 101 })
+        {
+            var invalid = await service.QueryAsync(
+                new AuditQueryRequest(null, null, null, null, null, 1, pageSize), caller);
+            Check(invalid.ErrorCode == "VALIDATION" && invalid.Items.Count == 0,
+                $"T065 corrective: pageSize={pageSize} must be rejected as VALIDATION.", failures);
+        }
+        var malformed = await service.QueryAsync(
+            new AuditQueryRequest(null, null, null, null, null, 1, 25)
+            { KeysetCursor = "malformed-cursor" }, caller);
+        Check(malformed.ErrorCode == "VALIDATION" && malformed.Items.Count == 0,
+            "T065 corrective: malformed cursor must be rejected as VALIDATION.", failures);
+        Check(repository.QueryCount == 0,
+            "T065 corrective: invalid Audit requests must not query the repository.", failures);
+        var outOfRangeCursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            $"{long.MaxValue}:{Guid.NewGuid():D}")).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var outOfRange = await service.QueryAsync(
+            new AuditQueryRequest(null, null, null, null, null, 1, 25)
+            { KeysetCursor = outOfRangeCursor }, caller);
+        Check(outOfRange.ErrorCode == "VALIDATION" && outOfRange.Items.Count == 0,
+            "T065 corrective: an out-of-range decoded cursor must be rejected as VALIDATION.", failures);
+
+        var ordered = new[]
+        {
+            row with { AuditEventId = Guid.Parse("00000000-0000-0000-0000-000000000003"), OccurredAtUtc = DateTime.UtcNow.AddMinutes(-1), Summary = "newest" },
+            row with { AuditEventId = Guid.Parse("00000000-0000-0000-0000-000000000002"), OccurredAtUtc = DateTime.UtcNow.AddMinutes(-2), Summary = "middle" },
+            row with { AuditEventId = Guid.Parse("00000000-0000-0000-0000-000000000001"), OccurredAtUtc = DateTime.UtcNow.AddMinutes(-3), Summary = "oldest" }
+        };
+        repository = new CountingAuditRepository(ordered);
+        service = new AuditQueryService(repository, new AuditAuthorization());
+        var first = await service.QueryAsync(
+            new AuditQueryRequest(null, null, null, null, null, 1, 2), caller);
+        Check(first.Items.Count == 2 && first.NextCursor is not null,
+            "T065 corrective: pageSize+1 rows must produce a continuation cursor.", failures);
+        var last = await service.QueryAsync(
+            new AuditQueryRequest(null, null, null, null, null, 1, 5), caller);
+        Check(last.Items.Count == 3 && last.NextCursor is null,
+            "T065 corrective: a last page must not fabricate a continuation cursor.", failures);
+        var continuation = await service.QueryAsync(
+            new AuditQueryRequest(null, null, null, null, null, 1, 2)
+            { KeysetCursor = first.NextCursor }, caller);
+        Check(continuation.Items.Count == 1 && continuation.Items[0].Summary == "oldest" &&
+              continuation.NextCursor is null,
+            "T065 corrective: keyset continuation must not duplicate or skip the final row.", failures);
     }
 
     private static async Task AuditResultsAreRedactedAndCorrelationIsPermissionGated(
@@ -133,6 +220,19 @@ public static class AuditDashboardTests
         {
             LastRequest = request;
             return Task.FromResult<IReadOnlyList<AuditEventRecord>>([row]);
+        }
+    }
+
+    private sealed class CountingAuditRepository : IAuditQueryRepository
+    {
+        private readonly IReadOnlyList<AuditEventRecord> _rows;
+        public CountingAuditRepository(params AuditEventRecord[] rows) => _rows = rows;
+        public int QueryCount { get; private set; }
+        public Task<IReadOnlyList<AuditEventRecord>> QueryAsync(
+            AuditQueryRequest request, CancellationToken ct = default)
+        {
+            QueryCount++;
+            return Task.FromResult(_rows);
         }
     }
 }

@@ -130,7 +130,7 @@ public sealed record AuditQueryRequest(string? ObjectType, string? Action, strin
 }
 
 public sealed record AuditQueryResult(IReadOnlyList<AuditEventRecord> Items, string? ErrorCode = null,
-    int TotalCount = 0)
+    int ItemCount = 0)
 {
     public string? NextCursor { get; init; }
 }
@@ -154,6 +154,7 @@ public readonly record struct AuditKeysetCursor(DateTime OccurredAtUtc, Guid Aud
             return true;
         }
         catch (FormatException) { return false; }
+        catch (ArgumentOutOfRangeException) { return false; }
     }
 }
 

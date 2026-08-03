@@ -21,6 +21,11 @@ public sealed class AuditQueryService(IAuditQueryRepository repository, AuditAut
     public async Task<AuditQueryResult> QueryAsync(AuditQueryRequest request, AuditCaller caller, CancellationToken ct = default)
     {
         if (!authorization.CanQuery(caller)) return new(Array.Empty<AuditEventRecord>(), "FORBIDDEN", 0);
+        if (request.Page < 1 || request.PageSize is < 1 or > 100)
+            return new(Array.Empty<AuditEventRecord>(), "VALIDATION", 0);
+        if (!string.IsNullOrWhiteSpace(request.KeysetCursor) &&
+            !AuditKeysetCursor.TryDecode(request.KeysetCursor, out _))
+            return new(Array.Empty<AuditEventRecord>(), "VALIDATION", 0);
         // Scope is applied before paging/keyset so an unauthorized row can never consume a page slot.
         if (!caller.IsAdministrator &&
             ((request.SiteId is not null && !caller.SiteIds.Contains(request.SiteId)) ||
@@ -43,15 +48,19 @@ public sealed class AuditQueryService(IAuditQueryRepository repository, AuditAut
             CorrelationId = caller.CanReadCorrelation ? request.CorrelationId : null
         };
         var rows = await repository.QueryAsync(scopedRequest, ct);
-        var visible = rows.Where(row => authorization.CanQuery(caller, row))
+        var ordered = rows.Where(row => authorization.CanQuery(caller, row))
             .OrderByDescending(row => row.OccurredAtUtc).ThenByDescending(row => row.AuditEventId)
             .Where(row => IsAfterCursor(row, request.KeysetCursor))
-            .Take(Math.Clamp(request.PageSize, 1, 100))
+            .ToArray();
+        var hasMore = ordered.Length > request.PageSize;
+        var visible = ordered.Take(request.PageSize)
             .Select(row => AuditRedaction.ForCaller(row, caller))
             .ToArray();
         return new(visible, null, visible.Length)
         {
-            NextCursor = visible.Length == 0 ? null : new AuditKeysetCursor(visible[^1].OccurredAtUtc, visible[^1].AuditEventId).Encode()
+            NextCursor = hasMore && visible.Length > 0
+                ? new AuditKeysetCursor(visible[^1].OccurredAtUtc, visible[^1].AuditEventId).Encode()
+                : null
         };
     }
 

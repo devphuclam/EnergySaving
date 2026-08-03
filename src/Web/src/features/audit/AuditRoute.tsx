@@ -70,8 +70,8 @@ export function AuditRoute() {
     <section className="card" aria-labelledby="audit-filter-title">
       <div className="card-header"><div><p className="card-kicker">Bộ lọc phía máy chủ</p><h2 id="audit-filter-title">Tìm kiếm nhật ký</h2></div><span className="muted">Keyset · mới nhất trước · không OFFSET</span></div>
       <form className="filter-bar" onSubmit={applyFilters}>
-        <label className="field">Từ UTC<input className="input" type="datetime-local" value={draft.fromUtc ?? ''} onChange={event => update('fromUtc', event.target.value)} /></label>
-        <label className="field">Đến UTC<input className="input" type="datetime-local" value={draft.toUtc ?? ''} onChange={event => update('toUtc', event.target.value)} /></label>
+        <label className="field">Từ giờ địa phương<input className="input" type="datetime-local" value={draft.fromUtc ?? ''} onChange={event => update('fromUtc', event.target.value)} /></label>
+        <label className="field">Đến giờ địa phương<input className="input" type="datetime-local" value={draft.toUtc ?? ''} onChange={event => update('toUtc', event.target.value)} /></label>
         <label className="field">Người thực hiện<input className="input" value={draft.actorId ?? ''} onChange={event => update('actorId', event.target.value)} /></label>
         <label className="field">Hành động<input className="input" value={draft.action ?? ''} onChange={event => update('action', event.target.value)} /></label>
         <label className="field">Loại đối tượng<input className="input" value={draft.entityType ?? ''} onChange={event => update('entityType', event.target.value)} /></label>
@@ -80,6 +80,7 @@ export function AuditRoute() {
         <label className="field">Area<input className="input" value={draft.areaId ?? ''} onChange={event => update('areaId', event.target.value)} /></label>
         <button className="button button-primary" type="submit">Áp dụng</button>
       </form>
+      <small className="muted">Hệ thống sẽ chuyển thời gian sang UTC khi gửi truy vấn.</small>
       {validation && <div className="notice notice-warning" role="alert">{validation}</div>}
     </section>
 

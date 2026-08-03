@@ -48,12 +48,17 @@ public sealed class PostgresAuditRepositories :
     public async Task<IReadOnlyList<AuditEventRecord>> QueryAsync(
         AuditQueryRequest request, CancellationToken ct = default)
     {
-        var page = Math.Max(1, request.Page);
-        var size = Math.Clamp(request.PageSize, 1, 100);
-        AuditKeysetCursor.TryDecode(request.KeysetCursor, out var cursor);
         var hasCursor = !string.IsNullOrWhiteSpace(request.KeysetCursor);
+        if (request.Page < 1 || request.PageSize is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(request), "Audit page and page size are invalid.");
+        if (hasCursor && !AuditKeysetCursor.TryDecode(request.KeysetCursor, out _))
+            throw new ArgumentException("Audit cursor is invalid.", nameof(request));
+        AuditKeysetCursor.TryDecode(request.KeysetCursor, out var cursor);
+        var page = request.Page;
+        var size = request.PageSize;
+        var paging = hasCursor ? "LIMIT @limit" : "OFFSET @offset LIMIT @limit";
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
-        await using var command = new NpgsqlCommand("""
+        await using var command = new NpgsqlCommand($"""
             SELECT audit_event_id,source_event_id,event_type,object_type,object_id,action,summary,
                    occurred_at_utc,recorded_at_utc,correlation_id,actor_id,actor_username,
                    before_json::text,after_json::text,site_id,area_id,causation_id,
@@ -73,7 +78,7 @@ public sealed class PostgresAuditRepositories :
                 OR site_id=ANY(@site_ids) OR area_id=ANY(@area_ids))
               AND (NOT @has_cursor OR (occurred_at_utc,audit_event_id)<(@cursor_time,@cursor_id))
             ORDER BY occurred_at_utc DESC,audit_event_id DESC
-            OFFSET CASE WHEN @has_cursor THEN 0 ELSE @offset END LIMIT @limit
+            {paging}
             """, connection);
         command.Parameters.Add(new NpgsqlParameter("object_type", NpgsqlDbType.Text)
             { Value = (object?)request.ObjectType ?? DBNull.Value });
@@ -108,7 +113,7 @@ public sealed class PostgresAuditRepositories :
         command.Parameters.Add(new NpgsqlParameter("offset", NpgsqlDbType.Integer)
             { Value = (page - 1) * size });
         command.Parameters.Add(new NpgsqlParameter("limit", NpgsqlDbType.Integer)
-            { Value = size });
+            { Value = checked(size + 1) });
         await using var reader = await command.ExecuteReaderAsync(ct);
         var rows = new List<AuditEventRecord>();
         while (await reader.ReadAsync(ct)) rows.Add(Map(reader));

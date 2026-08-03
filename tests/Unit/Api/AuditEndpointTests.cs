@@ -1,5 +1,6 @@
 using IUMP.Api;
 using IUMP.Api.Infrastructure;
+using IUMP.Modules.Audit.Contracts;
 using IUMP.Tests.Unit.Fakes;
 using Microsoft.AspNetCore.Http;
 
@@ -21,9 +22,10 @@ public static class AuditEndpointTests
         var query = new FakeAuditQueryPort();
         var admin = new ServerPrincipal(Guid.NewGuid(), "administrator", new HashSet<string>(), new HashSet<string>(), true);
         var adminRequest = new DefaultHttpContext().Request;
-        adminRequest.QueryString = new QueryString("?objectType=Point&cursor=cursor-1&pageSize=20");
+        var validCursor = new AuditKeysetCursor(DateTime.UtcNow, Guid.NewGuid()).Encode();
+        adminRequest.QueryString = new QueryString($"?objectType=Point&cursor={validCursor}&pageSize=20");
         var adminResult = await AuditEndpoints.QueryAsync(adminRequest, query, new FakeServerPrincipalAccessor(admin), CancellationToken.None);
-        assertions++; if (query.LastPrincipal?.UserId != admin.UserId || query.LastCursor != "cursor-1" || query.LastFilters!["objectType"] != "Point" || query.LastPageSize != 20)
+        assertions++; if (query.LastPrincipal?.UserId != admin.UserId || query.LastCursor != validCursor || query.LastFilters!["objectType"] != "Point" || query.LastPageSize != 20)
             failures.Add("Admin audit handler must invoke query port with exact filters, cursor and page size");
         // Scoped AUDIT_READ query
         var scoped = new ServerPrincipal(Guid.NewGuid(), "manager", new HashSet<string> { Guid.NewGuid().ToString("D") }, new HashSet<string>(), false);
@@ -48,11 +50,29 @@ public static class AuditEndpointTests
         var defaultRequest = new DefaultHttpContext().Request;
         var defaultResult = await AuditEndpoints.QueryAsync(defaultRequest, query, new FakeServerPrincipalAccessor(admin), CancellationToken.None);
         assertions++; if (query.LastPageSize != 50) failures.Add("Default page size must be 50");
-        // Clamped page size
-        var clampedRequest = new DefaultHttpContext().Request;
-        clampedRequest.QueryString = new QueryString("?pageSize=200");
-        var clampedResult = await AuditEndpoints.QueryAsync(clampedRequest, query, new FakeServerPrincipalAccessor(admin), CancellationToken.None);
-        assertions++; if (query.LastPageSize > 100) failures.Add("Page size must be clamped to 100");
+        // Invalid page sizes are request errors, not silent defaults or clamps.
+        foreach (var value in new[] { "not-an-integer", "0", "-1", "101" })
+        {
+            var invalidQuery = new FakeAuditQueryPort();
+            var invalidRequest = new DefaultHttpContext().Request;
+            invalidRequest.QueryString = new QueryString($"?pageSize={value}");
+            var invalidResult = await AuditEndpoints.QueryAsync(
+                invalidRequest, invalidQuery, new FakeServerPrincipalAccessor(admin), CancellationToken.None);
+            assertions++;
+            if (invalidResult is not Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult problem ||
+                problem.StatusCode != StatusCodes.Status422UnprocessableEntity || invalidQuery.QueryCount != 0)
+                failures.Add($"Invalid pageSize={value} must return HTTP 422 without invoking the query port");
+        }
+        // A malformed cursor is rejected before the query port is allowed to treat it as a first page.
+        var malformedCursorQuery = new FakeAuditQueryPort();
+        var malformedCursorRequest = new DefaultHttpContext().Request;
+        malformedCursorRequest.QueryString = new QueryString("?cursor=not-a-cursor");
+        var malformedCursorResult = await AuditEndpoints.QueryAsync(
+            malformedCursorRequest, malformedCursorQuery, new FakeServerPrincipalAccessor(admin), CancellationToken.None);
+        assertions++;
+        if (malformedCursorResult is not Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult cursorProblem ||
+            cursorProblem.StatusCode != StatusCodes.Status422UnprocessableEntity || malformedCursorQuery.QueryCount != 0)
+            failures.Add("Malformed cursor must return HTTP 422 without invoking the query port");
         TestCount = assertions; AssertionCount = assertions;
         FailureCount = failures.Count;
         return failures;

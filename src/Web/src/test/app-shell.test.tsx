@@ -12,6 +12,11 @@ import type {
   WebGateways,
 } from '../gateways/webGateways'
 import {
+  dashboardRuntimePresentation,
+  mapDashboardAuditItem,
+  toUtcQueryValue,
+} from '../gateways/webGateways'
+import {
   deriveSiteAndEngineerState,
   selectedSetupPath,
   workspaceStatusRequestFromSearch,
@@ -159,6 +164,21 @@ export async function runAppShellBehaviorScenarios(): Promise<string[]> {
   const conflictFake = createFakeWebGateways({ state: 'ready' }, observations, 'error')
   const conflict: SimulatorSnapshot = await conflictFake.simulator.mutate('pause')
   if (conflict.errorCode !== 'VERSION_CONFLICT') failures.push('mutation conflict feedback must be observable')
+
+  const mappedAudit = mapDashboardAuditItem({ occurredAtUtc: '2026-08-03T10:20:30Z', summary: 'mapped' })
+  if (mappedAudit.time !== '2026-08-03T10:20:30Z')
+    failures.push('Dashboard recent Audit must map camelCase occurredAtUtc to time')
+  if (toUtcQueryValue('not-a-date') !== undefined)
+    failures.push('Invalid Audit datetime must be rejected before toISOString')
+  if (toUtcQueryValue('2026-02-30T10:00') !== undefined)
+    failures.push('Impossible local Audit datetime must be rejected without normalization')
+  if (toUtcQueryValue('2026-02-30T10:00:00.000') !== undefined)
+    failures.push('Impossible fractional local Audit datetime must be rejected without normalization')
+  const pausedSnapshot = await fake.dashboard.getSnapshot()
+  pausedSnapshot.runs.items = [{ status: 'Paused' }]
+  if (dashboardRuntimePresentation(pausedSnapshot).state !== 'paused' ||
+      dashboardRuntimePresentation(pausedSnapshot).label !== 'đang tạm dừng')
+    failures.push('Dashboard must distinguish Paused from Running')
 
   await fake.auth.signOut()
   state = transitionAppShell(state, { type: 'signed-out' })

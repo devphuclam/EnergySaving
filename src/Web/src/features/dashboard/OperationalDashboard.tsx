@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useWebGateways } from '../../gateways/GatewayContext'
-import type { AuthSession, GatewayState, OperationalDashboardSnapshot } from '../../gateways/webGateways'
+import { dashboardRuntimePresentation, type AuthSession, type GatewayState, type OperationalDashboardSnapshot } from '../../gateways/webGateways'
 
 type DashboardRoute = 'setup' | 'configuration' | 'simulator' | 'telemetry' | 'audit'
 
@@ -60,6 +60,7 @@ export function OperationalDashboard({ session, onNewSetup, onContinueSetup, onN
   const showError = !loading && !noScope && state !== 'ready'
 
   const runtimeStatus = snapshot.runtime.status === 'Available' ? 'Sẵn sàng' : 'Không khả dụng'
+  const runtime = dashboardRuntimePresentation(snapshot)
   return <section className="page" aria-labelledby="dashboard-title">
     <div className="page-heading"><div><p className="eyebrow">Không gian vận hành</p><h1 id="dashboard-title">Bảng vận hành</h1><p className="lede">Tóm tắt có phạm vi của cấu hình, nguồn dữ liệu, điểm đo, lần chạy và tình trạng mới nhất.</p></div><span className="badge badge-neutral">{session.isAdministrator ? 'Quản trị viên' : 'Phạm vi được cấp'}</span></div>
     {loading && <div className="notice notice-info" role="status">{stateMessage.loading}</div>}
@@ -76,7 +77,7 @@ export function OperationalDashboard({ session, onNewSetup, onContinueSetup, onN
       </div>
       <div className="card-grid two-up">
         <section className="card" aria-labelledby="dashboard-setup-title"><div className="card-header"><div><p className="card-kicker">Thiết lập</p><h2 id="dashboard-setup-title">Mức sẵn sàng kích hoạt</h2></div><span className="badge badge-neutral">{snapshot.incompleteSetup.count} chưa hoàn tất</span></div><p className="muted">{snapshot.incompleteSetup.count > 0 ? `Bước tiếp theo: ${snapshot.incompleteSetup.nextStep ?? 'Tiếp tục thiết lập'}.` : 'Mọi chuỗi trong phạm vi đã sẵn sàng hoặc chưa có dữ liệu.'}</p><div className="control-row">{snapshot.incompleteSetup.count > 0 && <button className="button button-primary" type="button" onClick={onContinueSetup}>Tiếp tục thiết lập</button>}{session.isAdministrator && <button className="button button-secondary" type="button" onClick={onNewSetup}>Tạo chuỗi cấu hình mới</button>}</div></section>
-        <section className="card" aria-labelledby="dashboard-runtime-title"><div className="card-header"><div><p className="card-kicker">Môi trường chạy</p><h2 id="dashboard-runtime-title">Trạng thái vận hành</h2></div><span className={`badge ${snapshot.runtime.status === 'Available' ? 'badge-success' : 'badge-warning'}`}>{runtimeStatus}</span></div><p className="muted">Trình mô phỏng {snapshot.runtime.simulatorRunning ? 'đang chạy theo trạng thái đã tồn tại.' : 'không chạy tự động từ bảng vận hành.'}</p><div className="control-row"><button className="button button-secondary" type="button" onClick={() => onNavigate('audit')}>Xem nhật ký gần đây</button><button className="button button-secondary" type="button" onClick={() => onNavigate('simulator')}>Mở trình mô phỏng</button></div></section>
+        <section className="card" aria-labelledby="dashboard-runtime-title"><div className="card-header"><div><p className="card-kicker">Môi trường chạy</p><h2 id="dashboard-runtime-title">Trạng thái vận hành</h2></div><span className={`badge ${snapshot.runtime.status === 'Available' ? 'badge-success' : 'badge-warning'}`}>{runtimeStatus}</span></div><p className="muted">Trình mô phỏng {runtime.label} theo các phiên đã tồn tại; bảng vận hành không tự động khởi động hay tiếp tục phiên.</p><div className="control-row"><button className="button button-secondary" type="button" onClick={() => onNavigate('audit')}>Xem nhật ký gần đây</button><button className="button button-secondary" type="button" onClick={() => onNavigate('simulator')}>Mở trình mô phỏng</button></div></section>
       </div>
       <section className="card" aria-labelledby="dashboard-audit-title"><div className="card-header"><div><p className="card-kicker">Nhật ký gần đây</p><h2 id="dashboard-audit-title">{snapshot.recentAudit.items?.length ?? 0} hoạt động trong trang</h2></div><button className="button button-secondary" type="button" onClick={() => onNavigate('audit')}>Mở toàn bộ nhật ký</button></div>{(snapshot.recentAudit.items ?? []).length === 0 ? <p className="muted">Chưa có hoạt động nhật ký trong phạm vi.</p> : <ul className="muted">{(snapshot.recentAudit.items ?? []).slice(0, 5).map((item, index) => <li key={`${item?.time ?? 'audit'}-${index}`}>{item?.time ?? '—'} · {item?.actor ?? '—'} · {item?.action ?? '—'} · {item?.summary ?? '—'}</li>)}</ul>}</section>
     </>}

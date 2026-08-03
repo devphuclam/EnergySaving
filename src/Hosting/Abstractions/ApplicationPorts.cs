@@ -85,7 +85,7 @@ public interface ITelemetryQueryPort
 }
 
 public sealed record AuditQueryPage(IReadOnlyList<object> Items, string? ErrorCode = null,
-    string? NextCursor = null, int TotalCount = 0);
+    string? NextCursor = null, int ItemCount = 0);
 
 public interface IAuditQueryPort
 {
