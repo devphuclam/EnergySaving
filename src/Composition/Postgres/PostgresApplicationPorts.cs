@@ -1173,7 +1173,8 @@ public sealed class PostgresTelemetryQueryPort(
 }
 
 public sealed class PostgresAuditQueryPort(
-    AuditQueryService queries) : IAuditQueryPort
+    AuditQueryService queries,
+    IOrganizationQueryRepository organization) : IAuditQueryPort
 {
     public async Task<AuditQueryPage> QueryAsync(
         IReadOnlyDictionary<string, string?> filters, ServerPrincipal principal,
@@ -1188,6 +1189,14 @@ public sealed class PostgresAuditQueryPort(
         filters.TryGetValue("entityId", out var entityId);
         filters.TryGetValue("siteId", out var siteId);
         filters.TryGetValue("areaId", out var areaId);
+        siteId = string.IsNullOrWhiteSpace(siteId) ? null : siteId;
+        areaId = string.IsNullOrWhiteSpace(areaId) ? null : areaId;
+        if (!principal.IsAdministrator && !principal.HasCapability("AUDIT_READ"))
+            return new AuditQueryPage([], "FORBIDDEN");
+        if (pageSize is < 1 or > 100)
+            return new AuditQueryPage([], "VALIDATION");
+        if (!string.IsNullOrWhiteSpace(cursor) && !AuditKeysetCursor.TryDecode(cursor, out _))
+            return new AuditQueryPage([], "VALIDATION");
         var hasFrom = !string.IsNullOrWhiteSpace(fromRaw);
         var hasTo = !string.IsNullOrWhiteSpace(toRaw);
         var validFrom = DateTime.TryParse(fromRaw, System.Globalization.CultureInfo.InvariantCulture,
@@ -1201,6 +1210,23 @@ public sealed class PostgresAuditQueryPort(
             return new AuditQueryPage([], "VALIDATION");
         DateTime? fromUtc = hasFrom ? parsedFrom : null;
         DateTime? toUtc = hasTo ? parsedTo : null;
+        var areaScope = new HashSet<string>(principal.AreaIds, StringComparer.Ordinal);
+        if (areaId is not null)
+        {
+            if (!Guid.TryParse(areaId, out var requestedAreaId))
+                return new AuditQueryPage([], "VALIDATION");
+            var ancestry = await organization.GetAreaAncestryAsync(requestedAreaId, ct);
+            if (ancestry is null) return new AuditQueryPage([]);
+            var requestedArea = requestedAreaId.ToString("D");
+            var requestedSite = ancestry.SiteId.ToString("D");
+            if (!principal.IsAdministrator &&
+                !areaScope.Contains(requestedArea) && !principal.SiteIds.Contains(requestedSite))
+                return new AuditQueryPage([]);
+            // A Site grant authorizes its child Area only after server-side ancestry resolution.
+            if (!principal.IsAdministrator && principal.SiteIds.Contains(requestedSite))
+                areaScope.Add(requestedArea);
+            areaId = requestedArea;
+        }
         var request = new AuditQueryRequest(
             objectType, action, actorId, correlationId, fromUtc, 1, pageSize)
         {
@@ -1212,9 +1238,9 @@ public sealed class PostgresAuditQueryPort(
         };
         var caller = new AuditCaller(
             principal.IsAdministrator, principal.HasCapability("AUDIT_READ"),
-            principal.SiteIds, principal.AreaIds, true, principal.IsAdministrator);
+            principal.SiteIds, areaScope, true, principal.IsAdministrator);
         var result = await queries.QueryAsync(request, caller, ct);
         return new AuditQueryPage(result.Items.Cast<object>().ToArray(),
-            result.ErrorCode, result.NextCursor, result.TotalCount);
+            result.ErrorCode, result.NextCursor, result.ItemCount);
     }
 }

@@ -207,6 +207,52 @@ export type OperationalDashboardSnapshot = {
   dependency: { status: string; errorCode?: string | null }
 }
 
+export function mapDashboardAuditItem(value: Record<string, unknown>): NonNullable<AuditSnapshot['records']>[number] {
+  return {
+    actor: String(value.actor ?? value.Actor ?? ''),
+    time: String(value.time ?? value.occurredAtUtc ?? value.OccurredAtUtc ?? ''),
+    object: String(value.object ?? value.ObjectType ?? ''),
+    objectType: String(value.objectType ?? value.ObjectType ?? ''),
+    entityId: String(value.entityId ?? value.EntityId ?? ''),
+    action: String(value.action ?? value.Action ?? ''),
+    summary: String(value.summary ?? value.Summary ?? ''),
+    before: value.before,
+    after: value.after,
+    correlationId: typeof (value.correlationId ?? value.CorrelationId) === 'string'
+      ? String(value.correlationId ?? value.CorrelationId) : null,
+    siteId: typeof (value.siteId ?? value.SiteId) === 'string' ? String(value.siteId ?? value.SiteId) : null,
+    areaId: typeof (value.areaId ?? value.AreaId) === 'string' ? String(value.areaId ?? value.AreaId) : null,
+  }
+}
+
+export function dashboardRuntimePresentation(snapshot: OperationalDashboardSnapshot):
+  { state: 'running' | 'paused' | 'idle'; label: string } {
+  const statuses = snapshot.runs.items.map(item => String(item.status ?? item.Status ?? ''))
+  if (statuses.some(status => status === 'Running'))
+    return { state: 'running', label: 'đang chạy' }
+  if (statuses.some(status => status === 'Paused'))
+    return { state: 'paused', label: 'đang tạm dừng' }
+  return { state: 'idle', label: 'không có phiên hoạt động' }
+}
+
+export function toUtcQueryValue(value?: string): string | undefined {
+  if (!value) return undefined
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return undefined
+  const localParts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value)
+  if (localParts) {
+    const [, year, month, day, hour, minute, second = '0', fraction = '0'] = localParts
+    const milliseconds = Number(fraction.padEnd(3, '0'))
+    const local = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), milliseconds)
+    if (local.getFullYear() !== Number(year) || local.getMonth() !== Number(month) - 1 ||
+        local.getDate() !== Number(day) || local.getHours() !== Number(hour) ||
+        local.getMinutes() !== Number(minute) || local.getSeconds() !== Number(second) ||
+        local.getMilliseconds() !== milliseconds)
+      return undefined
+  }
+  return new Date(timestamp).toISOString()
+}
+
 export type ManagementFilter = {
   search?: string
   status?: string
@@ -670,24 +716,8 @@ export const webGateways: WebGateways = {
     getSnapshot: async () => {
       try {
         const response = await request<OperationalDashboardSnapshot & { state?: string }>('/api/v1/operational-dashboard')
-        const recentAudit = (response.recentAudit?.items ?? []).map(item => {
-          const value = item as Record<string, unknown>
-          return {
-            actor: String(value.actor ?? value.Actor ?? ''),
-            time: String(value.time ?? value.OccurredAtUtc ?? ''),
-            object: String(value.object ?? value.ObjectType ?? ''),
-            objectType: String(value.objectType ?? value.ObjectType ?? ''),
-            entityId: String(value.entityId ?? value.EntityId ?? ''),
-            action: String(value.action ?? value.Action ?? ''),
-            summary: String(value.summary ?? value.Summary ?? ''),
-            before: value.before,
-            after: value.after,
-            correlationId: typeof (value.correlationId ?? value.CorrelationId) === 'string'
-              ? String(value.correlationId ?? value.CorrelationId) : null,
-            siteId: typeof (value.siteId ?? value.SiteId) === 'string' ? String(value.siteId ?? value.SiteId) : null,
-            areaId: typeof (value.areaId ?? value.AreaId) === 'string' ? String(value.areaId ?? value.AreaId) : null,
-          }
-        })
+        const recentAudit = (response.recentAudit?.items ?? [])
+          .map(item => mapDashboardAuditItem(item as Record<string, unknown>))
         return { ...response, state: dashboardState(response.state), recentAudit: { ...response.recentAudit, items: recentAudit } }
       } catch (error) {
         return {
@@ -707,7 +737,8 @@ export const webGateways: WebGateways = {
       try {
         const query = new URLSearchParams({ pageSize: '50' })
         for (const [key, value] of Object.entries(filters)) if (value) {
-          const normalized = key === 'fromUtc' || key === 'toUtc' ? new Date(value).toISOString() : value
+          const normalized = key === 'fromUtc' || key === 'toUtc' ? toUtcQueryValue(value) : value
+          if (!normalized) return { state: 'validation', eventCount: 0, records: [] }
           query.set(key, normalized)
         }
         if (filters.entityType) { query.delete('entityType'); query.set('objectType', filters.entityType) }

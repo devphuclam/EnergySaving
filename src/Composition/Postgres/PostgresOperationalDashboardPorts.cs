@@ -55,9 +55,9 @@ public sealed class PostgresOperationalDashboardPorts(
                             mapping.DataSourceId == source.Id && scopedPointIds.Contains(mapping.PointId))))
                     .ToArray();
             var sourceIds = sources.Select(source => source.Id).ToHashSet();
-            var running = principal.IsAdministrator
-                ? (await runs.ListRunningAsync(ct)).ToArray()
-                : (await runs.ListRunningForSourcesAsync(sourceIds, ct)).ToArray();
+            var operationalRuns = principal.IsAdministrator
+                ? (await runs.ListOperationalAsync(ct)).ToArray()
+                : (await runs.ListOperationalForSourcesAsync(sourceIds, ct)).ToArray();
 
             var latestItems = new List<object>();
             var healthItems = new List<object>();
@@ -92,7 +92,7 @@ public sealed class PostgresOperationalDashboardPorts(
                     source.Id, source.Code, source.Name, source.Status)).ToArray()),
                 new(points.Count, points.Select(point => (object)new DashboardPointItem(
                     point.Id, point.Code, point.Description)).ToArray()),
-                new(running.Length, running.Select(run => (object)new DashboardRunItem(
+                new(operationalRuns.Length, operationalRuns.Select(run => (object)new DashboardRunItem(
                     run.RunId, run.SourceId, run.Status.ToString(), run.GeneratedCount,
                     run.AcceptedCount, run.RejectedCount)).ToArray()),
                 new(latestItems.Count, latestItems),
@@ -108,7 +108,7 @@ public sealed class PostgresOperationalDashboardPorts(
                     item.SiteId,
                     item.AreaId,
                     item.CorrelationId)).ToArray(), auditResult.NextCursor),
-                new("Available", running.Length > 0),
+                new("Available", operationalRuns.Any(run => run.Status == SimulatorRunStatus.Running)),
                 new("Available", null, null));
         }
         catch (Exception exception) when (exception is NpgsqlException or TimeoutException)

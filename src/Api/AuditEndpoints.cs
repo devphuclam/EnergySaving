@@ -1,9 +1,11 @@
 namespace IUMP.Api;
 
+using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using IUMP.Api.Infrastructure;
+using IUMP.Modules.Audit.Contracts;
 
 public static class AuditEndpointPolicy
 {
@@ -24,8 +26,16 @@ public static class AuditEndpoints
     {
         if (principalAccessor.Current is not { } principal) return Results.Unauthorized();
         var filters = request.Query.ToDictionary(pair => pair.Key, pair => pair.Value.FirstOrDefault(), StringComparer.Ordinal);
-        var pageSize = int.TryParse(request.Query["pageSize"], out var parsed) ? Math.Clamp(parsed, 1, 100) : 50;
-        var page = await query.QueryAsync(filters, principal, request.Query["cursor"].FirstOrDefault(), pageSize, ct);
+        var rawPageSize = request.Query["pageSize"].FirstOrDefault();
+        var pageSize = 50;
+        if (rawPageSize is not null &&
+            (!int.TryParse(rawPageSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out pageSize) ||
+             pageSize is < 1 or > 100))
+            return Results.Problem("Audit page size is invalid.", statusCode: StatusCodes.Status422UnprocessableEntity);
+        var cursor = request.Query["cursor"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(cursor) && !AuditKeysetCursor.TryDecode(cursor, out _))
+            return Results.Problem("Audit cursor is invalid.", statusCode: StatusCodes.Status422UnprocessableEntity);
+        var page = await query.QueryAsync(filters, principal, cursor, pageSize, ct);
         return page.ErrorCode switch
         {
             "FORBIDDEN" => Results.Problem("Audit access is not authorized.", statusCode: StatusCodes.Status403Forbidden),

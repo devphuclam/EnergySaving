@@ -132,9 +132,11 @@ public sealed class FakeAuditQueryPort : IAuditQueryPort
     public string? LastCursor { get; private set; }
     public int LastPageSize { get; private set; }
     public ServerPrincipal? LastPrincipal { get; private set; }
+    public int QueryCount { get; private set; }
     public Task<AuditQueryPage> QueryAsync(IReadOnlyDictionary<string, string?> filters, ServerPrincipal principal,
         string? cursor, int pageSize, CancellationToken ct = default)
     {
+        QueryCount++;
         LastFilters = filters; LastCursor = cursor; LastPrincipal = principal; LastPageSize = pageSize;
         if (_returnForbidden) return Task.FromResult(new AuditQueryPage(Array.Empty<object>(), "FORBIDDEN", null, 0));
         return Task.FromResult(new AuditQueryPage(new object[] { new { actor = principal.Username, pageSize } }, null, "next", 1));

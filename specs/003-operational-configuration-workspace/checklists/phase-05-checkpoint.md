@@ -111,7 +111,7 @@ Full blockers are unchanged and truthful:
   (dashboard contract shape, registered tests, stale scope language, and strict
   keyset wording) were repaired minimally in the canonical artifacts. A final
   provider run terminated with `Insufficient Balance`; its classification is
-  **BLOCKED_BY_PROVIDER_QUOTA / NOT_RUN**, not PASS. No Critical or High
+  **NOT_RUN — provider quota unavailable**, not PASS. No Critical or High
   conflict remains based on the repaired artifacts and direct checks.
 - Convergence against `spec.md`, `plan.md`, `tasks.md`, and the constitution
   found no remaining actionable Phase 5 gap; no convergence tasks were
@@ -150,4 +150,56 @@ Planning-ready: **YES**. Implementation-ready: **YES**. Release-ready:
 **NO**. Phase 5 accepted: **YES**.
 
 **Explicit stop before T073.**
+
+## Phase 5 corrective closure addendum
+
+This addendum records the bounded corrective run after the Phase 5 merge. It
+does not rewrite the historical T065–T072 evidence above.
+
+- Starting main SHA: `02cc4b6dd932f08368b60ccddfdcf55c09131069`.
+- Corrective branch: `fix/feature-003-phase-05-corrective`.
+- Scope: findings 1–7 and regression coverage only; T073–T080, Phase 6,
+  Spec 004, Rule/Alert/CSV/Reporting work were not started.
+- Finding disposition: server rejects malformed cursor/pageSize with 422;
+  Site→Area ancestry is resolved through the Organization public contract and
+  fails closed; Audit fetches pageSize+1 and emits `nextCursor` only when more
+  rows exist; Dashboard maps `occurredAtUtc`, includes Running/Paused runs and
+  reports runtime Running only when a Running run exists; datetime-local labels
+  are local-time labels with explicit UTC conversion guidance and invalid-date
+  protection; page count is named `itemCount`; provider evidence uses
+  `NOT_RUN — provider quota unavailable` rather than an invented blocker class.
+- Corrective red evidence (before the first production fixes): Unit T065 had
+  `cases=4; assertions=18; failures=7`; endpoint T181 had
+  `cases=12; assertions=12; failures=5`; exit code `1`.
+- Corrective green evidence: Unit T065 `cases=5; assertions=21; failures=0`;
+  endpoint T181 `cases=12; assertions=12; failures=0`; PostgreSQL T066
+  `target=127.0.0.1:5433/iump_dev cases=14; assertions=15; failures=0`.
+- Web evidence: `npm run lint` exit `0` (existing Fast Refresh warnings);
+  `npm run build` exit `0`. The separate frontend behavior runner is
+  `BLOCKED` with classification `BLOCKED_BY_PACKAGE_POLICY`; no package was
+  installed.
+- Hosted HTTP evidence against `127.0.0.1:5000` with Host `localhost:5000`:
+  `/health/live` 200, `/health/ready` 200, anonymous Dashboard 401, and
+  anonymous Audit 401. Authenticated 422/browser journeys were
+  `BLOCKED` with classification `BLOCKED_BY_MISSING_TOOL` because no approved
+  automated authenticated runner was available; no credential was written to
+  evidence.
+- Verification scripts: architecture, repository-policy, and observability
+  each exit `0`. Fast harness exit `0` (`PASS=10`). Fresh Full harness exit
+  `20` (`PASS=13`; `BLOCKED_BY_COMPANY_APPROVAL=2` for `BLK-ENV-003` and
+  `BLK-ENV-004`; no mandatory FAIL).
+- SpecKit exact commands `speckit-analyze` and `speckit-converge` were
+  attempted and returned command-not-found; status is
+  `NOT_RUN — SpecKit provider command unavailable`. Direct read-only artifact
+  comparison found no Critical/High Phase 5 conflict; this is not reported as
+  a provider PASS.
+- DeepSeek/OpenCode advisory subagent was `NOT_RUN — OpenCode timed out after
+  600 seconds`; no implementation decision depended on it.
+- Standards and Specification reviews: independent review outputs are recorded
+  in `phase-05-corrective-review.md`.
+
+Phase 5 corrective accepted: **YES** for the bounded corrective scope.
+Planning-ready: **YES**. Implementation-ready: **YES**. Release-ready:
+**NO** while the recorded Full-harness/company-approval and package-policy
+blockers remain. **Explicit stop before T073.**
 

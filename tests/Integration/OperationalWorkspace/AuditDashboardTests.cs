@@ -123,6 +123,68 @@ public static class AuditDashboardTests
                   areaDashboard.Points.Count == areaDashboard.Points.Items.Count &&
                   areaDashboard.Sources.Count == areaDashboard.Sources.Items.Count,
                 "T066: Area-scoped Dashboard summaries must remain limited to the authorized Area ancestry.", failures);
+
+            var areaSiteId = scopedArea.SiteId.ToString("D");
+            var areaId = scopedArea.Id.ToString("D");
+            var areaSource = Guid.NewGuid();
+            var areaEntityId = Guid.NewGuid().ToString("D");
+            var areaEventOne = new AuditEventRecord(
+                Guid.NewGuid(), areaSource, "Phase5.Corrective.v1", "Area", areaEntityId,
+                "Update", "site-scope-area-one", now.AddSeconds(-4), now.AddSeconds(-4),
+                "phase5-corrective-area-1", null, null, new Dictionary<string, object?>(),
+                new Dictionary<string, object?>(), areaSiteId, areaId, null)
+            { PayloadHash = new string('d', 64) };
+            var areaEventTwo = areaEventOne with
+            {
+                AuditEventId = Guid.NewGuid(), SourceEventId = Guid.NewGuid(),
+                ObjectId = areaEntityId, Summary = "site-scope-area-two",
+                OccurredAtUtc = now.AddSeconds(-5), RecordedAtUtc = now.AddSeconds(-5),
+                CorrelationId = "phase5-corrective-area-2", PayloadHash = new string('e', 64)
+            };
+            await append.AppendIfAbsentAsync(areaEventOne);
+            await append.AppendIfAbsentAsync(areaEventTwo);
+
+            var auditPort = new IUMP.Api.Infrastructure.PostgresAuditQueryPort(
+                service, organization);
+            var siteScopedPrincipal = new ServerPrincipal(
+                Guid.NewGuid(), "phase5-site-scoped", new HashSet<string> { areaSiteId },
+                new HashSet<string>(), false, null, new HashSet<string> { "AUDIT_READ" });
+            var areaFilters = new Dictionary<string, string?>
+                { ["areaId"] = areaId, ["entityId"] = areaEntityId };
+            var areaPage = await auditPort.QueryAsync(areaFilters, siteScopedPrincipal, null, 25);
+            TestCount++;
+            Check(areaPage.ErrorCode is null && areaPage.Items.Count >= 2 &&
+                  areaPage.Items.Any(item => JsonSerializer.Serialize(item).Contains("site-scope-area-one")) &&
+                  areaPage.Items.Any(item => JsonSerializer.Serialize(item).Contains("site-scope-area-two")),
+                "T066 corrective: Site scope must authorize a real child Area filter through server ancestry.", failures);
+
+            TestCount++;
+            var foreignArea = await FindForeignAreaAsync(organization, scopedArea.SiteId);
+            Check(foreignArea is not null,
+                "T066 corrective: PostgreSQL fixture must expose a foreign Area for cross-site scope evidence.", failures);
+            if (foreignArea is not null)
+            {
+                var foreignPage = await auditPort.QueryAsync(
+                    new Dictionary<string, string?> { ["areaId"] = foreignArea.Id.ToString("D") },
+                    new ServerPrincipal(Guid.NewGuid(), "phase5-site-scoped", new HashSet<string> { areaSiteId },
+                        new HashSet<string>(), false, null, new HashSet<string> { "AUDIT_READ" }),
+                    null, 25);
+                Check(foreignPage.ErrorCode is null && foreignPage.Items.Count == 0,
+                    "T066 corrective: Site scope must fail closed for an Area outside the authorized Site.", failures);
+            }
+
+            var invalidSize = await auditPort.QueryAsync(areaFilters, siteScopedPrincipal, null, 0);
+            var malformedCursor = await auditPort.QueryAsync(areaFilters, siteScopedPrincipal, "malformed", 25);
+            TestCount++;
+            Check(invalidSize.ErrorCode == "VALIDATION" && malformedCursor.ErrorCode == "VALIDATION",
+                "T066 corrective: PostgreSQL Audit port must reject invalid pageSize and malformed cursor.", failures);
+
+            var firstAreaPage = await auditPort.QueryAsync(areaFilters, siteScopedPrincipal, null, 1);
+            var lastAreaPage = await auditPort.QueryAsync(areaFilters, siteScopedPrincipal, firstAreaPage.NextCursor, 1);
+            TestCount++;
+            Check(firstAreaPage.Items.Count == 1 && firstAreaPage.NextCursor is not null &&
+                  lastAreaPage.Items.Count == 1 && lastAreaPage.NextCursor is null,
+                "T066 corrective: pageSize+1 PostgreSQL keyset paging must expose no cursor on the last page.", failures);
         }
         return failures;
     }
@@ -131,5 +193,18 @@ public static class AuditDashboardTests
     {
         AssertionCount++;
         if (!condition) failures.Add(failure);
+    }
+
+    private static async Task<AreaSnapshot?> FindForeignAreaAsync(
+        IOrganizationQueryRepository organization, Guid siteId)
+    {
+        var sites = await organization.GetSitesAsync(OrganizationQueryScope.Global(), new ScopeFilter(1, 200));
+        foreach (var site in sites.Items.Where(site => site.Id != siteId))
+        {
+            var areas = await organization.GetAreasForSiteAsync(
+                site.Id, OrganizationQueryScope.Global(), new ScopeFilter(1, 200));
+            if (areas.Items.FirstOrDefault() is { } area) return area;
+        }
+        return null;
     }
 }
