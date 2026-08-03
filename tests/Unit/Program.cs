@@ -31,6 +31,9 @@ failures.AddRange(AuthSecurityPolicyTests.Run());
 failures.AddRange(AuthEndpointTests.Run());
 failures.AddRange(await EngineerScopeAssignmentTests.Run());
 failures.AddRange(OperationalWorkspaceStatusTests.Run());
+var t065Failures = await AuditDashboardTests.Run();
+Console.WriteLine($"T065: cases={AuditDashboardTests.TestCount}; assertions={AuditDashboardTests.AssertionCount}; failures={t065Failures.Count}");
+failures.AddRange(t065Failures);
 var operationalWorkspaceEndpointFailures =
     await OperationalWorkspaceEndpointTests.Run();
 Console.WriteLine(

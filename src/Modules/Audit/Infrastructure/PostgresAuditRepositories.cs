@@ -64,12 +64,16 @@ public sealed class PostgresAuditRepositories :
               AND (@actor_id IS NULL OR actor_id=@actor_id)
               AND (@correlation_id IS NULL OR correlation_id=@correlation_id)
               AND (@from_utc IS NULL OR occurred_at_utc>=@from_utc)
+              AND (@to_utc IS NULL OR occurred_at_utc<=@to_utc)
+              AND (@entity_id IS NULL OR object_id=@entity_id)
+              AND (@requested_site_id IS NULL OR site_id=@requested_site_id)
+              AND (@requested_area_id IS NULL OR area_id=@requested_area_id)
               AND (
                 cardinality(@site_ids)=0 AND cardinality(@area_ids)=0
                 OR site_id=ANY(@site_ids) OR area_id=ANY(@area_ids))
               AND (NOT @has_cursor OR (occurred_at_utc,audit_event_id)<(@cursor_time,@cursor_id))
             ORDER BY occurred_at_utc DESC,audit_event_id DESC
-            OFFSET @offset LIMIT @limit
+            OFFSET CASE WHEN @has_cursor THEN 0 ELSE @offset END LIMIT @limit
             """, connection);
         command.Parameters.Add(new NpgsqlParameter("object_type", NpgsqlDbType.Text)
             { Value = (object?)request.ObjectType ?? DBNull.Value });
@@ -81,6 +85,14 @@ public sealed class PostgresAuditRepositories :
             { Value = (object?)request.CorrelationId ?? DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("from_utc", NpgsqlDbType.TimestampTz)
             { Value = (object?)request.FromUtc?.ToUniversalTime() ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("to_utc", NpgsqlDbType.TimestampTz)
+            { Value = (object?)request.ToUtc?.ToUniversalTime() ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("entity_id", NpgsqlDbType.Text)
+            { Value = (object?)request.EntityId ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("requested_site_id", NpgsqlDbType.Text)
+            { Value = (object?)request.SiteId ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("requested_area_id", NpgsqlDbType.Text)
+            { Value = (object?)request.AreaId ?? DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter(
             "site_ids", NpgsqlDbType.Array | NpgsqlDbType.Text)
             { Value = request.ScopeSiteIds.ToArray() });
@@ -169,7 +181,7 @@ public sealed class PostgresAuditRepositories :
         command.Parameters.AddWithValue("area_id", (object?)value.AreaId ?? DBNull.Value);
         command.Parameters.AddWithValue("occurred", value.OccurredAtUtc.ToUniversalTime());
         command.Parameters.AddWithValue("recorded", value.RecordedAtUtc.ToUniversalTime());
-        command.Parameters.AddWithValue("correlation_id", value.CorrelationId);
+        command.Parameters.AddWithValue("correlation_id", (object?)value.CorrelationId ?? DBNull.Value);
         command.Parameters.AddWithValue("causation_id", (object?)value.CausationId ?? DBNull.Value);
     }
 
@@ -177,7 +189,7 @@ public sealed class PostgresAuditRepositories :
         reader.GetGuid(0), reader.GetGuid(1), reader.GetString(2), reader.GetString(3),
         reader.GetString(4), reader.GetString(5), reader.GetString(6),
         reader.GetDateTime(7).ToUniversalTime(), reader.GetDateTime(8).ToUniversalTime(),
-        reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10),
+        reader.IsDBNull(9) ? null : reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10),
         reader.IsDBNull(11) ? null : reader.GetString(11),
         ParseMap(reader.GetString(12)), ParseMap(reader.GetString(13)),
         reader.IsDBNull(14) ? null : reader.GetString(14),

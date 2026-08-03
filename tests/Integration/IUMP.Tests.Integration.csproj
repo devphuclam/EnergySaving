@@ -29,5 +29,6 @@
     <Compile Include="OperationalWorkspace\ConfigurationManagementTests.cs" />
     <Compile Include="OperationalWorkspace\SimulatorOperationsTests.cs" />
     <Compile Include="OperationalWorkspace\LatestHealthTests.cs" />
+    <Compile Include="OperationalWorkspace\AuditDashboardTests.cs" />
   </ItemGroup>
 </Project>

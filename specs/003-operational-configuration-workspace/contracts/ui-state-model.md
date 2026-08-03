@@ -13,6 +13,14 @@ No page displays local fallback/demo data after an API failure.
 | `NoAuthorizedScope` | “Bạn chưa được cấp phạm vi truy cập” | Global counts, root Site create for Engineer |
 | `DependencyError` | Dependency error, retry, correlation ID when safe | Fake data or stale local completion |
 
+## Operational Dashboard and Audit query states
+
+The Dashboard response uses `Ready`, `NoAuthorizedScope`, `DependencyError`, `Forbidden`, and
+`RuntimeError`; these map to the common request states above and never imply a client-side fallback.
+The Audit route uses the same common request states. `AUDIT_CORRELATION` is granted only to
+Administrators, so a non-Administrator response omits correlation IDs rather than masking them in
+the browser.
+
 On the default Administrator Dashboard, render the visible Vietnamese action `Tạo chuỗi cấu hình
 mới`. It is hidden for Engineers and other roles. Activating it navigates to `/setup?mode=new` and
 reloads the empty `SetupWizard` projection from the server. Site creation must use the ID returned

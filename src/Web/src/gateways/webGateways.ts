@@ -6,7 +6,7 @@ import {
   type SimulatorRetryOperation,
 } from './simulatorRetry'
 
-export type GatewayState = 'loading' | 'submitting' | 'success' | 'ready' | 'invalid-credentials' | 'forbidden' | 'expired' | 'no-data' | 'no-selection' | 'validation' | 'conflict' | 'not-found' | 'dependency' | 'runtime-error' | 'error'
+export type GatewayState = 'loading' | 'submitting' | 'success' | 'ready' | 'invalid-credentials' | 'forbidden' | 'expired' | 'no-data' | 'no-selection' | 'no-scope' | 'validation' | 'conflict' | 'not-found' | 'dependency' | 'runtime-error' | 'error'
 
 export type AuthSession = {
   state: GatewayState
@@ -177,8 +177,34 @@ export type TelemetryOptionQuery = {
 export type AuditSnapshot = {
   state: GatewayState
   eventCount: number
-  records?: Array<{ actor?: string; time?: string; object?: string; action?: string; summary?: string; before?: unknown; after?: unknown }>
+  records?: Array<{ actor?: string; time?: string; object?: string; objectType?: string; entityId?: string; action?: string; summary?: string; before?: unknown; after?: unknown; correlationId?: string | null; siteId?: string | null; areaId?: string | null }>
   nextCursor?: string
+}
+
+export type AuditQueryFilters = {
+  fromUtc?: string
+  toUtc?: string
+  actorId?: string
+  action?: string
+  entityType?: string
+  entityId?: string
+  siteId?: string
+  areaId?: string
+}
+
+export type OperationalDashboardSnapshot = {
+  state: GatewayState
+  roleMode?: string
+  sites: { count: number; items: Array<Record<string, unknown>> }
+  sources: { count: number; items: Array<Record<string, unknown>> }
+  points: { count: number; items: Array<Record<string, unknown>> }
+  runs: { count: number; items: Array<Record<string, unknown>> }
+  latest: { count: number; items: Array<Record<string, unknown>> }
+  health: { count: number; items: Array<Record<string, unknown>> }
+  incompleteSetup: { count: number; nextStep?: string | null }
+  recentAudit: { items: AuditSnapshot['records']; nextCursor?: string | null }
+  runtime: { status: string; simulatorRunning: boolean }
+  dependency: { status: string; errorCode?: string | null }
 }
 
 export type ManagementFilter = {
@@ -243,7 +269,8 @@ export type LatestGateway = {
   getSnapshot: (selection?: TelemetrySelection, signal?: AbortSignal) => Promise<LatestSnapshot>
   getOptions?: (query: TelemetryOptionQuery) => Promise<TelemetryOptionSnapshot>
 }
-export type AuditGateway = { getSnapshot: (cursor?: string) => Promise<AuditSnapshot> }
+export type AuditGateway = { getSnapshot: (filters?: AuditQueryFilters, cursor?: string) => Promise<AuditSnapshot> }
+export type DashboardGateway = { getSnapshot: () => Promise<OperationalDashboardSnapshot> }
 
 export type WebGateways = {
   auth: AuthGateway
@@ -251,6 +278,7 @@ export type WebGateways = {
   simulator: SimulatorGateway
   latest: LatestGateway
   audit: AuditGateway
+  dashboard: DashboardGateway
   workspace: WorkspaceGateway
   management: ManagementGateway
 }
@@ -273,6 +301,24 @@ async function antiforgeryToken(): Promise<string> {
 
 function stateFromError(error: unknown): GatewayState {
   return error instanceof Error && error.message === 'forbidden' ? 'forbidden' : error instanceof Error && error.message === 'expired' ? 'expired' : 'error'
+}
+
+function readStateFromError(error: unknown): GatewayState {
+  if (!(error instanceof Error)) return 'runtime-error'
+  if (error.message === 'forbidden') return 'forbidden'
+  if (error.message === 'expired') return 'expired'
+  if (error.message === 'request-503') return 'dependency'
+  if (error.message === 'request-422') return 'validation'
+  return 'runtime-error'
+}
+
+function dashboardState(value: string | undefined): GatewayState {
+  if (value === 'Ready') return 'ready'
+  if (value === 'NoAuthorizedScope') return 'no-scope'
+  if (value === 'DependencyError') return 'dependency'
+  if (value === 'Forbidden') return 'forbidden'
+  if (value === 'RuntimeError') return 'runtime-error'
+  return 'runtime-error'
 }
 
 function telemetryStateFromError(error: unknown): GatewayState {
@@ -620,12 +666,65 @@ export const webGateways: WebGateways = {
       } catch (error) { return { state: telemetryStateFromError(error), value: null, health: 'Unavailable', errorCode: error instanceof Error ? error.message : 'RUNTIME_FAILURE' } }
     },
   },
-  audit: {
-    getSnapshot: async (cursor) => {
+  dashboard: {
+    getSnapshot: async () => {
       try {
-        const page = await request<{ items?: AuditSnapshot['records']; nextCursor?: string }>(`/api/v1/audit-events?pageSize=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
-        return { state: 'ready', eventCount: page.items?.length ?? 0, records: page.items, nextCursor: page.nextCursor }
-      } catch (error) { return { state: stateFromError(error), eventCount: 0 } }
+        const response = await request<OperationalDashboardSnapshot & { state?: string }>('/api/v1/operational-dashboard')
+        const recentAudit = (response.recentAudit?.items ?? []).map(item => {
+          const value = item as Record<string, unknown>
+          return {
+            actor: String(value.actor ?? value.Actor ?? ''),
+            time: String(value.time ?? value.OccurredAtUtc ?? ''),
+            object: String(value.object ?? value.ObjectType ?? ''),
+            objectType: String(value.objectType ?? value.ObjectType ?? ''),
+            entityId: String(value.entityId ?? value.EntityId ?? ''),
+            action: String(value.action ?? value.Action ?? ''),
+            summary: String(value.summary ?? value.Summary ?? ''),
+            before: value.before,
+            after: value.after,
+            correlationId: typeof (value.correlationId ?? value.CorrelationId) === 'string'
+              ? String(value.correlationId ?? value.CorrelationId) : null,
+            siteId: typeof (value.siteId ?? value.SiteId) === 'string' ? String(value.siteId ?? value.SiteId) : null,
+            areaId: typeof (value.areaId ?? value.AreaId) === 'string' ? String(value.areaId ?? value.AreaId) : null,
+          }
+        })
+        return { ...response, state: dashboardState(response.state), recentAudit: { ...response.recentAudit, items: recentAudit } }
+      } catch (error) {
+        return {
+          state: readStateFromError(error), roleMode: undefined,
+          sites: { count: 0, items: [] }, sources: { count: 0, items: [] },
+          points: { count: 0, items: [] }, runs: { count: 0, items: [] },
+          latest: { count: 0, items: [] }, health: { count: 0, items: [] },
+          incompleteSetup: { count: 0 }, recentAudit: { items: [] },
+          runtime: { status: 'Unavailable', simulatorRunning: false },
+          dependency: { status: 'Unavailable', errorCode: 'RUNTIME_FAILURE' },
+        }
+      }
+    },
+  },
+  audit: {
+    getSnapshot: async (filters = {}, cursor) => {
+      try {
+        const query = new URLSearchParams({ pageSize: '50' })
+        for (const [key, value] of Object.entries(filters)) if (value) {
+          const normalized = key === 'fromUtc' || key === 'toUtc' ? new Date(value).toISOString() : value
+          query.set(key, normalized)
+        }
+        if (filters.entityType) { query.delete('entityType'); query.set('objectType', filters.entityType) }
+        if (cursor) query.set('cursor', cursor)
+        const page = await request<{ items?: Array<Record<string, unknown>>; nextCursor?: string }>(`/api/v1/audit-events?${query}`)
+        const records = (page.items ?? []).map(item => ({
+          actor: String(item.actorUsername ?? item.actorId ?? ''),
+          time: String(item.occurredAtUtc ?? ''),
+          object: String(item.objectType ?? ''), objectType: String(item.objectType ?? ''),
+          entityId: String(item.objectId ?? ''), action: String(item.action ?? ''),
+          summary: String(item.summary ?? ''), before: item.before, after: item.after,
+          correlationId: typeof item.correlationId === 'string' ? item.correlationId : null,
+          siteId: typeof item.siteId === 'string' ? item.siteId : null,
+          areaId: typeof item.areaId === 'string' ? item.areaId : null,
+        }))
+        return { state: 'ready', eventCount: records.length, records, nextCursor: page.nextCursor }
+      } catch (error) { return { state: readStateFromError(error), eventCount: 0 } }
     },
   },
   management: {

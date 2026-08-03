@@ -100,6 +100,14 @@ function createFakeWebGateways(
     audit: {
       getSnapshot: async () => ({ state: 'forbidden', eventCount: 0, records: [] }),
     },
+    dashboard: {
+      getSnapshot: async () => ({
+        state: 'ready', sites: { count: 0, items: [] }, sources: { count: 0, items: [] },
+        points: { count: 0, items: [] }, runs: { count: 0, items: [] }, latest: { count: 0, items: [] },
+        health: { count: 0, items: [] }, incompleteSetup: { count: 0 }, recentAudit: { items: [] },
+        runtime: { status: 'Available', simulatorRunning: false }, dependency: { status: 'Available' },
+      }),
+    },
     management: {
       list: async (_resource, filter) => ({ items: [], totalCount: 0, page: filter.page, pageSize: filter.pageSize }),
       detail: async () => null,

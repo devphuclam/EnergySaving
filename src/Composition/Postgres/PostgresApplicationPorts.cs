@@ -1183,14 +1183,36 @@ public sealed class PostgresAuditQueryPort(
         filters.TryGetValue("action", out var action);
         filters.TryGetValue("actorId", out var actorId);
         filters.TryGetValue("correlationId", out var correlationId);
+        filters.TryGetValue("fromUtc", out var fromRaw);
+        filters.TryGetValue("toUtc", out var toRaw);
+        filters.TryGetValue("entityId", out var entityId);
+        filters.TryGetValue("siteId", out var siteId);
+        filters.TryGetValue("areaId", out var areaId);
+        var hasFrom = !string.IsNullOrWhiteSpace(fromRaw);
+        var hasTo = !string.IsNullOrWhiteSpace(toRaw);
+        var validFrom = DateTime.TryParse(fromRaw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out var parsedFrom);
+        var validTo = DateTime.TryParse(toRaw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out var parsedTo);
+        if ((hasFrom && !validFrom) || (hasTo && !validTo) ||
+            (hasFrom && hasTo && parsedFrom > parsedTo))
+            return new AuditQueryPage([], "VALIDATION");
+        DateTime? fromUtc = hasFrom ? parsedFrom : null;
+        DateTime? toUtc = hasTo ? parsedTo : null;
         var request = new AuditQueryRequest(
-            objectType, action, actorId, correlationId, null, 1, pageSize)
+            objectType, action, actorId, correlationId, fromUtc, 1, pageSize)
         {
-            KeysetCursor = cursor
+            KeysetCursor = cursor,
+            ToUtc = toUtc,
+            EntityId = entityId,
+            SiteId = siteId,
+            AreaId = areaId
         };
         var caller = new AuditCaller(
             principal.IsAdministrator, principal.HasCapability("AUDIT_READ"),
-            principal.SiteIds, principal.AreaIds);
+            principal.SiteIds, principal.AreaIds, true, principal.IsAdministrator);
         var result = await queries.QueryAsync(request, caller, ct);
         return new AuditQueryPage(result.Items.Cast<object>().ToArray(),
             result.ErrorCode, result.NextCursor, result.TotalCount);

@@ -121,6 +121,7 @@ app.MapConfigurationEndpoints();
 app.MapSimulatorEndpoints();
 app.MapTelemetryQueryEndpoints();
 app.MapAuditEndpoints();
+app.MapOperationalDashboardEndpoints();
 app.MapOperationalWorkspaceEndpoints();
 app.MapConfigurationManagementEndpoints();
 

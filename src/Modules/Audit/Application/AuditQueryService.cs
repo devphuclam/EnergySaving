@@ -22,12 +22,33 @@ public sealed class AuditQueryService(IAuditQueryRepository repository, AuditAut
     {
         if (!authorization.CanQuery(caller)) return new(Array.Empty<AuditEventRecord>(), "FORBIDDEN", 0);
         // Scope is applied before paging/keyset so an unauthorized row can never consume a page slot.
-        var scopedRequest = request with { ScopeSiteIds = caller.SiteIds, ScopeAreaIds = caller.AreaIds };
+        if (!caller.IsAdministrator &&
+            ((request.SiteId is not null && !caller.SiteIds.Contains(request.SiteId)) ||
+             (request.AreaId is not null && !caller.AreaIds.Contains(request.AreaId))))
+            return new(Array.Empty<AuditEventRecord>(), null, 0);
+        var scopedSites = caller.IsAdministrator
+            ? request.SiteId is null ? request.ScopeSiteIds : new HashSet<string> { request.SiteId }
+            : request.SiteId is null
+                ? caller.SiteIds
+                : caller.SiteIds.Contains(request.SiteId) ? new HashSet<string> { request.SiteId } : [];
+        var scopedAreas = caller.IsAdministrator
+            ? request.AreaId is null ? request.ScopeAreaIds : new HashSet<string> { request.AreaId }
+            : request.AreaId is null
+                ? caller.AreaIds
+                : caller.AreaIds.Contains(request.AreaId) ? new HashSet<string> { request.AreaId } : [];
+        var scopedRequest = request with
+        {
+            ScopeSiteIds = scopedSites,
+            ScopeAreaIds = scopedAreas,
+            CorrelationId = caller.CanReadCorrelation ? request.CorrelationId : null
+        };
         var rows = await repository.QueryAsync(scopedRequest, ct);
         var visible = rows.Where(row => authorization.CanQuery(caller, row))
             .OrderByDescending(row => row.OccurredAtUtc).ThenByDescending(row => row.AuditEventId)
             .Where(row => IsAfterCursor(row, request.KeysetCursor))
-            .Take(Math.Clamp(request.PageSize, 1, 100)).ToArray();
+            .Take(Math.Clamp(request.PageSize, 1, 100))
+            .Select(row => AuditRedaction.ForCaller(row, caller))
+            .ToArray();
         return new(visible, null, visible.Length)
         {
             NextCursor = visible.Length == 0 ? null : new AuditKeysetCursor(visible[^1].OccurredAtUtc, visible[^1].AuditEventId).Encode()

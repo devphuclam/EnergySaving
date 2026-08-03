@@ -169,6 +169,12 @@ public static class OperationalWorkspaceStatusBuilder
                     : hasAnySite || bounded > 0
                         ? WorkspaceLanding.ContinueSetup
                         : WorkspaceLanding.SetupWizard;
+        var visibleOperationalChainCount = !isAdministrator && !hasAuthorizedScope
+            ? 0
+            : operationalChainCount;
+        var visibleIncompleteChainCount = !isAdministrator && !hasAuthorizedScope
+            ? 0
+            : operationalChainCount > 0 ? 0 : hasAnySite ? 1 : 0;
         return new OperationalWorkspaceStatus(
             landing,
             isAdministrator ? WorkspaceRoleMode.Administrator :
@@ -178,8 +184,8 @@ public static class OperationalWorkspaceStatusBuilder
             completed,
             bounded < Steps.Length ? Steps[bounded] : null,
             Array.Empty<WorkspaceValidationFailure>(),
-            operationalChainCount,
-            operationalChainCount > 0 ? 0 : hasAnySite ? 1 : 0,
+            visibleOperationalChainCount,
+            visibleIncompleteChainCount,
             false,
             dependencyAvailable ? "Available" : "Unavailable",
             dependencyAvailable ? null : "DEPENDENCY_UNAVAILABLE");
