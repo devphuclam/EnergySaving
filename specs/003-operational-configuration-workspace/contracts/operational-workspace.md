@@ -91,6 +91,55 @@ position as setup authority.
 
 The status query never creates command-idempotency records.
 
+## GET `/api/v1/operational-dashboard`
+
+Returns an authorized read-only composition for the landing dashboard. The API resolves scope
+from the authenticated server principal and applies that scope before every count, list, or page.
+It never returns global totals for a caller with no authorized scope and never starts a Simulator.
+
+### Response 200
+
+```json
+{
+  "state": "Ready",
+  "roleMode": "Engineer",
+  "sites": { "count": 1, "items": [] },
+  "sources": { "count": 1, "items": [] },
+  "points": { "count": 1, "items": [] },
+  "runs": { "count": 0, "items": [] },
+  "latest": { "count": 1, "items": [] },
+  "health": { "count": 1, "items": [] },
+  "incompleteSetup": { "count": 0, "nextStep": null },
+  "recentAudit": { "items": [], "nextCursor": null },
+  "runtime": { "status": "Available", "simulatorRunning": false },
+  "dependency": { "status": "Available", "errorCode": null, "correlationId": null }
+}
+```
+
+`state` is one of `Ready`, `NoAuthorizedScope`, `DependencyError`, `Forbidden`, or
+`RuntimeError`. `runtime.status` is the server-observed availability of the approved
+database/runtime dependency; `simulatorRunning` is an observed Run state and is never a command.
+Summary item arrays contain only public, scope-authorized identifiers and display fields.
+
+### Safe outcomes
+
+| Status | Meaning |
+|---:|---|
+| 401 | No valid server session |
+| 403 | Dashboard capability is unavailable |
+| 503 | API/database dependency unavailable; no fallback or demo data |
+
+## GET `/api/v1/audit-events` query contract
+
+Audit review accepts `fromUtc`, `toUtc`, `actorId`, `action`, `entityType` (serialized as
+`objectType` for compatibility), `entityId`, `siteId`, `areaId`, `correlationId`, `pageSize`, and
+an opaque `cursor`. Filters, authorization, and the strict `(occurredAtUtc,auditEventId)` keyset
+are evaluated before paging. A caller may receive a correlation ID only with the audit-correlation
+permission (`AUDIT_CORRELATION`, granted to Administrators only); otherwise it is omitted. Before/after maps are a server-side redacted safe diff:
+passwords, hashes, tokens, credentials, connection strings, and secret references are removed or
+replaced with `[REDACTED]` before serialization. Out-of-scope rows are indistinguishable from
+not-found rows.
+
 ## GET `/api/v1/operational-workspace/engineers`
 
 Lists active existing Engineer accounts available for Administrator assignment. Password hashes,

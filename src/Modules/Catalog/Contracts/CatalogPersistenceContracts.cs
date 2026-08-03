@@ -33,6 +33,8 @@ public interface ICatalogCommandRepository
     Task AddDataSourceAsync(DataSource source, CancellationToken ct = default);
     Task UpdateDataSourceAsync(DataSource source, CancellationToken ct = default);
     Task<IReadOnlyList<DataSource>> GetAllDataSourcesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<DataSource>> GetDataSourcesForSitesAsync(
+        IReadOnlyCollection<Guid> siteIds, CancellationToken ct = default);
     Task<bool> HasDependentRunOrMeasurementAsync(DataSourceId id, CancellationToken ct = default);
     Task<CatalogDependencySnapshot> GetDataSourceDependencySnapshotAsync(DataSourceId id, CancellationToken ct = default);
     Task<CatalogDeletionDecision> DeleteDataSourceAsync(DataSourceId id, CancellationToken ct = default);

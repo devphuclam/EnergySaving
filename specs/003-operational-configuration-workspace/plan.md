@@ -13,7 +13,8 @@ recorded. Planning-ready does not authorize green implementation or release.
 
 **Implementation Readiness**: **PASS / YES** — task generation and both analysis passes completed;
 all three High and three Medium first-pass findings were resolved; final analysis has zero
-Critical/High/Medium findings; the Phase 0 checkpoint permits Phase 1 only.
+Critical/High/Medium findings; the Phase 0 checkpoint permits one implementation phase at a time,
+and the current Phase 5 continuation is explicitly authorized after accepted T001–T064 evidence.
 
 **Release Readiness**: **NO** — remains NO until all Feature 003 phases and mandatory release
 evidence pass with no mandatory blocker.
@@ -219,7 +220,7 @@ one implementation phase → Standards/Spec review → Fast → Full → accepta
 
 Every implementation phase executes red test, recorded red evidence, minimal green, review/refactor,
 architecture and repository-policy verification, checkpoint, and explicit stop. This run ends after
-Phase 3 only (T049–T056) and stops before Phase 4/T057; later phases are not implemented in this run.
+Phase 5 only (T065–T072) and stops before Phase 6/T073; later phases are not implemented in this run.
 
 ## Evidence Vocabulary
 

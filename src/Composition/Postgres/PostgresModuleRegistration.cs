@@ -47,6 +47,9 @@ public static class PostgresModuleRegistration
             provider.GetRequiredService<PostgresOperationalWorkspacePorts>());
         services.AddScoped<IOperationalWorkspaceCommandPort>(provider =>
             provider.GetRequiredService<PostgresOperationalWorkspacePorts>());
+        services.AddScoped<PostgresOperationalDashboardPorts>();
+        services.AddScoped<IOperationalDashboardQueryPort>(provider =>
+            provider.GetRequiredService<PostgresOperationalDashboardPorts>());
         services.AddScoped<PostgresConfigurationManagementPorts>();
         services.AddScoped<IConfigurationManagementQueryPort>(provider =>
             provider.GetRequiredService<PostgresConfigurationManagementPorts>());

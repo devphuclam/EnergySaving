@@ -1,5 +1,6 @@
 using IUMP.BuildingBlocks.Persistence;
 using IUMP.Modules.Integration.Contracts;
+using System.Text.Json.Serialization;
 
 namespace IUMP.Api.Infrastructure;
 
@@ -90,6 +91,34 @@ public interface IAuditQueryPort
 {
     Task<AuditQueryPage> QueryAsync(IReadOnlyDictionary<string, string?> filters, ServerPrincipal principal,
         string? cursor, int pageSize, CancellationToken ct = default);
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum OperationalDashboardState { Ready, NoAuthorizedScope, DependencyError, Forbidden, RuntimeError }
+
+public sealed record OperationalDashboardSummary(int Count, IReadOnlyList<object> Items);
+public sealed record OperationalDashboardSetup(int Count, string? NextStep);
+public sealed record OperationalDashboardAudit(IReadOnlyList<object> Items, string? NextCursor);
+public sealed record OperationalDashboardRuntime(string Status, bool SimulatorRunning);
+public sealed record OperationalDashboardDependency(string Status, string? ErrorCode, string? CorrelationId);
+
+public sealed record OperationalDashboardSnapshot(
+    OperationalDashboardState State,
+    WorkspaceRoleMode RoleMode,
+    OperationalDashboardSummary Sites,
+    OperationalDashboardSummary Sources,
+    OperationalDashboardSummary Points,
+    OperationalDashboardSummary Runs,
+    OperationalDashboardSummary Latest,
+    OperationalDashboardSummary Health,
+    OperationalDashboardSetup IncompleteSetup,
+    OperationalDashboardAudit RecentAudit,
+    OperationalDashboardRuntime Runtime,
+    OperationalDashboardDependency Dependency);
+
+public interface IOperationalDashboardQueryPort
+{
+    Task<OperationalDashboardSnapshot> GetAsync(ServerPrincipal principal, CancellationToken ct = default);
 }
 
 public interface ITransactionalCommandMutation

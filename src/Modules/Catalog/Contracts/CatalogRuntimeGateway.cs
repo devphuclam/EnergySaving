@@ -29,6 +29,15 @@ public sealed class CatalogRuntimeGateway(ICatalogCommandRepository repository)
                 value.SiteId))
             .ToArray();
 
+    public async Task<IReadOnlyList<CatalogRuntimeDataSource>> GetDataSourceSnapshotsForSitesAsync(
+        IReadOnlyCollection<Guid> siteIds, CancellationToken ct = default) =>
+        (await repository.GetDataSourcesForSitesAsync(siteIds, ct))
+            .Select(value => new CatalogRuntimeDataSource(
+                value.Id.Value, value.Code, value.Name,
+                value.SourceType.ToString(), value.Status.ToString(), value.Version,
+                value.SiteId))
+            .ToArray();
+
     public async Task<IReadOnlyList<CatalogRuntimeMapping>> GetMappingSnapshotsAsync(
         CancellationToken ct = default)
     {

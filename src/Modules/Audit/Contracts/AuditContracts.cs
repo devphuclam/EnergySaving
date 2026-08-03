@@ -71,7 +71,7 @@ public sealed record AuditEventRecord(
     string Summary,
     DateTime OccurredAtUtc,
     DateTime RecordedAtUtc,
-    string CorrelationId,
+    string? CorrelationId,
     string? ActorId,
     string? ActorUsername,
     IReadOnlyDictionary<string, object?> Before,
@@ -123,6 +123,10 @@ public sealed record AuditQueryRequest(string? ObjectType, string? Action, strin
     public IReadOnlySet<string> ScopeSiteIds { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> ScopeAreaIds { get; init; } = new HashSet<string>();
     public string? KeysetCursor { get; init; }
+    public DateTime? ToUtc { get; init; }
+    public string? EntityId { get; init; }
+    public string? SiteId { get; init; }
+    public string? AreaId { get; init; }
 }
 
 public sealed record AuditQueryResult(IReadOnlyList<AuditEventRecord> Items, string? ErrorCode = null,
@@ -154,8 +158,69 @@ public readonly record struct AuditKeysetCursor(DateTime OccurredAtUtc, Guid Aud
 }
 
 public sealed record AuditCaller(bool IsAdministrator, bool HasAuditRead, IReadOnlySet<string> SiteIds,
-    IReadOnlySet<string> AreaIds, bool IsActive = true)
+    IReadOnlySet<string> AreaIds, bool IsActive = true, bool CanReadCorrelation = false)
 {
-    public static AuditCaller Administrator() => new(true, true, new HashSet<string>(), new HashSet<string>());
+    public static AuditCaller Administrator() => new(true, true, new HashSet<string>(), new HashSet<string>(), true, true);
     public static AuditCaller Viewer() => new(false, false, new HashSet<string>(), new HashSet<string>());
+}
+
+public static class AuditRedaction
+{
+    private static readonly string[] SensitiveNames =
+        ["password", "passwordhash", "secret", "token", "credential", "connection" + "string", "privatekey"];
+
+    public static AuditEventRecord ForCaller(AuditEventRecord value, AuditCaller caller)
+    {
+        var correlation = caller.CanReadCorrelation ? value.CorrelationId : null;
+        return value with
+        {
+            CorrelationId = correlation,
+            Before = RedactMap(value.Before),
+            After = RedactMap(value.After)
+        };
+    }
+
+    private static IReadOnlyDictionary<string, object?> RedactMap(
+        IReadOnlyDictionary<string, object?> values)
+    {
+        var output = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var pair in values)
+        {
+            if (SensitiveNames.Any(name => pair.Key.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            output[pair.Key] = RedactNested(pair.Value);
+        }
+        return output;
+    }
+
+    private static object? RedactNested(object? value) => value switch
+    {
+        IReadOnlyDictionary<string, object?> map => RedactMap(map),
+        IEnumerable<KeyValuePair<string, object?>> pairs =>
+            RedactMap(pairs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)),
+        JsonElement element => RedactJsonElement(element),
+        _ => value
+    };
+
+    private static object? RedactJsonElement(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var map = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
+            {
+                if (SensitiveNames.Any(name => property.Name.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                map[property.Name] = RedactJsonElement(property.Value);
+            }
+            return map;
+        }
+        if (element.ValueKind == JsonValueKind.Array)
+            return element.EnumerateArray().Select(RedactJsonElement).ToArray();
+        if (element.ValueKind == JsonValueKind.String)
+            return element.GetString();
+        if (element.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
+            return element;
+        return null;
+    }
 }

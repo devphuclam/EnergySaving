@@ -200,6 +200,18 @@ public sealed class PostgresCatalogRepositories :
             FROM catalog.data_sources ORDER BY code
             """, null, MapSource, ct);
 
+    public async Task<IReadOnlyList<DataSource>> GetDataSourcesForSitesAsync(
+        IReadOnlyCollection<Guid> siteIds, CancellationToken ct = default)
+    {
+        if (siteIds.Count == 0) return [];
+        return await QueryAsync("""
+            SELECT id, code, name, source_type, status, version, site_id
+            FROM catalog.data_sources
+            WHERE site_id = ANY(@site_ids)
+            ORDER BY code
+            """, command => command.Parameters.AddWithValue("site_ids", siteIds.ToArray()), MapSource, ct);
+    }
+
     public async Task<bool> HasDependentRunOrMeasurementAsync(
         DataSourceId id,
         CancellationToken ct = default) =>

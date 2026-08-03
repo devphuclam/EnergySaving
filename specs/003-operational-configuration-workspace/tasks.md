@@ -6,23 +6,23 @@
 defined in `plan.md`. The frontend behavior runner remains package-policy blocked unless an already
 approved runnable dependency exists.
 
-**Execution rule**: Phase 0 through Phase 3 are accepted historical checkpoints. This Phase 4
-corrective invocation starts from authoritative merged `main` baseline
-`50f5579a520caf2af34d68f80e34a85354d22849` on branch
-`003-operational-configuration-workspace`, reopens T062–T064, reevaluates T057 only when additional
-Unit coverage is required, records new red/green evidence honestly, commits and pushes the feature
-branch, and stops before T065. It must not merge automatically or execute T065+.
+**Execution rule**: Phase 0 through Phase 4 are accepted historical checkpoints. This Phase 5
+invocation starts from authoritative merged `main` baseline
+`771353438dfbd943d3598dd6daffa776fb562fcb` on branch
+`003-operational-configuration-workspace`, executes only T065–T072, records new red/green evidence
+honestly, commits and pushes the feature branch, and stops before T073. It must not merge
+automatically or execute T073+.
 
 **Historical note (not operative for this run)**: Earlier corrective closure from merged `main`
-baseline `2741429fb1a28d403adde69e36810bab16d12af5` addressed T054–T056. That wording is
-superseded by the Phase 4 execution gate below; it does not reopen Phase 3 and does not change the
-current T057–T064 scope. Feature 002 remains untouched.
+baseline `2741429fb1a28d403adde69e36810bab16d12af5` addressed T054–T056. That historical work is
+superseded by the Phase 5 execution gate below; it does not reopen Phase 3 or Phase 4 and does not
+change the current T065–T072 scope. Feature 002 remains untouched.
 
-**Phase 4 corrective execution gate**: The current run is authorized only for T062–T064 from
-authoritative merged `main` baseline `50f5579a520caf2af34d68f80e34a85354d22849`; T057 may change only for necessary additional
-Unit coverage. Keep T065–T072 unchecked and stop immediately before T065. Feature 002 and accepted
-Phase 1–3 behavior remain out of scope. T064 is checked only after deterministic PostgreSQL,
-hosted HTTP, authenticated browser, and clean Standards/Specification review evidence complete.
+**Phase 5 execution gate**: The current run is authorized only for T065–T072 from authoritative
+merged `main` baseline `771353438dfbd943d3598dd6daffa776fb562fcb`. Keep T073–T080 unchecked and
+stop immediately before T073. Feature 002 and accepted Phase 1–4 behavior remain out of scope.
+T072 is checked only after deterministic PostgreSQL, hosted HTTP, authenticated browser, and clean
+Standards/Specification review evidence complete.
 
 ## Checklist format
 
@@ -158,14 +158,14 @@ NO; explicit stop before T037.
 
 **User Story**: US5 — Navigate Operational State and Review Audit
 
-- [ ] T065 [P] [US5] [RUNNABLE_NOW] Add failing Audit filter/paging/redaction and authorized Dashboard summary tests in `tests/Unit/OperationalWorkspace/AuditDashboardTests.cs`
-- [ ] T066 [P] [US5] [RUNNABLE_NOW] Add failing PostgreSQL scope-before-paging Audit/Dashboard tests in `tests/Integration/OperationalWorkspace/AuditDashboardTests.cs`
-- [ ] T067 [US5] [RUNNABLE_NOW] Extend Audit query contract for date range, entity ID, Site/Area, safe diff, and keyset paging in `src/Modules/Audit/Contracts/AuditContracts.cs`
-- [ ] T068 [US5] [RUNNABLE_NOW] Implement remaining Audit filters/redaction and Dashboard composition in `src/Composition/Postgres/PostgresOperationalDashboardPorts.cs`
-- [ ] T069 [US5] [RUNNABLE_NOW] Expose typed Operational Dashboard and complete Audit query contracts in `src/Api/OperationalDashboardEndpoints.cs`
-- [ ] T070 [US5] [RUNNABLE_NOW] Implement authorized Vietnamese Operational Dashboard navigation in `src/Web/src/features/dashboard/OperationalDashboard.tsx`
-- [ ] T071 [US5] [RUNNABLE_NOW] Implement Audit date/actor/action/entity/scope filters, pagination, safe diff, and correlation display in `src/Web/src/features/audit/AuditRoute.tsx`
-- [ ] T072 [US5] [RUNNABLE_NOW] Verify US5 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-05-checkpoint.md`
+- [x] T065 [P] [US5] [RUNNABLE_NOW] Add failing Audit filter/paging/redaction and authorized Dashboard summary tests in `tests/Unit/OperationalWorkspace/AuditDashboardTests.cs`, then register and invoke the suite from `tests/Unit/Program.cs`
+- [x] T066 [P] [US5] [RUNNABLE_NOW] Add failing PostgreSQL scope-before-paging Audit/Dashboard tests in `tests/Integration/OperationalWorkspace/AuditDashboardTests.cs`, then register and invoke the suite from `tests/Integration/Program.cs`
+- [x] T067 [US5] [RUNNABLE_NOW] Extend the Audit-owned query contract for `fromUtc`/`toUtc`, actor, action, entity type, entity ID, Site/Area scope, server-redacted safe before/after diff, Administrator-only correlation permission (implemented by the existing `ServerPrincipal.IsAdministrator` gate), and strict keyset paging in `src/Modules/Audit/Contracts/AuditContracts.cs` and `src/Modules/Audit/Application/AuditQueryService.cs`
+- [x] T068 [US5] [RUNNABLE_NOW] Implement the Audit-owned server-side filters/redaction and scope-before-paging path in `src/Modules/Audit/Infrastructure/PostgresAuditRepositories.cs` and `src/Composition/Postgres/PostgresApplicationPorts.cs` (cursor requests are strict keyset pages without OFFSET), then compose authorized Dashboard summaries through public contracts in `src/Composition/Postgres/PostgresOperationalDashboardPorts.cs`
+- [x] T069 [US5] [RUNNABLE_NOW] Expose only the typed `/api/v1/operational-dashboard` route in `src/Api/OperationalDashboardEndpoints.cs`, register it in `src/Api/Program.cs`, and keep the existing `/api/v1/audit-events` ownership in `src/Api/AuditEndpoints.cs`
+- [x] T070 [US5] [RUNNABLE_NOW] Add the `dashboard.getSnapshot` gateway seam in `src/Web/src/gateways/webGateways.ts`, implement authorized Vietnamese Operational Dashboard navigation in `src/Web/src/features/dashboard/OperationalDashboard.tsx`, and wire it from `src/Web/src/App.tsx`
+- [x] T071 [US5] [RUNNABLE_NOW] Extend `audit.getSnapshot` in `src/Web/src/gateways/webGateways.ts` to send server-side date/actor/action/entity/scope filters and implement the resulting pagination, redacted safe diff, Administrator-only correlation display, and explicit states in `src/Web/src/features/audit/AuditRoute.tsx`
+- [x] T072 [US5] [RUNNABLE_NOW] Verify US5 behavior, review, Fast/Full evidence, and checkpoint in `specs/003-operational-configuration-workspace/checklists/phase-05-checkpoint.md`
 
 ---
 
@@ -215,7 +215,7 @@ T037-T048 Phase 2
 | FR-012..FR-016; AC-006..AC-008 | T037-T048 |
 | FR-017..FR-019; AC-009 | T049-T056 |
 | FR-020..FR-022; AC-010..AC-012 | T057-T064 |
-| FR-023..FR-024, FR-029; AC-013 | T065-T072 |
+| FR-023..FR-024; AC-013 | T065-T072 (FR-029 creation is historical; this phase covers only its no-secrets review facet) |
 | Cross-cutting SC-001..SC-012 and AC-001..AC-015 | T073-T080 |
 
 ## Parallel example: Phase 1
@@ -251,4 +251,4 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Phase 6 | 8 | T073-T080 |
 | **Total** | **80** | **T001-T080** |
 
-**MVP for this implementation run**: Phase 4 / US4 only. Do not execute T065 or later.
+**MVP for this implementation run**: Phase 5 / US5 only. Do not execute T073 or later.

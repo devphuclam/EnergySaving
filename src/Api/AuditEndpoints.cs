@@ -29,6 +29,7 @@ public static class AuditEndpoints
         return page.ErrorCode switch
         {
             "FORBIDDEN" => Results.Problem("Audit access is not authorized.", statusCode: StatusCodes.Status403Forbidden),
+            "VALIDATION" => Results.Problem("Audit filters are invalid.", statusCode: StatusCodes.Status422UnprocessableEntity),
             _ => Results.Ok(page)
         };
     }

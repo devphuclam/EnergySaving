@@ -222,6 +222,8 @@ public interface IAcquisitionRunRepository
     Task<SimulatorRun?> GetAsync(Guid runId, CancellationToken ct = default);
     Task<SimulatorRun?> GetCurrentBySourceAsync(Guid sourceId, CancellationToken ct = default);
     Task<IReadOnlyList<SimulatorRun>> ListRunningAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<SimulatorRun>> ListRunningForSourcesAsync(
+        IReadOnlyCollection<Guid> sourceIds, CancellationToken ct = default);
     Task<IReadOnlyList<SimulatorRunPointState>> ListPointStatesAsync(Guid runId, CancellationToken ct = default);
     Task<SimulatorRunPointState?> GetPointStateAsync(Guid runId, Guid pointId, CancellationToken ct = default);
     Task CreateAsync(SimulatorRun run, IReadOnlyList<SimulatorRunPointState> points,

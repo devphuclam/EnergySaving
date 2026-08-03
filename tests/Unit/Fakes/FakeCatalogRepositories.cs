@@ -163,6 +163,10 @@ public sealed class FakeCatalogCommandRepository : ICatalogCommandRepository
     }
 
     public Task<IReadOnlyList<DataSource>> GetAllDataSourcesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<DataSource>>(_dataSources.Values.Select(Clone).ToList());
+    public Task<IReadOnlyList<DataSource>> GetDataSourcesForSitesAsync(IReadOnlyCollection<Guid> siteIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DataSource>>(_dataSources.Values
+            .Where(source => source.SiteId is { } siteId && siteIds.Contains(siteId))
+            .Select(Clone).ToList());
     public Task<bool> HasDependentRunOrMeasurementAsync(DataSourceId id, CancellationToken ct = default) => Task.FromResult(_sourceDependencies.TryGetValue(id.Value, out var d) && d.HasOperationalDependency);
     public Task<CatalogDependencySnapshot> GetDataSourceDependencySnapshotAsync(DataSourceId id, CancellationToken ct = default) => Task.FromResult(_sourceDependencies.GetValueOrDefault(id.Value) ?? new CatalogDependencySnapshot());
 
