@@ -145,6 +145,27 @@ try {
             throw "Full mode is missing '$fullOnly'."
         }
     }
+
+    foreach ($repositoryWide in @('deployment-target-contract', 'doc05-architecture')) {
+        if ($repositoryWide -notin $fastPlan) {
+            throw "Fast mode is missing repository-wide check '$repositoryWide'."
+        }
+        if ($repositoryWide -notin $fullPlan) {
+            throw "Full mode is missing repository-wide check '$repositoryWide'."
+        }
+        $entryText = Get-Content -LiteralPath $entry -Raw
+        $featureScopedIndex = $entryText.IndexOf("`$scriptChecks['simulator-phase3-closure']", [StringComparison]::Ordinal)
+        if ($featureScopedIndex -lt 0) {
+            throw "Public harness command has no Feature-scoped registration to validate against."
+        }
+        $mapIndex = $entryText.IndexOf("'$repositoryWide' = ", [StringComparison]::Ordinal)
+        if ($mapIndex -lt 0) {
+            throw "Public harness command does not register '$repositoryWide' in the shared script-checks map."
+        }
+        if ($mapIndex -gt $featureScopedIndex) {
+            throw "Repository-wide check '$repositoryWide' is only registered after Feature-scoped checks and would be silently skipped for other Features."
+        }
+    }
 }
 finally {
     if ((Test-Path -LiteralPath $fixture) -and

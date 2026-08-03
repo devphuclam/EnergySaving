@@ -310,3 +310,17 @@ TEST/UAT/PROD host/service and rollback evidence.
 
 **Scope**: governance/evidence synchronization only. No target-host approval, deployment, release,
 container, package download, or service mutation is implied by this decision.
+
+### Trusted deployment approval trust boundary after Feature 003 trusted-approval closure
+
+**Date**: 2026-08-03
+**Decision**: The deployment-target verification contract is trust-bounded and fail-closed. A
+`PASS` requires an approved company CI context (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`),
+`IUMP_DEPLOYMENT_TARGET_APPROVED=true`, a trusted evidence root, manifest path containment inside
+that root, reparse-point escape rejection, and SHA-256 attestation matching the approved manifest.
+Anything else is `BLOCKED_BY_COMPANY_APPROVAL` (`BLK-ENV-005`) or `FAIL`; a developer-created
+manifest is never treated as company approval, and no bypass variables are introduced. This
+prevents a locally supplied manifest from being promoted to company-approved deployment evidence.
+
+**Scope**: verification-contract change only. No deployment, release, target-host approval, or
+capability change is implied.

@@ -1,5 +1,19 @@
 # IUMP Agent Instructions
 
+## OpenCode delegation workflow
+
+For IUMP work delegated to DeepSeek through OpenCode, use the existing interactive TUI session:
+
+1. Open PowerShell at the repository root and run `opencode`.
+2. Select `Session`, then choose the existing session for this repository.
+3. Select the `max` variant for the DeepSeek model.
+4. Send one precise, bounded prompt with exact paths, scope, acceptance criteria, and a required report.
+5. Wait for that slice's report before assigning the next slice.
+
+Do not start a parallel `opencode run` process or create a second session for the same work. If the
+free provider reports quota exhaustion, rate limiting, queue saturation, payment, or model
+unavailability, stop and report the exact blocker; do not switch providers or claim completion.
+
 ## Repository harness
 
 Read `docs/repository-harness.md` before making changes. Use Fast mode while iterating and run a

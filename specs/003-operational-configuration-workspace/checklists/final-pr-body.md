@@ -68,3 +68,58 @@ runtime. It is not a merge authorization and must be used from the corrective br
   review as human approval.
 - No merge, Phase 7, Spec 004, Rule/Alert/CSV/Reporting scope, database substitution, container,
   package download, port 5432 access, or secret emission is included.
+
+## Current trusted-approval corrective PR preparation (T109)
+
+This section supersedes the historical T088-T097 PR preparation above for the current branch. It
+is a prepared body only; no PR was created, no reviewer was requested, and no merge was performed.
+
+### Title
+
+`fix(feature-003): enforce trusted deployment approval`
+
+### Baseline and scope
+
+- Starting merged-main SHA: `6b77256f29775bb2a777ddcb555d868d7e671243`.
+- Corrective branch: `fix/003-trusted-deployment-approval`.
+- Corrective tasks: T098-T109; historical T001-T097 remain unchanged and labeled by their own closure.
+- Scope: trusted approval boundary, release-checkpoint normalization, repository-wide harness
+  registration, DOCX structural verification, verification, review, and final analysis only.
+- No Phase 7, Spec 004, Rule/Alert/CSV/Reporting capability, merge, or product-scope expansion.
+
+### Trust and verification contract
+
+- A deployment-target PASS requires approved company context (`CI=true` and
+  `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`,
+  company-provided `IUMP_DEPLOYMENT_TRUSTED_ROOT`, an evidence path inside that root, and the
+  protected `IUMP_DEPLOYMENT_EVIDENCE_SHA256` digest matching the manifest.
+- Missing/untrusted approval is `BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`.
+- Outside-root, traversal, reparse escapes, malformed JSON, non-scalar fields, invalid UTC/future
+  dates, digest mismatch, wrong deployment model, and secret-like fields are `FAIL`.
+- Synthetic fixtures prove the verifier contract only; they are never company approval or
+  Release-ready evidence.
+- DOC-05 structural verification is a text-level ZIP/XML PASS only; visual rendering remains
+  `BLOCKED_BY_MISSING_TOOL`.
+
+### Evidence and readiness
+
+- Deployment contract: PASS, `47 checks`, `0 failures`.
+- DOC-05 structural contract: PASS, `10 checks`, `0 failures` (text-level only).
+- Repository-harness contract: PASS; repository-wide checks execute for Features 001/002/003.
+- Fast Feature 003: PASS=13; Fast Feature 002: PASS=10; Fast Feature 001: PASS=9, NOT_RUN=1.
+- Full Feature 003: exit 20, PASS=16, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003`,
+  `BLK-ENV-005`), no mandatory FAIL.
+- Unit: PASS; PostgreSQL integration: PASS, 15 suites/0 failures against
+  `127.0.0.1:5433/iump_dev`; no port 5432 access.
+- AC-005: PARTIAL; AC-011: PARTIAL; code implementation complete: YES (bounded); acceptance
+  evidence complete: NO; Release-ready: NO.
+- Spec Kit Analyze/Converge: `NOT_RUN` because provider-native commands are unavailable;
+  direct artifact comparison is recorded and never promoted to provider PASS.
+
+### Review and Git boundary
+
+- Standards review: 0 Critical / 0 High / 0 actionable Medium after the path and contract fixes.
+- Specification review: 0 Critical / 0 High / 0 actionable Medium after the scalar/UTC/env-name/
+  task-count fixes.
+- Human review completed: NO; reviewer request: NO; CI/status check: NO.
+- Push branch: NOT RUN in this closure; merge performed: NO.

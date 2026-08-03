@@ -310,16 +310,23 @@ external evidence are available.
 
 ## Final corrective closure override (2026-08-03)
 
-The preceding Post-Phase-6 plan gate is historical T081-T087 context. The active branch is
-`fix/003-doc05-deployment-gate` from merged-main baseline
-`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7` and executes only additive T088-T097 final
-documentation, deployment-gate, verification, review, convergence, and final-analysis work. It
-does not reopen implementation phases, create Spec 004, expand Rule/Alert/CSV/Reporting capability,
-or merge automatically.
+The preceding Post-Phase-6 plan gate is historical T081-T087 context, and the deployment-gate
+override below it is historical T088-T097 context. The active branch is
+`fix/003-trusted-deployment-approval` from merged-main baseline
+`6b77256f29775bb2a777ddcb555d868d7e671243` and executes only additive T098-T109 final
+trusted-approval, release-checkpoint normalization, repository-wide harness registration, DOCX
+structural verification, verification, review, convergence, and final-analysis work. It does not
+reopen implementation phases, create Spec 004, expand Rule/Alert/CSV/Reporting capability, or merge
+automatically.
 
-The provider-native Analyze/Converge commands are `NOT_RUN` when unavailable; direct artifact
-comparison is recorded as evidence but never promoted to provider PASS. Release-ready remains NO
-while mandatory company, target-host, and browser evidence is blocked.
+The provider-native Analyze/Converge commands are recorded honestly when available and `NOT_RUN`
+when unavailable; direct artifact comparison is recorded as evidence but never promoted to provider
+PASS. The deployment-target check is trust-bounded and fail-closed (approved company CI context,
+company-provided `IUMP_DEPLOYMENT_TRUSTED_ROOT`, manifest path containment, reparse-escape rejection,
+protected `IUMP_DEPLOYMENT_EVIDENCE_SHA256` attestation),
+and repository-wide harness checks (`deployment-target-contract`, `doc05-architecture`) are
+registered for all relevant Features. Release-ready remains NO while mandatory company,
+target-host, and browser evidence is blocked.
 
 ## Complexity Tracking
 

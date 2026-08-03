@@ -160,7 +160,18 @@ passing.
 - Release is claimed only from Release-ready evidence with no mandatory blocker. The Full
   `deployment-target` check represents approved non-containerized target-host/service evidence;
   `BLK-ENV-004` is obsolete and must not be emitted.
-- The deployment-target contract requires both `IUMP_DEPLOYMENT_TARGET_APPROVED=true` and
-  `IUMP_DEPLOYMENT_EVIDENCE_PATH` for a sanitized manifest. Missing approval is
-  `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed or unsafe manifest evidence is `FAIL`.
+- The deployment-target contract is trust-bounded and fail-closed: it requires an approved company
+  CI context (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`,
+  the company-provided `IUMP_DEPLOYMENT_TRUSTED_ROOT`, manifest path containment inside that root,
+  reparse-point escape rejection, and protected `IUMP_DEPLOYMENT_EVIDENCE_SHA256` attestation for
+  a sanitized manifest. Missing or untrusted approval is
+  `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed, unsafe, or attestation-failed manifest
+  evidence is `FAIL`. A developer-created manifest is never treated as company approval and no
+  bypass variables exist.
+- Repository-wide harness checks (`deployment-target-contract`, `doc05-architecture`) are
+  registered before Feature-scoped checks so they run for every relevant Feature and are never
+  silently skipped. The `doc05-architecture` check structurally verifies DOC-05 v0.2 restricted
+  non-containerized wording, the corrected date, deployment components, and ADR AR-11; it copies a
+  locked document to a temporary path, never writes into the repository, and its text-level PASS is
+  never promoted to a visual PASS (approved visual rendering remains separately blocked).
 - `verification-results.json` contains no credential values.

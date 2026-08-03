@@ -331,17 +331,22 @@ fallback data.
 
 ## Final corrective closure override (2026-08-03)
 
-The preceding Post-Phase-6 paragraph is historical T081-T087 evidence. The active corrective
-branch is `fix/003-doc05-deployment-gate` from merged-main baseline
-`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7` and executes only additive T088-T097 documentation,
-deployment-gate, verification, and review work. It stops after T097; no Phase 7, Spec 004, or
-product-scope expansion is authorized.
+The preceding Post-Phase-6 paragraph is historical T081-T087 evidence, and the following
+deployment-gate paragraph is historical T088-T097 evidence. The active corrective branch is
+`fix/003-trusted-deployment-approval` from merged-main baseline
+`6b77256f29775bb2a777ddcb555d868d7e671243` and executes only additive T098-T109 final
+trusted-approval, checkpoint-normalization, harness-registration, DOCX-structural-verification,
+and review work. It stops after T109; no Phase 7, Spec 004, or product-scope expansion is
+authorized.
 
-The Full deployment-target check is fail-closed: it requires both
-`IUMP_DEPLOYMENT_TARGET_APPROVED=true` and `IUMP_DEPLOYMENT_EVIDENCE_PATH` pointing to a sanitized
-manifest for the canonical restricted non-containerized topology. Missing approval remains
-`BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`; malformed or unsafe evidence is `FAIL`. These
-states never imply acceptance completion or Release-ready status.
+The Full deployment-target check is fail-closed and trust-bounded: it requires an approved company
+CI context (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`,
+the company-provided `IUMP_DEPLOYMENT_TRUSTED_ROOT`, manifest path containment inside that root,
+reparse-point escape rejection, and the protected `IUMP_DEPLOYMENT_EVIDENCE_SHA256` attestation
+against the approved manifest. Missing or untrusted approval
+remains `BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`; malformed, unsafe, or attestation-failed
+evidence is `FAIL`. A developer-created manifest is never treated as company approval and no bypass
+variables exist. These states never imply acceptance completion or Release-ready status.
 
 ## Assumptions
 
@@ -360,10 +365,12 @@ states never imply acceptance completion or Release-ready status.
 
 ## Scope and Evidence Boundaries *(mandatory)*
 
-- **Current corrective closure**: The historical Phase 6 acceptance run covered T073–T080. This
-  corrective branch adds only governance, traceability, accessibility regression, deployment-source
-  reconciliation, and evidence tasks T081–T087. It stops after T087 and does not authorize Phase 7,
-  Feature 004, or product-scope expansion.
+- **Current corrective closure**: The historical Phase 6 acceptance run covered T073–T080, the
+  first corrective closure covered T081–T087, and the deployment-gate closure covered T088–T097.
+  This corrective branch adds only trusted-approval trust boundary, release-checkpoint
+  normalization, repository-wide harness registration, DOCX structural verification, and evidence
+  tasks T098–T109. It stops after T109 and does not authorize Phase 7, Feature 004, or
+  product-scope expansion.
 
 - **Included release/capability**: One Feature 003 operational workspace delivered in six reviewable
   implementation phases; the historical Phase 6 execution implemented acceptance hardening, accessibility,
@@ -372,7 +379,7 @@ states never imply acceptance completion or Release-ready status.
 - **Explicitly excluded**: Energy baselines, period comparison, anomaly detection, savings
   calculation or verification, savings claims, AI recommendations, equipment control/writeback,
   real meter integration, external customer/SaaS behavior, new charts, new real-time transport, and
-  work after T087, Phase 7, Spec 004, Rule/Alert/CSV/Reporting capability, and any other capability
+  work after T109, Phase 7, Spec 004, Rule/Alert/CSV/Reporting capability, and any other capability
   outside the Feature 003 operational workspace in the current corrective run.
 - **External approvals/dependencies**: Approved local PostgreSQL at `127.0.0.1:5433/iump_dev`;
   existing approved package caches; company CI and restricted non-containerized target-host/service

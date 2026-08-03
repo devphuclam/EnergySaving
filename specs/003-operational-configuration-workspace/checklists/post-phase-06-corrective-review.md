@@ -130,19 +130,21 @@ blockers; the approved database target is available.
 
 ## Final documentation and deployment-gate closure
 
-The final corrective branch is `fix/003-doc05-deployment-gate` from baseline
-`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`. DOC-05 v0.2 is structurally reconciled: its technology
-choice, Architecture Summary, deployment view, ADR catalogue, and AR-11 all describe the restricted
-non-containerized host/service topology, with the corrected date recorded in version history. ADR-010
-now uses accepted-architecture wording with deployment approval pending; it is not marked superseded.
+The `fix/003-doc05-deployment-gate` closure from baseline `6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`
+is historical evidence. The current final corrective branch is `fix/003-trusted-deployment-approval`
+from baseline `6b77256f29775bb2a777ddcb555d868d7e671243`.
 
-`scripts/common/DeploymentTarget.ps1` validates both approval variables and a sanitized manifest,
-rejects malformed/unsafe evidence as FAIL, and preserves `BLK-ENV-005` for missing company approval.
-The new contract test passes 25 checks. Provider Analyze/Converge statuses remain NOT_RUN when the
-runtime command is unavailable. AC-005 and AC-011 remain PARTIAL; Release-ready remains NO. This is
-the final Feature 003 stop and does not authorize Phase 7, Spec 004, or a merge. The current ledger
-comparison is `task_count=97`, `unique_task_count=97`, with T088-T097 complete and historical T034
-the only unchecked task.
+`scripts/common/DeploymentTarget.ps1` now enforces a trust-bounded fail-closed contract: approved
+company CI context (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`,
+a trusted evidence root, manifest path containment, reparse-escape rejection, and SHA-256
+attestation. Missing or untrusted approval is `BLOCKED_BY_COMPANY_APPROVAL` (`BLK-ENV-005`);
+malformed, unsafe, or attestation-failed evidence is `FAIL`. No bypass variables exist. The new
+contract test passes blocked, trust-boundary, attestation, redaction, Fast/Full-plan, and
+exit-code cases. Provider Analyze/Converge statuses are recorded honestly when available and
+`NOT_RUN` otherwise. AC-005 and AC-011 remain PARTIAL; Release-ready remains NO. This is the final
+Feature 003 stop and does not authorize Phase 7, Spec 004, or a merge. The current ledger
+comparison is `task_count=109`, `unique_task_count=109`, with T098-T109 as the active corrective
+tasks, historical T034 as the only pre-existing unchecked task, and no duplicate task IDs.
 
 ## Historical Git and PR boundary (T081-T087)
 

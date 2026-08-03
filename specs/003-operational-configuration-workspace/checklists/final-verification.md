@@ -80,3 +80,52 @@ AC-011 remain PARTIAL, acceptance evidence is incomplete, and Release-ready rema
 TDD evidence for the new seam is explicit: the pre-implementation run stopped with
 `RED: deployment-target verifier is missing`; after the verifier was added, the same contract suite
 passed 25 checks. The historical RED was not reconstructed or inferred.
+
+## Final trusted-approval and checkpoint verification (T106)
+
+This verification is refreshed on branch `fix/003-trusted-deployment-approval` from baseline
+`6b77256f29775bb2a777ddcb555d868d7e671243`. The refreshed numeric evidence:
+
+| Command | Exit | Classification | Evidence |
+|---|---:|---|---|
+| `.\tests\Verification\deployment-target.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `DeploymentTarget: checks=47 failures=0`; covers the new trust-boundary cases (approved CI context, trusted root, path containment, traversal/reparse escape, SHA-256 attestation, no bypass) plus the prior blocked/malformed/valid/redaction/Fast-Full/exit-code cases. |
+| `.\tests\Verification\doc05-architecture.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `Doc05Architecture: checks=10 failures=0`; text-level structural verification of DOC-05 v0.2 (restricted non-containerized wording, corrected date, deployment components, AR-11) with no repository write and an explicit note that structural PASS is not a visual PASS. |
+| `.\tests\Verification\repository-harness.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: repository harness contract`; now proves `deployment-target-contract` and `doc05-architecture` are registered before Feature-scoped checks and run for every Feature. |
+| `.\tests\Verification\verification-contract.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: verification result contract`. |
+| `.\tests\Verification\repository-policy.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: repository policy contract`. |
+| `.\tests\Verification\architecture.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: architecture boundary contract`. |
+| `.\tests\Verification\architecture-red-fixture.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: all forbidden architecture fixtures are red-capable`. |
+| `.\tests\Verification\observability.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `Observability: checks=12 failures=0`. |
+| `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` | 0 | PASS / RUNNABLE_NOW | `PASS: all tests`; all registered Unit suites report 0 failures. |
+| `dotnet run --project .\tests\Integration\IUMP.Tests.Integration.csproj --no-restore` | 0 | PASS / RUNNABLE_NOW | `T066 target=127.0.0.1:5433/iump_dev cases=14; assertions=15; failures=0`; `suites=15 failures=0`. |
+| `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=13` (includes the new `doc05-architecture` check). |
+| `.\scripts\harness.ps1 -Mode Fast -Feature 002-asset-simulator-latest` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=10`; `deployment-target-contract` and `doc05-architecture` executed, proving repository-wide registration (no silent skip). |
+| `.\scripts\harness.ps1 -Mode Fast -Feature 001-r0-engineering-foundation` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=9, NOT_RUN=1`; `feature-artifacts` NOT_RUN is the expected unresolved-feature result; repository-wide checks executed. |
+| `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED / `BLOCKED_BY_COMPANY_APPROVAL` | Fresh Full summary: `PASS=16`, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003` approved company CI runner, `BLK-ENV-005` approved non-containerized target and trusted deployment approval); no mandatory FAIL. |
+| `git diff --check` | 0 | PASS / RUNNABLE_NOW | No whitespace errors (only an LF/CRLF notice). |
+
+The trust-boundary contract is exercised only with temporary sanitized fixtures and never with
+production credentials; a blocked Full result is not PASS and no release approval is claimed. AC-005
+and AC-011 remain PARTIAL, acceptance evidence is incomplete, and Release-ready remains NO.
+
+## Final trusted-approval closure verification (T107-T109)
+
+The current corrective closure was rerun after the Standards/Specification corrections and direct
+artifact comparison:
+
+| Command / comparison | Result | Evidence |
+|---|---|---|
+| `deployment-target.tests.ps1` | PASS | `DeploymentTarget: checks=47 failures=0`; unsafe path and malformed scalar/date/secret cases are fail-closed. |
+| `doc05-architecture.tests.ps1` | PASS | `Doc05Architecture: checks=10 failures=0`; structural only, never a visual-render PASS. |
+| `repository-harness.tests.ps1` | PASS | Repository-wide deployment-target and DOC-05 checks are registered before Feature-scoped checks. |
+| Fast Feature 003 | PASS | `Harness Fast summary: PASS=13`. |
+| Fast Feature 002 | PASS | `Harness Fast summary: PASS=10`. |
+| Fast Feature 001 | PASS | `Harness Fast summary: PASS=10`; no unresolved feature-artifact check in this current checkout. |
+| Unit | PASS | `PASS: all tests`. |
+| PostgreSQL Integration | PASS | `T066 target=127.0.0.1:5433/iump_dev ... failures=0`; `postgres-integration ... suites=15 failures=0`. |
+| Fresh Full Feature 003 | BLOCKED | `PASS=16`, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003`, `BLK-ENV-005`), no mandatory FAIL; this is not a release PASS. |
+| Task/artifact direct comparison | PASS / provider NOT_RUN | `task_count=109`, `unique_task_count=109`, no duplicate IDs, only historical T034 unchecked; provider-native Analyze/Converge unavailable and not fabricated. |
+| `git diff --check` | PASS | No whitespace errors; only existing LF/CRLF normalization notices. |
+
+No secrets were printed, no port 5432 was used, no package or container was introduced, and no
+merge/push was performed. The explicit stop remains T109.

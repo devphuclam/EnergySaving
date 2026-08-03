@@ -46,12 +46,13 @@ $scriptChecks = [ordered]@{
     'repository-scope' = 'tests\Verification\repository-scope.tests.ps1'
     'architecture' = 'tests\Verification\architecture.tests.ps1'
     'architecture-red-fixture' = 'tests\Verification\architecture-red-fixture.tests.ps1'
+    'deployment-target-contract' = 'tests\Verification\deployment-target.tests.ps1'
+    'doc05-architecture' = 'tests\Verification\doc05-architecture.tests.ps1'
 }
 if ($Feature -eq '003-operational-configuration-workspace') {
     $scriptChecks['simulator-phase3-closure'] = 'tests\Verification\simulator-phase3-closure.tests.ps1'
     $scriptChecks['telemetry-phase4-closure'] = 'tests\Verification\telemetry-phase4-closure.tests.ps1'
     $scriptChecks['app-shell-accessibility'] = 'tests\Verification\app-shell-accessibility.tests.ps1'
-    $scriptChecks['deployment-target-contract'] = 'tests\Verification\deployment-target.tests.ps1'
 }
 foreach ($entry in $scriptChecks.GetEnumerator()) {
     if ($entry.Key -in $checkPlan) {

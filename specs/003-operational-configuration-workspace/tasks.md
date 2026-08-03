@@ -83,6 +83,30 @@ merge the corrective branch.
 - [x] T096 [RUNNABLE_NOW] Perform an independent Specification review against DOC-05/DOC-07, constitution, Feature 003 artifacts, and the six findings; resolve all Critical/High/actionable Medium findings and record the result
 - [x] T097 [RUNNABLE_NOW] Run Spec Kit Converge and final Analyze when provider commands are available, otherwise perform direct append-only artifact comparison; verify unique task IDs, no stale current containerized wording, prepare but do not merge a real PR, and record the explicit Feature 003 stop
 
+## Final Trusted-Approval and Checkpoint Corrective Closure
+
+This additive closure starts from merged-main baseline `6b77256f29775bb2a777ddcb555d868d7e671243`
+on branch `fix/003-trusted-deployment-approval`. It addresses the five corrective findings recorded
+in the read-only Spec Kit Analyze for the current closure scope: (1) fail-closed trusted deployment
+approval with an approved company CI context and trusted evidence root, (2) release checkpoint
+normalization to a single current state, (3) harness check-plan/registration consistency for
+repository-wide checks, (4) DOCX structural verification for DOC-05 v0.2, and (5) PR/human review
+boundary. It does not rewrite T001-T097, create Phase 7, create Spec 004, expand product
+capability, or merge the corrective branch.
+
+- [x] T098 [P] [RUNNABLE_NOW] Add failing deployment-target trust-boundary contract tests before implementation in `tests/Verification/deployment-target.tests.ps1`, covering: approved company runner context required (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true` required, trusted evidence root required, manifest path must be inside the trusted evidence root, path-traversal and reparse-point escape rejection, protected expected SHA-256/attestation, schema/scalar/UTC/deploymentModel/secret-like validation, missing approved context classified as `BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`, synthetic contract evidence never classified as company approval, and no bypass variables
+- [x] T099 [RUNNABLE_NOW] Implement the fail-closed trusted deployment approval contract in `scripts/common/DeploymentTarget.ps1`: require approved company runner context (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`) and `IUMP_DEPLOYMENT_TARGET_APPROVED=true`, require a trusted evidence root, require the manifest path to be inside that root, reject path traversal and reparse-point escapes, compare expected SHA-256/attestation against the manifest, keep schema/scalar/UTC/deploymentModel/secret-like validation, emit only `PASS`, `BLOCKED_BY_COMPANY_APPROVAL` (`BLK-ENV-005`), or `FAIL`, preserve exit codes 0/1/20, and introduce no bypass variables
+- [x] T100 [RUNNABLE_NOW] Integrate the trusted deployment approval contract into `scripts/harness.ps1` and `scripts/common/Harness.ps1` for the Full deployment-target check without exposing secrets and without treating a developer-created approved-manifest as company approval
+- [x] T101 [P] [RUNNABLE_NOW] Fix harness check-plan/registration consistency in `scripts/harness.ps1` and `scripts/common/Harness.ps1` so repository-wide checks (for example `deployment-target-contract` and the new `doc05-architecture` check) are registered and executed for all relevant Features 001/002/003 rather than only Feature 003; add repository-harness contract tests in `tests/Verification/repository-harness.tests.ps1` proving no planned Fast/Full check is silently skipped for any Feature
+- [x] T102 [RUNNABLE_NOW] Create `tests/Verification/doc05-architecture.tests.ps1` using only built-in `System.IO.Compression.ZipFile` and `System.Xml.Linq.XDocument` to structurally verify `Business Docs/DOC-05_Software_Architecture_Document_v0.2.docx` (copying to a temporary path when the original is locked): document exists, ZIP and XML parse, current restricted non-containerized wording present, containerized reference wording absent, version-history correction date 2026-08-03 present, deployment components (static files, Windows Service, internal PostgreSQL, AR-11) present; never overwrite or extract into the repository; treat an unavailable approved visual renderer as `BLOCKED_BY_MISSING_TOOL` and never claim a structural PASS is a visual PASS
+- [x] T103 [RUNNABLE_NOW] Register the `doc05-architecture` verification check in `scripts/common/Harness.ps1` and `scripts/harness.ps1` so it runs for every relevant Feature and is included in the Fast and Full plans; verify the check is not silently skipped
+- [x] T104 [RUNNABLE_NOW] Normalize `specs/003-operational-configuration-workspace/checklists/release-checkpoint.md` to a single current state without appended overrides: current task count and unique/unchecked status, AC-005=PARTIAL, AC-011=PARTIAL, readiness states (code implementation complete=YES, acceptance evidence complete=NO, release-ready=NO), current verification and blocker list, and clearly labeled historical entries for T080/T087/T097
+- [x] T105 [RUNNABLE_NOW] Synchronize `spec.md`, `plan.md`, acceptance traceability, final verification, final corrective analysis, post-phase corrective review, `docs/source-register.md`, `docs/decision-log.md`, `docs/repository-harness.md`, and `README.md` with the trusted approval model, repository-wide harness checks, DOCX structural verification, AC-005=PARTIAL, AC-011=PARTIAL, implementation/readiness separation, and `Release-ready=NO`
+- [x] T106 [RUNNABLE_NOW] Run the new trust-boundary and DOCX structural verification seams, approved Unit/PostgreSQL/Web/policy/architecture checks, Fast harness, and Full harness; refresh numeric evidence and classify every blocker without secrets, port 5432, substitutes, or fabricated approval
+- [x] T107 [RUNNABLE_NOW] Perform an independent Standards review of the corrective diff from baseline `6b77256f29775bb2a777ddcb555d868d7e671243` and resolve all Critical/High/actionable Medium findings; record provider status honestly if the review capability is unavailable
+- [x] T108 [RUNNABLE_NOW] Perform an independent Specification review against DOC-05/DOC-07, constitution, Feature 003 artifacts, and the five corrective findings; resolve all Critical/High/actionable Medium findings and record the result
+- [x] T109 [RUNNABLE_NOW] Run Spec Kit Converge and final Analyze when provider commands are available, otherwise perform direct append-only artifact comparison; verify unique task IDs, no silently skipped harness check, no stale current containerized wording, prepare a PR title/body with baseline, tasks, trust model, evidence, and blockers/status but do not merge it, and record the explicit Feature 003 stop
+
 ## Checklist format
 
 Every task uses `- [ ] T### [P?] [Story?] [classification] description with exact file path`.
@@ -309,10 +333,13 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Phase 5 / US5 | 8 | T065-T072 |
 | Phase 6 | 8 | T073-T080 |
 | Post-Phase-6 Corrective Closure | 7 | T081-T087 |
-| **Total** | **87** | **T001-T087** |
+| Final Documentation and Deployment-Gate Corrective Closure | 10 | T088-T097 |
+| Final Trusted-Approval and Checkpoint Corrective Closure | 12 | T098-T109 |
+| **Total** | **109** | **T001-T109** |
 
 **Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
 
-**MVP for the current corrective run**: Post-Phase-6 governance, evidence, regression, and
-traceability closure only (T081–T087). Stop after T087.
+**Historical MVP for the prior corrective run**: Post-Phase-6 governance, evidence, regression,
+and traceability closure only (T081-T087). The current corrective run is the additive T098-T109
+trusted-approval and checkpoint closure and stops after T109.

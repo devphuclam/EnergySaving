@@ -45,12 +45,16 @@ matrix.
 
 ## Final deployment-gate closure
 
-The active final corrective branch is `fix/003-doc05-deployment-gate` from baseline
-`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`. The Full deployment-target seam now validates a
-sanitized restricted non-containerized approval manifest. Missing approval remains
-`BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed or unsafe manifests are `FAIL`. This gate
-does not change the acceptance matrix: AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is
-not complete, and Release-ready remains `NO`.
+The deployment-gate closure on `fix/003-doc05-deployment-gate` (baseline `6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`)
+is historical evidence. The current final corrective branch is `fix/003-trusted-deployment-approval`
+from baseline `6b77256f29775bb2a777ddcb555d868d7e671243`. The Full deployment-target seam is now
+trust-bounded and fail-closed: it requires an approved company CI context
+(`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`, a trusted
+evidence root, manifest path containment, reparse-escape rejection, and SHA-256 attestation.
+Missing or untrusted approval remains `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed,
+unsafe, or attestation-failed manifests are `FAIL`. A developer-created manifest is never company
+approval. This gate does not change the acceptance matrix: AC-005 and AC-011 remain `PARTIAL`,
+acceptance evidence is not complete, and Release-ready remains `NO`.
 
 ## Corrective evidence boundary
 
