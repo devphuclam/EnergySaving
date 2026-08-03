@@ -41,3 +41,39 @@ reviews do not override the explicit capability blockers: the frontend behavior 
 `BLOCKED_BY_PACKAGE_POLICY`, the authenticated browser runner is `BLOCKED_BY_MISSING_TOOL`, and Full
 harness company checks are `BLOCKED_BY_COMPANY_APPROVAL`. These remain release-readiness blockers,
 not implementation review failures.
+
+## Final documentation and deployment-gate review (T095-T096)
+
+Date: 2026-08-03
+Fixed baseline: `6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`
+Branch: `fix/003-doc05-deployment-gate`
+
+### Standards
+
+Independent read-only review of the current corrective diff found no unresolved Critical, High, or
+actionable Medium standards finding after these corrections:
+
+- T088-T097 are checked only after their evidence exists;
+- historical ADR-010 `superseded` wording is explicitly labeled historical;
+- current Full evidence is synchronized to PASS=15/blocked=2 and Fast to PASS=12;
+- temporary approved-manifest evidence is labeled synthetic contract evidence, not release approval;
+- `git diff --check` and the 25-check deployment contract pass.
+
+Result: **Critical 0 / High 0 / actionable Medium 0**. Baseline smell review found no actionable
+Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches,
+Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, or Refused
+Bequest issue.
+
+### Specification
+
+Independent read-only review against DOC-05/DOC-07, constitution 1.1.0, `spec.md`, `plan.md`,
+`tasks.md`, and the final corrective requirements found no unresolved Critical, High, or actionable
+Medium specification finding. The review confirms the bounded T088-T097 scope, canonical DOC-05
+precedence, accepted/pending ADR-010 status, fail-closed blocked/pass deployment branches,
+AC-005/AC-011 PARTIAL status, honest provider NOT_RUN status, and no Phase 7/Spec 004 scope creep.
+
+Result: **Critical 0 / High 0 / actionable Medium 0**.
+
+These are independent review results for the corrective branch; they are not a human approval or a
+merge. A PR body is prepared in `final-pr-body.md`; no PR was created because no approved connector
+was available.

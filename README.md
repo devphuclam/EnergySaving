@@ -71,6 +71,12 @@ Do not run `npm ci --offline` until lockfile cache completeness and company appr
 - The approved target-host/service approval evidence is not available for TEST/UAT/PROD deployment.
 - Release deployment and rollback evidence therefore remain blocked by company approval.
 
+The Full harness checks this gate fail-closed: `IUMP_DEPLOYMENT_TARGET_APPROVED=true` is accepted
+only together with `IUMP_DEPLOYMENT_EVIDENCE_PATH` pointing to a sanitized manifest for the
+restricted non-containerized topology. A missing approval remains `BLOCKED_BY_COMPANY_APPROVAL`
+(`BLK-ENV-005`); malformed or unsafe evidence is a verification `FAIL`. The harness never logs the
+manifest contents or secret-like values.
+
 ## REQUIRES COMPANY APPROVAL
 
 - Internal NuGet/npm mirrors for future dependencies.

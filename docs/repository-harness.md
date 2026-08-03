@@ -160,4 +160,7 @@ passing.
 - Release is claimed only from Release-ready evidence with no mandatory blocker. The Full
   `deployment-target` check represents approved non-containerized target-host/service evidence;
   `BLK-ENV-004` is obsolete and must not be emitted.
+- The deployment-target contract requires both `IUMP_DEPLOYMENT_TARGET_APPROVED=true` and
+  `IUMP_DEPLOYMENT_EVIDENCE_PATH` for a sanitized manifest. Missing approval is
+  `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed or unsafe manifest evidence is `FAIL`.
 - `verification-results.json` contains no credential values.

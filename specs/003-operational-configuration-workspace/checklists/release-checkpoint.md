@@ -36,11 +36,21 @@ Scope: T081–T087 corrective closure; no merge, Phase 7, or Feature 004.
   fake fallback, savings/AI/control/Modbus behavior found.
 - Unit, PostgreSQL Integration, architecture, repository policy, observability, Web lint/build:
   PASS (see `final-verification.md`).
-- Fast harness: PASS=11 (includes the AppShell accessibility static regression).
-- Full harness: exit 20 by the repository contract, with PASS=14 and two mandatory company blockers;
+- Fast harness: PASS=12 (includes AppShell accessibility and deployment contract regressions).
+- Full harness: exit 20 by the repository contract, with PASS=15 and two mandatory company blockers;
   therefore not PASS and not release approval.
 - SpecKit provider analysis/convergence: provider commands unavailable in this runtime; each is
   `NOT_RUN` with direct artifact comparison recorded, never promoted to PASS.
+
+## Final corrective closure override
+
+The active branch for the final documentation and deployment-gate repair is
+`fix/003-doc05-deployment-gate` from `6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`. The deployment
+approval contract is now testable, but no company approval evidence is fabricated. AC-005 and AC-011
+remain PARTIAL; Code implementation complete is bounded, Acceptance evidence complete is NO, and
+Release-ready is NO. The current additive ledger has `task_count=97`, `unique_task_count=97`,
+T088-T097 complete, and historical T034 as the only unchecked task. The branch must stop after T097
+and must not be merged by this run.
 
 ## Final artifact comparison
 

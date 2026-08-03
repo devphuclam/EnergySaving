@@ -47,7 +47,7 @@ claimed. The new regression is post-merge static contract protection.
 | FINDING-02: AC-005 PASS lacked API/Web host restart evidence | Resolved honestly: AC-005 is `PARTIAL`; no approved authenticated browser/process-control runner could be claimed. Refresh/logout-login evidence is retained but not promoted to PASS. |
 | FINDING-03: Phase 6 accessibility change lacked direct regression coverage | Resolved with `tests/Verification/app-shell-accessibility.tests.ps1`; post-merge static regression PASS. Browser behavior remains unexercised. |
 | FINDING-04: `spec.md` remained Draft | Resolved with `Status: Implemented — Release Evidence Blocked`; never marked Released. |
-| FINDING-05: DOC-05/ADR-010/harness/blocker deployment conflict | Resolved by DOC-05 v0.2/DOC-07 v0.2 precedence. ADR-010 is superseded; harness no longer emits BLK-ENV-004 and uses BLK-ENV-005 for concrete non-containerized target-host approval. |
+| FINDING-05: DOC-05/ADR-010/harness/blocker deployment conflict | Historical Phase 6 disposition used superseded wording; the final closure corrects ADR-010 to `Accepted for MVP-1 architecture; deployment approval pending`. The harness no longer emits BLK-ENV-004 and uses BLK-ENV-005 for concrete non-containerized target-host approval. |
 | FINDING-06: Phase 6 direct-to-main review boundary | Resolved for this corrective work by dedicated branch, fresh independent Standards/Specification reviews, and prepared-but-unmerged PR boundary. Historical Phase 6 merge is not rewritten. |
 
 ## 5. AC-005 host-restart evidence
@@ -95,8 +95,8 @@ This closure did not deploy or mutate services.
 | API/backend build | PASS, exit 0 (Full harness run) |
 | Web lint/build | PASS, exit 0 (Full harness run) |
 | Architecture/repository policy/scope | PASS, exit 0 |
-| Fast harness | PASS=11, exit 0 |
-| Full harness | exit 20; PASS=14, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003`, `BLK-ENV-005`); no mandatory FAIL |
+| Fast harness | PASS=12, exit 0 |
+| Full harness | exit 20; PASS=15, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003`, `BLK-ENV-005`); no mandatory FAIL |
 
 Full exit 20 is non-passing by repository contract. Frontend behavior remains separately
 `BLOCKED_BY_PACKAGE_POLICY`, and authenticated browser automation remains `BLOCKED_BY_MISSING_TOOL`.
@@ -128,7 +128,23 @@ target-host/service approval, frontend behavior runner `BLOCKED_BY_PACKAGE_POLIC
 authenticated browser/process-control capability for AC-005. These are not database-access
 blockers; the approved database target is available.
 
-## 11. Git and PR boundary
+## Final documentation and deployment-gate closure
+
+The final corrective branch is `fix/003-doc05-deployment-gate` from baseline
+`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`. DOC-05 v0.2 is structurally reconciled: its technology
+choice, Architecture Summary, deployment view, ADR catalogue, and AR-11 all describe the restricted
+non-containerized host/service topology, with the corrected date recorded in version history. ADR-010
+now uses accepted-architecture wording with deployment approval pending; it is not marked superseded.
+
+`scripts/common/DeploymentTarget.ps1` validates both approval variables and a sanitized manifest,
+rejects malformed/unsafe evidence as FAIL, and preserves `BLK-ENV-005` for missing company approval.
+The new contract test passes 25 checks. Provider Analyze/Converge statuses remain NOT_RUN when the
+runtime command is unavailable. AC-005 and AC-011 remain PARTIAL; Release-ready remains NO. This is
+the final Feature 003 stop and does not authorize Phase 7, Spec 004, or a merge. The current ledger
+comparison is `task_count=97`, `unique_task_count=97`, with T088-T097 complete and historical T034
+the only unchecked task.
+
+## Historical Git and PR boundary (T081-T087)
 
 Corrective branch: `fix/003-final-governance-corrective`. A PR title/body and reviewer request are
 prepared for this branch, but no PR is created or merged by this closure. No force push, branch

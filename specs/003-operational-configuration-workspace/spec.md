@@ -329,6 +329,20 @@ fallback data.
 - **SC-012**: Automated and manual evidence finds zero emitted passwords, tokens, credentials,
   connection secrets, port 5432 access, public downloads, container use, or substitute databases.
 
+## Final corrective closure override (2026-08-03)
+
+The preceding Post-Phase-6 paragraph is historical T081-T087 evidence. The active corrective
+branch is `fix/003-doc05-deployment-gate` from merged-main baseline
+`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7` and executes only additive T088-T097 documentation,
+deployment-gate, verification, and review work. It stops after T097; no Phase 7, Spec 004, or
+product-scope expansion is authorized.
+
+The Full deployment-target check is fail-closed: it requires both
+`IUMP_DEPLOYMENT_TARGET_APPROVED=true` and `IUMP_DEPLOYMENT_EVIDENCE_PATH` pointing to a sanitized
+manifest for the canonical restricted non-containerized topology. Missing approval remains
+`BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`; malformed or unsafe evidence is `FAIL`. These
+states never imply acceptance completion or Release-ready status.
+
 ## Assumptions
 
 - Feature 002’s existing IAM, scope, domain transitions, idempotency, optimistic concurrency,

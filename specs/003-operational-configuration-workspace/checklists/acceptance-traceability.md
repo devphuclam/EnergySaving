@@ -43,6 +43,15 @@ rerun both report T066 as `cases=14; assertions=15; failures=0` against the appr
 older conflicting count is superseded by that explicit corrective record and is not used by this
 matrix.
 
+## Final deployment-gate closure
+
+The active final corrective branch is `fix/003-doc05-deployment-gate` from baseline
+`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`. The Full deployment-target seam now validates a
+sanitized restricted non-containerized approval manifest. Missing approval remains
+`BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed or unsafe manifests are `FAIL`. This gate
+does not change the acceptance matrix: AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is
+not complete, and Release-ready remains `NO`.
+
 ## Corrective evidence boundary
 
 AC-005 is intentionally PARTIAL after the corrective review. The missing capability is an approved

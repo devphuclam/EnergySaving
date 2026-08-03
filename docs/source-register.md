@@ -5,7 +5,7 @@
 | 1 | DOC-01 Product Vision and Scope | v0.3, In Review | Product boundary, roles, MVP/POC, retention, read-only OT |
 | 2 | DOC-03 Business Requirements | v0.1, Draft | Workflow, Missing semantics, rule/Alert/report responsibilities |
 | 3 | DOC-04 Software Requirements Specification | v0.2, Draft | Functional/non-functional requirements and acceptance |
-| 4 | DOC-05 Software Architecture Document | v0.2, Draft | Modular monolith, API/Worker, PostgreSQL, outbox/inbox, target deployment |
+| 4 | DOC-05 Software Architecture Document | v0.2, Draft; corrected 2026-08-03 | Modular monolith, API/Worker, PostgreSQL, outbox/inbox, restricted non-containerized target deployment |
 | 5 | DOC-06 Data and Integration Specification | v0.1, Draft | Schema ownership, contracts, idempotency, migrations, retention |
 | 6 | DOC-07 MVP Roadmap and Delivery Plan | v0.2, Draft | R0 boundary, DoR/DoD, gates, dependencies and evidence |
 | 7 | DOC-08 UI/UX Design Specification | v0.1, Draft | UI/UX direction, interaction patterns, accessibility and feedback states |

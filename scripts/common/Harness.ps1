@@ -146,6 +146,7 @@ function Get-HarnessCheckPlan {
         'repository-scope',
         'architecture',
         'architecture-red-fixture',
+        'deployment-target-contract',
         'unit'
     )
     if ($Mode -eq 'Fast') {

@@ -11,6 +11,10 @@
 | DEC-R0-007 | 2026-07-23 | Do not substitute SQLite/InMemory for PostgreSQL and do not report unexecuted checks as passing. | Constitution; user request |
 | DEC-R0-008 | 2026-07-23 | Treat `CONTEXT.md` as a glossary only; technical choices remain in ADRs and Spec Kit plans. | Matt Pocock domain-modeling |
 
+`DEC-R0-005` is a historical R0 record. The current deployment decision is the 2026-08-03
+DOC-05 v0.2 reconciliation below: restricted non-containerized host/service deployment, with
+concrete TEST/UAT/PROD approval still pending.
+
 ## DEC-GOV-009 — Proposed Active-Feature and Release Lifecycle Amendment
 
 **Date**: 2026-07-24

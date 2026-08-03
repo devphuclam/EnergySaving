@@ -11,6 +11,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'common\Verification.ps1')
 . (Join-Path $PSScriptRoot 'common\Harness.ps1')
 . (Join-Path $PSScriptRoot 'common\PostgresRuntime.ps1')
+. (Join-Path $PSScriptRoot 'common\DeploymentTarget.ps1')
 
 $results = [System.Collections.Generic.List[object]]::new()
 $featureResolution = Resolve-HarnessFeature -RepoRoot $repoRoot -Feature $Feature
@@ -50,6 +51,7 @@ if ($Feature -eq '003-operational-configuration-workspace') {
     $scriptChecks['simulator-phase3-closure'] = 'tests\Verification\simulator-phase3-closure.tests.ps1'
     $scriptChecks['telemetry-phase4-closure'] = 'tests\Verification\telemetry-phase4-closure.tests.ps1'
     $scriptChecks['app-shell-accessibility'] = 'tests\Verification\app-shell-accessibility.tests.ps1'
+    $scriptChecks['deployment-target-contract'] = 'tests\Verification\deployment-target.tests.ps1'
 }
 foreach ($entry in $scriptChecks.GetEnumerator()) {
     if ($entry.Key -in $checkPlan) {
@@ -154,11 +156,7 @@ if ($Mode -eq 'Full') {
             'No approved company runner or template context.'
         }) -BlockerId $(if ($approvedCi) { $null } else { 'BLK-ENV-003' })))
 
-    $results.Add((New-VerificationResult -CheckId 'deployment-target' `
-        -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
-        -Command 'approved TEST/UAT/PROD non-containerized host/service deployment verification' -Mandatory $true `
-        -Evidence 'DOC-05 v0.2 requires a restricted non-containerized approved host/service; Infrastructure/Security target-host approval evidence is not available.' `
-        -BlockerId 'BLK-ENV-005'))
+    $results.Add((Test-DeploymentTargetApproval))
 }
 
 $resultPath = Join-Path $repoRoot 'verification-results.json'

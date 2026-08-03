@@ -308,6 +308,19 @@ reopen implementation phases, create Spec 004, expand Rule/Alert/CSV/Reporting c
 merge automatically. Release-ready remains NO until mandatory target-host approval and other
 external evidence are available.
 
+## Final corrective closure override (2026-08-03)
+
+The preceding Post-Phase-6 plan gate is historical T081-T087 context. The active branch is
+`fix/003-doc05-deployment-gate` from merged-main baseline
+`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7` and executes only additive T088-T097 final
+documentation, deployment-gate, verification, review, convergence, and final-analysis work. It
+does not reopen implementation phases, create Spec 004, expand Rule/Alert/CSV/Reporting capability,
+or merge automatically.
+
+The provider-native Analyze/Converge commands are `NOT_RUN` when unavailable; direct artifact
+comparison is recorded as evidence but never promoted to provider PASS. Release-ready remains NO
+while mandatory company, target-host, and browser evidence is blocked.
+
 ## Complexity Tracking
 
 No constitutional violation or extra architectural layer requires justification.

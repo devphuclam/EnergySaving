@@ -36,8 +36,8 @@ SQLite, InMemory, Docker, Testcontainers, or public package/download substitute 
 | `.\tests\Verification\architecture.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: architecture boundary contract`. |
 | `.\tests\Verification\repository-policy.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: repository policy contract`. |
 | `.\tests\Verification\observability.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `checks=12 failures=0`. |
-| `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=11` (includes the AppShell accessibility static regression). |
-| `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED / `BLOCKED_BY_COMPANY_APPROVAL` | Fresh Full summary: `PASS=14`, `BLOCKED_BY_COMPANY_APPROVAL=2`; `BLK-ENV-003` (company CI runner) and `BLK-ENV-005` (approved non-containerized target host/service); no mandatory FAIL. `BLK-ENV-004` is not emitted. |
+| `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=12` (includes AppShell accessibility and deployment contract regressions). |
+| `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED / `BLOCKED_BY_COMPANY_APPROVAL` | Fresh Full summary: `PASS=15`, `BLOCKED_BY_COMPANY_APPROVAL=2`; `BLK-ENV-003` (company CI runner) and `BLK-ENV-005` (approved non-containerized target host/service); no mandatory FAIL. `BLK-ENV-004` is not emitted. |
 
 | `.\tests\Verification\app-shell-accessibility.tests.ps1` | 0 | PASS / RUNNABLE_NOW | Static AppShell contract covers visible Vietnamese labels, stable ids, invalid-credential `aria-describedby`/alert association, and Vietnamese navigation/auth region names. Browser behavior is not exercised. |
 
@@ -64,4 +64,19 @@ therefore means no mandatory FAIL but at least one blocked/NOT_RUN check, per
 - Post-merge accessibility regression: `PASS` for the static source-contract seam; this is not
   browser behavior or historical TDD evidence.
 - SpecKit `analyze` and `converge`: `NOT_RUN; reason=SpecKit provider command unavailable in this
-  runtime`; direct artifact comparison is used and is not represented as provider PASS.
+runtime`; direct artifact comparison is used and is not represented as provider PASS.
+
+## Final documentation and deployment-gate corrective closure
+
+This verification is refreshed on branch `fix/003-doc05-deployment-gate` from baseline
+`6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`. The new deployment-target contract test passes its
+blocked, malformed/unsafe, valid/pass, redaction, Fast/Full-plan, and exit-code cases. The Full
+environment check remains fail-closed: without approved sanitized evidence it is
+`BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`; a blocked Full result is not PASS. The approved
+manifest branch was exercised only with a temporary sanitized fixture and is contract evidence, not
+company release approval. AC-005 and
+AC-011 remain PARTIAL, acceptance evidence is incomplete, and Release-ready remains NO.
+
+TDD evidence for the new seam is explicit: the pre-implementation run stopped with
+`RED: deployment-target verifier is missing`; after the verifier was added, the same contract suite
+passed 25 checks. The historical RED was not reconstructed or inferred.

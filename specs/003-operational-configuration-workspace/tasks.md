@@ -64,6 +64,25 @@ Standards/Specification review, convergence, and final analysis are recorded.
 The Phase 6 gate above is historical context; it does not prohibit this explicitly authorized
 post-Phase-6 governance closure. No Phase 7 or Feature 004 work is authorized.
 
+## Final Documentation and Deployment-Gate Corrective Closure
+
+This additive closure starts from merged-main baseline `6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`
+on branch `fix/003-doc05-deployment-gate`. It addresses only the six final documentation,
+deployment-gate, evidence, and review findings in `checklists/final-corrective-analysis.md`.
+It does not rewrite T001-T087, create Phase 7, create Spec 004, expand product capability, or
+merge the corrective branch.
+
+- [x] T088 [RUNNABLE_NOW] Record the read-only Spec Kit Analyze result as `NOT_RUN` when the provider command is unavailable and document all six findings plus direct artifact comparison in `specs/003-operational-configuration-workspace/checklists/final-corrective-analysis.md`; preserve constitution 1.1.0 and source precedence
+- [x] T089 [P] [RUNNABLE_NOW] Add failing deployment-target contract tests before implementation in `tests/Verification/deployment-target.tests.ps1`, covering blocked, malformed/unsafe, valid/pass, redaction, Fast/Full plan, and exit-code cases without production credentials
+- [x] T090 [RUNNABLE_NOW] Reconcile canonical `Business Docs/DOC-05_Software_Architecture_Document_v0.2.docx` with its detailed restricted non-containerized deployment decision, version history, Architecture Summary, deployment view, ADR catalogue, and AR-11; do not claim DOC-05 corrected if an approved DOCX editing path is unavailable
+- [x] T091 [P] [RUNNABLE_NOW] Correct `docs/adr/ADR-010-containerized-on-prem.md` to repository status vocabulary so it records an accepted MVP-1 architecture decision with deployment approval pending, without claiming the current ADR is superseded
+- [x] T092 [RUNNABLE_NOW] Implement the fail-closed deployment-target verification contract in `scripts/common/DeploymentTarget.ps1` and integrate it into `scripts/harness.ps1`; require approval flag plus sanitized manifest, validate schema/model/date/secret-like keys, emit only `PASS`, `BLOCKED_BY_COMPANY_APPROVAL` with `BLK-ENV-005`, or `FAIL`, and preserve exit codes 0/1/20
+- [x] T093 [RUNNABLE_NOW] Synchronize `spec.md`, `plan.md`, acceptance traceability, final verification, release checkpoint, post-phase corrective review, `docs/source-register.md`, `docs/decision-log.md`, `docs/repository-harness.md`, and `README.md` with AC-005=PARTIAL, AC-011=PARTIAL, implementation/readiness separation, the deployment manifest contract, and `Release-ready=NO`
+- [x] T094 [RUNNABLE_NOW] Run the new verification seam, approved Unit/PostgreSQL/Web/policy/architecture checks, Fast harness, and Full harness; refresh numeric evidence and classify every blocker without secrets, port 5432, substitutes, or fabricated approval
+- [x] T095 [RUNNABLE_NOW] Perform an independent Standards review of the corrective diff from the baseline and resolve all Critical/High/actionable Medium findings; record provider status honestly if the review capability is unavailable
+- [x] T096 [RUNNABLE_NOW] Perform an independent Specification review against DOC-05/DOC-07, constitution, Feature 003 artifacts, and the six findings; resolve all Critical/High/actionable Medium findings and record the result
+- [x] T097 [RUNNABLE_NOW] Run Spec Kit Converge and final Analyze when provider commands are available, otherwise perform direct append-only artifact comparison; verify unique task IDs, no stale current containerized wording, prepare but do not merge a real PR, and record the explicit Feature 003 stop
+
 ## Checklist format
 
 Every task uses `- [ ] T### [P?] [Story?] [classification] description with exact file path`.
