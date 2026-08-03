@@ -14,7 +14,7 @@ recorded. Planning-ready does not authorize green implementation or release.
 **Implementation Readiness**: **PASS / YES** — task generation and both analysis passes completed;
 all three High and three Medium first-pass findings were resolved; final analysis has zero
 Critical/High/Medium findings; the Phase 0 checkpoint permits one implementation phase at a time,
-and the current Phase 5 continuation is explicitly authorized after accepted T001–T064 evidence.
+and the current Phase 6 continuation is explicitly authorized after accepted T001–T072 evidence.
 
 **Release Readiness**: **NO** — remains NO until all Feature 003 phases and mandatory release
 evidence pass with no mandatory blocker.
@@ -100,14 +100,18 @@ status remain separate; blocked evidence is never PASS.
 **Planning gate evidence**: `PASS` — `setup-plan.ps1 -Json`, source/ADR inspection, artifact
 placeholder scan, and requirements checklist 16/16.
 
-### Implementation gate
+### Implementation gate (Phase 0 planning history)
 
 Requires generated `tasks.md`, final `/speckit.analyze` PASS, zero unresolved Critical/High/Medium
 actionable findings, constitution impact NO, synchronized guidance where affected, and Phase 0
 checkpoint PASS.
 
-**Implementation gate evidence**: `PASS` — 80 valid tasks; requirement coverage 45/45; final
-read-only analysis reports Critical=0, High=0, Medium=0; Phase 0 governance checkpoint PASS.
+**Implementation gate evidence (historical Phase 0)**: `PASS` — 80 valid tasks; requirement
+coverage 45/45; the Phase 0 read-only analysis reported Critical=0, High=0, Medium=0; and the
+Phase 0 governance checkpoint passed. For the current Phase 6 invocation, the provider-native
+`/speckit.analyze` command is `NOT_RUN` because that provider command is unavailable in this
+runtime; the direct read-only artifact comparison is recorded in the Phase 6 evidence and is not
+promoted to a provider PASS.
 
 ### Release gate
 
@@ -219,8 +223,12 @@ plan/design → tasks → read-only analysis → remediation → constitution im
 one implementation phase → Standards/Spec review → Fast → Full → acceptance/release evidence.
 
 Every implementation phase executes red test, recorded red evidence, minimal green, review/refactor,
-architecture and repository-policy verification, checkpoint, and explicit stop. This run ends after
-Phase 5 only (T065–T072) and stops before Phase 6/T073; later phases are not implemented in this run.
+architecture and repository-policy verification, checkpoint, and explicit stop. This run executes
+Phase 6 only (T073–T080) from the authoritative merged `main` baseline
+`f93c2da8bcd71c0436c38d502ddd7a770c35e621` on the feature branch. It records acceptance,
+accessibility, security/scope, verification, review, convergence, and readiness evidence, then
+stops after T080. It must not execute work after T080, create Spec 004, expand Rule/Alert/CSV/
+Reporting capability, or merge automatically.
 
 ## Evidence Vocabulary
 

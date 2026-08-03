@@ -6,23 +6,25 @@
 defined in `plan.md`. The frontend behavior runner remains package-policy blocked unless an already
 approved runnable dependency exists.
 
-**Execution rule**: Phase 0 through Phase 4 are accepted historical checkpoints. This Phase 5
+**Execution rule**: Phase 0 through Phase 5 are accepted historical checkpoints. This Phase 6
 invocation starts from authoritative merged `main` baseline
-`771353438dfbd943d3598dd6daffa776fb562fcb` on branch
-`003-operational-configuration-workspace`, executes only T065–T072, records new red/green evidence
-honestly, commits and pushes the feature branch, and stops before T073. It must not merge
-automatically or execute T073+.
+`f93c2da8bcd71c0436c38d502ddd7a770c35e621` on branch
+`003-operational-configuration-workspace`, executes only T073–T080, records acceptance and final
+verification evidence honestly, commits and pushes the feature branch, and stops after T080. It
+must not merge automatically, execute work after T080, create Spec 004, or expand Rule/Alert/CSV/
+Reporting capability.
 
 **Historical note (not operative for this run)**: Earlier corrective closure from merged `main`
 baseline `2741429fb1a28d403adde69e36810bab16d12af5` addressed T054–T056. That historical work is
-superseded by the Phase 5 execution gate below; it does not reopen Phase 3 or Phase 4 and does not
-change the current T065–T072 scope. Feature 002 remains untouched.
+superseded by the Phase 6 execution gate below; it does not reopen Phase 3 or Phase 4 and does not
+change the current T073–T080 scope. Feature 002 remains untouched.
 
-**Phase 5 execution gate**: The current run is authorized only for T065–T072 from authoritative
-merged `main` baseline `771353438dfbd943d3598dd6daffa776fb562fcb`. Keep T073–T080 unchecked and
-stop immediately before T073. Feature 002 and accepted Phase 1–4 behavior remain out of scope.
-T072 is checked only after deterministic PostgreSQL, hosted HTTP, authenticated browser, and clean
-Standards/Specification review evidence complete.
+**Phase 6 execution gate**: The current run is authorized only for T073–T080 from authoritative
+merged `main` baseline `f93c2da8bcd71c0436c38d502ddd7a770c35e621`. T001–T072 are accepted
+historical work and must not be rewritten. Feature 002, work after T080, Spec 004, and
+Rule/Alert/CSV/Reporting capability remain out of scope. T080 is checked only after deterministic
+PostgreSQL, hosted HTTP where runnable, honest frontend/browser blocker evidence, final
+Standards/Specification review, convergence, and final analysis are recorded.
 
 ## Checklist format
 
@@ -171,14 +173,14 @@ NO; explicit stop before T037.
 
 ## Phase 6: Acceptance hardening, accessibility, traceability, and final evidence
 
-- [ ] T073 [P] [RUNNABLE_NOW] Add complete AC-001..AC-015 acceptance traceability to `specs/003-operational-configuration-workspace/checklists/acceptance-traceability.md`
-- [ ] T074 [P] [RUNNABLE_NOW] Audit Vietnamese content, keyboard focus, responsive desktop/tablet behavior, labels, and non-color status in `specs/003-operational-configuration-workspace/checklists/accessibility.md`
-- [ ] T075 [P] [RUNNABLE_NOW] Verify no secret, port 5432, fake fallback, public download, container, savings, AI, or control behavior in `specs/003-operational-configuration-workspace/checklists/security-scope.md`
-- [ ] T076 [RUNNABLE_NOW] Run all runnable Unit and PostgreSQL Integration acceptance journeys and record numeric evidence in `specs/003-operational-configuration-workspace/checklists/final-verification.md`
-- [ ] T077 [BLOCKED_BY_PACKAGE_POLICY] Run approved frontend behavior suite if available or record the exact package-policy blocker without false PASS in `specs/003-operational-configuration-workspace/checklists/final-verification.md`
-- [ ] T078 [RUNNABLE_NOW] Perform final Standards and Specification reviews and resolve all Critical/High findings in `specs/003-operational-configuration-workspace/checklists/final-review.md`
-- [ ] T079 [RUNNABLE_NOW] Run final architecture, repository policy, Web lint/build, Fast, and fresh Full harness evidence in `specs/003-operational-configuration-workspace/checklists/final-verification.md`
-- [ ] T080 [RUNNABLE_NOW] Assess Planning-ready, Implementation-ready, and Release-ready independently and record explicit remaining blockers in `specs/003-operational-configuration-workspace/checklists/release-checkpoint.md`
+- [x] T073 [P] [RUNNABLE_NOW] Add complete AC-001..AC-015 acceptance traceability to `specs/003-operational-configuration-workspace/checklists/acceptance-traceability.md`
+- [x] T074 [P] [RUNNABLE_NOW] Audit Vietnamese content, keyboard focus, responsive desktop/tablet behavior, labels, and non-color status in `specs/003-operational-configuration-workspace/checklists/accessibility.md`
+- [x] T075 [P] [RUNNABLE_NOW] Verify no secret, port 5432, fake fallback, public download, container, savings, AI, or control behavior in `specs/003-operational-configuration-workspace/checklists/security-scope.md`
+- [x] T076 [RUNNABLE_NOW] Run all runnable Unit and PostgreSQL Integration acceptance journeys and record numeric evidence in `specs/003-operational-configuration-workspace/checklists/final-verification.md`
+- [x] T077 [BLOCKED_BY_PACKAGE_POLICY] Run approved frontend behavior suite if available or record the exact package-policy blocker without false PASS in `specs/003-operational-configuration-workspace/checklists/final-verification.md`
+- [x] T078 [RUNNABLE_NOW] Perform final Standards and Specification reviews and resolve all Critical/High findings in `specs/003-operational-configuration-workspace/checklists/final-review.md`
+- [x] T079 [RUNNABLE_NOW] Run final architecture, repository policy, Web lint/build, Fast, and fresh Full harness evidence in `specs/003-operational-configuration-workspace/checklists/final-verification.md`
+- [x] T080 [RUNNABLE_NOW] Assess Planning-ready, Implementation-ready, and Release-ready independently and record explicit remaining blockers in `specs/003-operational-configuration-workspace/checklists/release-checkpoint.md`
 
 ## Dependencies
 
@@ -251,4 +253,5 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Phase 6 | 8 | T073-T080 |
 | **Total** | **80** | **T001-T080** |
 
-**MVP for this implementation run**: Phase 5 / US5 only. Do not execute T073 or later.
+**MVP for this implementation run**: Phase 6 acceptance hardening and final evidence only
+(T073–T080). Stop after T080.

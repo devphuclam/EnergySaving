@@ -112,6 +112,12 @@ export function AppShell({ children }: AppShellProps) {
     })
   }, [gateways.workspace, state.session.state, locationKey])
 
+  useEffect(() => {
+    if (state.session.state === 'invalid-credentials') {
+      document.getElementById('sign-in-username')?.focus()
+    }
+  }, [state.session.state])
+
   async function signIn() {
     if (!username.trim() || !password) {
       setState(current => transitionAppShell(current, {
@@ -163,11 +169,15 @@ export function AppShell({ children }: AppShellProps) {
               {state.session.isAdministrator ? ' · Admin' : ''}
             </span>
             <button className="button button-quiet" type="button" onClick={() => void signOut()}>Đăng xuất</button>
-          </> : <div className="sign-in-form">
-            <input className="text-input sign-in-input" type="text" placeholder="Tên đăng nhập" value={username}
-              onChange={event => setUsername(event.target.value)} aria-label="Tên đăng nhập" />
-            <input className="text-input sign-in-input" type="password" placeholder="Mật khẩu" value={password}
-              onChange={event => setPassword(event.target.value)} aria-label="Mật khẩu" />
+          </> : <div className="sign-in-form" aria-label="Biểu mẫu đăng nhập">
+            <label className="sign-in-label" htmlFor="sign-in-username">Tên đăng nhập</label>
+            <input id="sign-in-username" className="text-input sign-in-input" type="text" placeholder="Tên đăng nhập" value={username}
+              onChange={event => setUsername(event.target.value)} aria-label="Tên đăng nhập"
+              aria-describedby={state.session.state === 'invalid-credentials' ? 'sign-in-error' : undefined} />
+            <label className="sign-in-label" htmlFor="sign-in-password">Mật khẩu</label>
+            <input id="sign-in-password" className="text-input sign-in-input" type="password" placeholder="Mật khẩu" value={password}
+              onChange={event => setPassword(event.target.value)} aria-label="Mật khẩu"
+              aria-describedby={state.session.state === 'invalid-credentials' ? 'sign-in-error' : undefined} />
             <button className="button button-primary" type="button" onClick={() => void signIn()}
               disabled={state.session.state === 'loading' || state.submitting}>
               {state.submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
@@ -176,7 +186,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </header>
       <div className="layout">
-        <nav className="sidebar" aria-label="Primary navigation">
+        <nav className="sidebar" aria-label="Điều hướng chính">
           <p className="nav-heading">Không gian làm việc</p>
           {(['setup', 'dashboard', 'configuration', 'simulator', 'telemetry', 'audit'] as WebRoute[]).map(item =>
             <button className={`nav-link${state.route === item ? ' active' : ''}`} type="button" key={item}
@@ -187,14 +197,14 @@ export function AppShell({ children }: AppShellProps) {
         </nav>
         <main className="content" id="main-content">
           <div className="feedback" role="status" aria-live="polite">{state.feedback}</div>
-          {!authenticated && <section className="notice notice-info" aria-label="Authentication notice">
+          {!authenticated && <section className="notice notice-info" aria-label="Thông báo xác thực">
             <strong>{state.session.state === 'loading' ? 'Đang tải phiên làm việc.'
               : state.session.state === 'submitting' ? 'Đang đăng nhập.'
                 : state.session.state === 'error' ? 'Không thể kết nối máy chủ.'
                   : 'Đăng nhập để quản lý không gian làm việc.'}</strong>
             <span>Mọi truy vấn và thay đổi đều được kiểm tra phạm vi tại máy chủ.</span>
           </section>}
-          {state.session.state === 'invalid-credentials' && <section className="notice notice-warning" role="alert">Tên đăng nhập hoặc mật khẩu không đúng.</section>}
+          {state.session.state === 'invalid-credentials' && <section id="sign-in-error" className="notice notice-warning" role="alert">Tên đăng nhập hoặc mật khẩu không đúng.</section>}
           {state.session.state === 'forbidden' && <section className="notice notice-warning" role="alert">Phiên không được phép. Hãy đăng nhập lại.</section>}
           {state.session.state === 'expired' && <section className="notice notice-warning" role="alert">Phiên đã hết hạn. Hãy đăng nhập lại.</section>}
           {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Lỗi phiên. Kiểm tra kết nối rồi đăng nhập lại.</section>}

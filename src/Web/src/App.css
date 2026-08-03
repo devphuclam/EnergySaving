@@ -4,6 +4,8 @@
 .brand { align-items: center; color: var(--ink); display: inline-flex; font-size: .96rem; font-weight: 750; gap: .65rem; text-decoration: none; }
 .brand-mark { align-items: center; background: var(--blue); border-radius: .6rem; color: white; display: inline-flex; height: 2rem; justify-content: center; width: 2rem; }
 .session-controls { align-items: center; display: flex; gap: 1rem; }
+.sign-in-form { align-items: end; display: flex; flex-wrap: wrap; gap: .45rem; }
+.sign-in-label { color: var(--muted); font-size: .72rem; font-weight: 700; }
 .scope-pill { background: #eef4ff; border-radius: 999px; color: #2d5ea8; font-size: .76rem; padding: .42rem .75rem; }
 .layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); min-height: calc(100vh - 4.5rem); }
 .sidebar { background: #132236; color: #dce7f4; display: flex; flex-direction: column; gap: .35rem; padding: 1.5rem 1rem; }
