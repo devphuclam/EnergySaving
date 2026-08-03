@@ -1,7 +1,9 @@
 # Feature 003 Phase 6 — security and scope audit (T075)
 
 Date: 2026-08-03
-Baseline: `f93c2da8bcd71c0436c38d502ddd7a770c35e621`
+Baseline: `f93c2da8bcd71c0436c38d502ddd7a770c35e621` (historical Phase 6)
+Corrective baseline: `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`
+Corrective branch: `fix/003-final-governance-corrective`
 Database target for runnable evidence: PostgreSQL `127.0.0.1:5433/iump_dev` only.
 
 ## Control matrix
@@ -10,7 +12,7 @@ Database target for runnable evidence: PostgreSQL `127.0.0.1:5433/iump_dev` only
 |---|---|---|
 | Secrets, passwords, hashes, tokens, credentials, connection strings, API keys | Repository policy and observability checks; source/evidence review; `.env` values are loaded only by the approved local configuration path and are never printed or persisted in artifacts | PASS |
 | PostgreSQL port 5432 | Feature source, harness configuration, integration target, and phase evidence inspected; all current DB evidence names port 5433; no command in this run targets 5432 | PASS |
-| Docker, containers, public downloads, package installation | `AGENTS.md`, repository harness, policy checks, and task gate prohibit these; no install/download/container command was run | PASS for repository scope; Full container check remains BLOCKED_BY_COMPANY_APPROVAL |
+| Docker, containers, public downloads, package installation | `AGENTS.md`, repository harness, policy checks, and task gate prohibit these; no install/download/container command was run | PASS for repository scope; Full non-containerized target-host/service check is `BLK-ENV-005` and remains BLOCKED_BY_COMPANY_APPROVAL |
 | SQLite, InMemory, Testcontainers, substitute/fake/demo fallback | Search and policy checks cover provider setup and fallback wording; production paths use PostgreSQL and dependency errors render no local/demo data | PASS |
 | Global counts and cross-scope leaks | Organization/Catalog/Acquisition/Telemetry/Audit adapters apply principal and scope predicates before count, sort, search, and paging; T058/T066 prove zero out-of-scope rows/counts | PASS |
 | Client-authoritative role/scope claims | Server resolves principal and role; Web URL/selection values are requests only; mutation/activation rechecks scope and versions | PASS |

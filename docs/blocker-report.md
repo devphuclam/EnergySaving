@@ -376,3 +376,13 @@ The preceding incomplete runnable-task state is superseded:
 - Release readiness remains **NO**.
 
 No secret is recorded, `.env` remains untracked, and port 5432 was not contacted.
+
+## Deployment reconciliation — 2026-08-03
+
+The historical container-target record above is superseded by DOC-05 v0.2 and DOC-07 v0.2. The
+current target is restricted non-containerized host/service deployment. The current harness does
+not emit `BLK-ENV-004`; it emits `BLK-ENV-005` when Infrastructure/Security approval for a concrete
+TEST/UAT/PROD host, service manager, lifecycle, and rollback evidence is unavailable.
+
+`BLK-ENV-005` is a company-approval blocker for release deployment, not a database-access or
+package-policy blocker. No deployment or service mutation was performed during this reconciliation.

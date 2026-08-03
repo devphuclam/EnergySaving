@@ -151,7 +151,7 @@ function Get-HarnessCheckPlan {
     if ($Mode -eq 'Fast') {
         return $fast
     }
-    return $fast + @('backend-build', 'frontend', 'database', 'ci', 'container-target')
+    return $fast + @('backend-build', 'frontend', 'database', 'ci', 'deployment-target')
 }
 
 function Protect-HarnessEvidence {

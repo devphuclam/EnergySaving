@@ -292,3 +292,17 @@ rewrite prior NOT_RUN evidence.
   documented in `docs/blocker-report.md`.
 - **Application implementation**: none performed; no application source, migration, test, package,
   CI, deployment, or release authorization was created.
+
+### DOC-05/DOC-07 deployment reconciliation after Feature 003 Phase 6
+
+**Date**: 2026-08-03
+**Decision**: DOC-05 v0.2 and DOC-07 v0.2 govern the deployment target. Their MVP-1 topology is
+restricted non-containerized host/service deployment: Web static files, API executable/approved
+host, Worker service, and internal PostgreSQL. The earlier ADR-010 wording that treated a
+containerized target as the unverified target is superseded. Historical `BLK-R0-004` and emitted
+`BLK-ENV-004` container-target evidence are not current blockers; the harness now uses
+`BLK-ENV-005` for missing Infrastructure/Security approval of the concrete non-containerized
+TEST/UAT/PROD host/service and rollback evidence.
+
+**Scope**: governance/evidence synchronization only. No target-host approval, deployment, release,
+container, package download, or service mutation is implied by this decision.

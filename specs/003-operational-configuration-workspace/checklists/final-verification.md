@@ -1,8 +1,9 @@
 # Feature 003 Phase 6 — final verification (T076, T077, T079)
 
 Date: 2026-08-03
-Baseline: `f93c2da8bcd71c0436c38d502ddd7a770c35e621`
-Branch: `003-operational-configuration-workspace`
+Baseline: `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`
+Corrective branch: `fix/003-final-governance-corrective` (historical implementation branch:
+`003-operational-configuration-workspace`)
 Database target: PostgreSQL `127.0.0.1:5433/iump_dev` only; password was read from the approved
 local environment/configuration path and never printed or persisted.
 
@@ -35,8 +36,10 @@ SQLite, InMemory, Docker, Testcontainers, or public package/download substitute 
 | `.\tests\Verification\architecture.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: architecture boundary contract`. |
 | `.\tests\Verification\repository-policy.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `PASS: repository policy contract`. |
 | `.\tests\Verification\observability.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `checks=12 failures=0`. |
-| `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=10`. |
-| `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED / `BLOCKED_BY_COMPANY_APPROVAL` | Fresh Full summary: `PASS=13`, `BLOCKED_BY_COMPANY_APPROVAL=2`; `BLK-ENV-003` (company CI runner) and `BLK-ENV-004` (container target); no mandatory FAIL. The direct PowerShell capture confirmed `$LASTEXITCODE=20`; the desktop outer process may normalize a non-zero exit in its wrapper, so the harness result contract and generated `verification-results.json` are authoritative. |
+| `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=11` (includes the AppShell accessibility static regression). |
+| `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED / `BLOCKED_BY_COMPANY_APPROVAL` | Fresh Full summary: `PASS=14`, `BLOCKED_BY_COMPANY_APPROVAL=2`; `BLK-ENV-003` (company CI runner) and `BLK-ENV-005` (approved non-containerized target host/service); no mandatory FAIL. `BLK-ENV-004` is not emitted. |
+
+| `.\tests\Verification\app-shell-accessibility.tests.ps1` | 0 | PASS / RUNNABLE_NOW | Static AppShell contract covers visible Vietnamese labels, stable ids, invalid-credential `aria-describedby`/alert association, and Vietnamese navigation/auth region names. Browser behavior is not exercised. |
 
 The frontend lint/build portion of Full is PASS; its warnings are non-fatal existing Fast Refresh
 warnings. Full is not PASS because mandatory company-approval checks are blocked. Exit code `20`
@@ -46,7 +49,19 @@ therefore means no mandatory FAIL but at least one blocked/NOT_RUN check, per
 ## Current verification totals
 
 - Runnable test/policy/build checks: PASS, 0 FAIL.
-- Capability blockers: 2 company-approval checks in Full; frontend behavior runner blocked by package
+- Capability blockers: 2 company-approval checks in Full (`BLK-ENV-003`, `BLK-ENV-005`); frontend behavior runner blocked by package
   policy; authenticated browser runner blocked by missing approved tool.
 - Runnable NOT_RUN: none for the listed backend/policy commands. Browser capability is BLOCKED, not
   silently counted as PASS.
+
+## Corrective closure evidence
+
+- AC-005: `PARTIAL`. No approved authenticated browser/process-control runner exists for the exact
+  API/Web stop-restart journey; historical refresh/logout-login evidence is retained but not
+  promoted to PASS.
+- Historical Phase 5 corrective task registration: `RETROSPECTIVE`.
+- Historical accessibility RED evidence: `NOT_AVAILABLE`.
+- Post-merge accessibility regression: `PASS` for the static source-contract seam; this is not
+  browser behavior or historical TDD evidence.
+- SpecKit `analyze` and `converge`: `NOT_RUN; reason=SpecKit provider command unavailable in this
+  runtime`; direct artifact comparison is used and is not represented as provider PASS.

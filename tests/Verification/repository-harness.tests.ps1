@@ -137,7 +137,7 @@ try {
 
     $fastPlan = @(Get-HarnessCheckPlan -Mode Fast)
     $fullPlan = @(Get-HarnessCheckPlan -Mode Full)
-    foreach ($fullOnly in @('backend-build', 'frontend', 'database', 'ci', 'container-target')) {
+    foreach ($fullOnly in @('backend-build', 'frontend', 'database', 'ci', 'deployment-target')) {
         if ($fullOnly -in $fastPlan) {
             throw "Fast mode contains Full-only check '$fullOnly'."
         }

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: Draft
+**Status**: Implemented — Release Evidence Blocked
 
 **Input**: Transform the proven Feature 002 runtime into a role-aware, PostgreSQL-backed,
 human-operable internal workspace for guided setup, configuration management, Simulator operation,
@@ -346,18 +346,23 @@ fallback data.
 
 ## Scope and Evidence Boundaries *(mandatory)*
 
+- **Current corrective closure**: The historical Phase 6 acceptance run covered T073–T080. This
+  corrective branch adds only governance, traceability, accessibility regression, deployment-source
+  reconciliation, and evidence tasks T081–T087. It stops after T087 and does not authorize Phase 7,
+  Feature 004, or product-scope expansion.
+
 - **Included release/capability**: One Feature 003 operational workspace delivered in six reviewable
-  implementation phases; this execution implements Phase 6 acceptance hardening, accessibility,
+  implementation phases; the historical Phase 6 execution implemented acceptance hardening, accessibility,
   traceability, and final evidence (T073–T080) after the accepted T001–T072 history and a clean
   Phase 6 authorization analysis.
 - **Explicitly excluded**: Energy baselines, period comparison, anomaly detection, savings
   calculation or verification, savings claims, AI recommendations, equipment control/writeback,
   real meter integration, external customer/SaaS behavior, new charts, new real-time transport, and
-  work after T080, Spec 004, Rule/Alert/CSV/Reporting capability, and any other capability outside
-  the Feature 003 operational workspace in the current implementation run.
+  work after T087, Phase 7, Spec 004, Rule/Alert/CSV/Reporting capability, and any other capability
+  outside the Feature 003 operational workspace in the current corrective run.
 - **External approvals/dependencies**: Approved local PostgreSQL at `127.0.0.1:5433/iump_dev`;
-  existing approved package caches; company CI/container approvals remain separate blockers and do
-  not authorize substitutes.
+  existing approved package caches; company CI and restricted non-containerized target-host/service
+  approvals remain separate blockers and do not authorize substitutes.
 - **Evidence classification**: Every check is reported as PASS, FAIL, NOT_RUN, or BLOCKED with its
   actual classification; a blocked frontend behavior runner or company environment check is never
   promoted to PASS.

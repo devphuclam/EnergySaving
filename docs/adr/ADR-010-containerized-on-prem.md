@@ -1,12 +1,14 @@
-# ADR-010: Restricted Non-Containerized Development Environment
+# ADR-010: Restricted Non-Containerized Development and Deployment
 
-**Status:** Proposed / Deferred / Needs Infrastructure Review  
-**Date:** 2026-07-23  
-**Reference:** DOC-05 §19 and §30 AR-11; current company workstation policy
+**Status:** Superseded by DOC-05 v0.2; target-host approval pending
+**Date:** 2026-07-23 (reconciled 2026-08-03)
+**Reference:** DOC-05 v0.2 §19, §19.2, §19.3 and §30 AR-11; DOC-07 v0.2 §17 and §22.2
 
-DOC-05 retains a containerized on-premise deployment as the unverified target architecture, but the
-current workstation MUST NOT use Docker, Compose, Podman, images, or downloaded tooling. Local
-development therefore runs only approved preinstalled executables and an approved local/internal
-PostgreSQL service. This is an environment constraint, not a silent architecture change. A separate
-Infrastructure/Security decision is required if the same restriction applies to TEST/UAT/PROD; the
-target-container decision is not Accepted until that review occurs.
+DOC-05 v0.2 is authoritative and defines MVP-1 as a restricted non-containerized deployment. The
+API and Worker are approved-host executables/services, the Web is static output, and PostgreSQL is
+an installed/internal service. Docker, Compose, Podman, image promotion, and downloaded runtime or
+package tooling remain prohibited on the workstation and are not part of the target topology.
+
+This supersedes the earlier wording that treated a containerized target as the unverified
+architecture. It does not fabricate TEST/UAT/PROD approval: Infrastructure and Security must still
+approve the concrete host, service manager, lifecycle, and rollback evidence before release.

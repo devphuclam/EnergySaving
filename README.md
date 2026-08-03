@@ -64,12 +64,12 @@ Do not run `npm ci --offline` until lockfile cache completeness and company appr
 - PostgreSQL migrations and seed idempotency.
 - PostgreSQL health, outbox/inbox duplicate behavior, backup/restore, and N-1 migration.
 - Offline completeness for a clean frontend install.
-- Target containerized on-premise deployment from DOC-05.
+- Approved TEST/UAT/PROD non-containerized host/service deployment from DOC-05 v0.2.
 
 ## BLOCKED BY ENVIRONMENT
 
-- `psql` is missing and no approved PostgreSQL endpoint/credential was supplied.
-- Integration tests and database-backed Worker readiness therefore remain blocked.
+- The approved target-host/service approval evidence is not available for TEST/UAT/PROD deployment.
+- Release deployment and rollback evidence therefore remain blocked by company approval.
 
 ## REQUIRES COMPANY APPROVAL
 

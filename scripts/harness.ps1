@@ -19,6 +19,7 @@ $checkPlan = @(Get-HarnessCheckPlan -Mode $Mode)
 if ($Feature -eq '003-operational-configuration-workspace') {
     $checkPlan += 'simulator-phase3-closure'
     $checkPlan += 'telemetry-phase4-closure'
+    $checkPlan += 'app-shell-accessibility'
 }
 
 function Add-ScriptCheck {
@@ -48,6 +49,7 @@ $scriptChecks = [ordered]@{
 if ($Feature -eq '003-operational-configuration-workspace') {
     $scriptChecks['simulator-phase3-closure'] = 'tests\Verification\simulator-phase3-closure.tests.ps1'
     $scriptChecks['telemetry-phase4-closure'] = 'tests\Verification\telemetry-phase4-closure.tests.ps1'
+    $scriptChecks['app-shell-accessibility'] = 'tests\Verification\app-shell-accessibility.tests.ps1'
 }
 foreach ($entry in $scriptChecks.GetEnumerator()) {
     if ($entry.Key -in $checkPlan) {
@@ -152,11 +154,11 @@ if ($Mode -eq 'Full') {
             'No approved company runner or template context.'
         }) -BlockerId $(if ($approvedCi) { $null } else { 'BLK-ENV-003' })))
 
-    $results.Add((New-VerificationResult -CheckId 'container-target' `
+    $results.Add((New-VerificationResult -CheckId 'deployment-target' `
         -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
-        -Command 'infrastructure deployment verification' -Mandatory $true `
-        -Evidence 'Container target remains deferred pending company approval.' `
-        -BlockerId 'BLK-ENV-004'))
+        -Command 'approved TEST/UAT/PROD non-containerized host/service deployment verification' -Mandatory $true `
+        -Evidence 'DOC-05 v0.2 requires a restricted non-containerized approved host/service; Infrastructure/Security target-host approval evidence is not available.' `
+        -BlockerId 'BLK-ENV-005'))
 }
 
 $resultPath = Join-Path $repoRoot 'verification-results.json'

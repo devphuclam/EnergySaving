@@ -136,6 +136,8 @@ passing.
 - Do not expose real credentials in source, console output, or evidence.
 - Do not use public package sources, public CI actions, or container workflows on the restricted
   workstation.
+- DOC-05 v0.2 defines the target as restricted non-containerized host/service deployment; a
+  concrete TEST/UAT/PROD host and service-manager approval is still required before release.
 - Do not substitute another database for PostgreSQL.
 - Work only inside the included scope of the active Spec Kit feature.
 
@@ -155,5 +157,7 @@ passing.
 - Every failure was fixed or reported, and every blocked or not-run capability is explicitly
   classified.
 - Every blocker was reported as blocked, not passed.
-- Release is claimed only from Release-ready evidence with no mandatory blocker.
+- Release is claimed only from Release-ready evidence with no mandatory blocker. The Full
+  `deployment-target` check represents approved non-containerized target-host/service evidence;
+  `BLK-ENV-004` is obsolete and must not be emitted.
 - `verification-results.json` contains no credential values.

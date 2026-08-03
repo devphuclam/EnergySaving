@@ -6,13 +6,46 @@
 defined in `plan.md`. The frontend behavior runner remains package-policy blocked unless an already
 approved runnable dependency exists.
 
-**Execution rule**: Phase 0 through Phase 5 are accepted historical checkpoints. This Phase 6
+**Historical execution rule**: Phase 0 through Phase 5 are accepted historical checkpoints. The
+previous Phase 6
 invocation starts from authoritative merged `main` baseline
 `f93c2da8bcd71c0436c38d502ddd7a770c35e621` on branch
 `003-operational-configuration-workspace`, executes only T073–T080, records acceptance and final
 verification evidence honestly, commits and pushes the feature branch, and stops after T080. It
 must not merge automatically, execute work after T080, create Spec 004, or expand Rule/Alert/CSV/
-Reporting capability.
+Reporting capability. This paragraph is retained as historical scope and is not the execution gate
+for the corrective branch below.
+
+---
+
+## Post-Phase-6 Corrective Closure
+
+This is a narrowly bounded governance, traceability, evidence, regression, and source-precedence
+repair on corrective branch `fix/003-final-governance-corrective` from merged `main` baseline
+`045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`. It does not reopen Phase 1–6 implementation, create
+Phase 7, create Feature 004, or expand Rule/Alert/CSV/Reporting scope. Historical implementation
+and evidence are registered retrospectively where marked; no historical TDD red result is invented.
+
+- [x] T081 [RETROSPECTIVE] [RUNNABLE_NOW] Register the Phase 5 corrective implementation, tests, and evidence in the canonical ledger, mapping commit `986b3dca8673b455710835bc252cd17980f9cac5` and merge `f93c2da8bcd71c0436c38d502ddd7a770c35e621`; disclose that this is retrospective registration and not historical task execution
+- [x] T082 [US1] [BLOCKED_BY_MISSING_TOOL] Reconcile AC-005 host-restart evidence by running the approved API/Web restart journey if an approved authenticated browser/process-control surface exists; otherwise change AC-005 to PARTIAL and record the exact missing capability without retaining PASS
+- [x] T083 [P] [US1] [RUNNABLE_NOW] Add direct AppShell accessibility regression coverage at the existing static verification seam for visible labels, stable ids, invalid-credential error association/focus contract, and Vietnamese navigation/auth names; record historical RED as `NOT_AVAILABLE` and distinguish the post-merge regression result
+- [x] T084 [RUNNABLE_NOW] Synchronize `spec.md`, `plan.md`, acceptance traceability, final verification, and release checkpoint with bounded implementation-complete status and `Release-ready=NO`; use `Implemented — Release Evidence Blocked`, never `Released`
+- [x] T085 [RUNNABLE_NOW] Reconcile DOC-05 v0.2/DOC-07 v0.2 against ADR-010 and the harness; supersede stale container-target wording, remove `BLK-ENV-004` emission, and use a concrete non-containerized target-host/service approval blocker without fabricating deployment approval
+- [x] T086 [RUNNABLE_NOW] Rerun all approved Unit, PostgreSQL, Web, policy, architecture, Fast, and Full checks, update numeric evidence and blocker classifications, and write `checklists/post-phase-06-corrective-review.md`
+- [x] T087 [RUNNABLE_NOW] Obtain independent Standards and Specification reviews of this corrective diff, perform direct artifact comparison because the SpecKit provider is unavailable, prepare a corrective PR without merging, and record the explicit Feature 003 final stop
+
+### Corrective closure dependencies
+
+```text
+T073–T080 (accepted historical Phase 6)
+  -> T081–T085 corrective provenance, AC-005, accessibility, status, and deployment reconciliation
+  -> T086 verification/evidence refresh
+  -> T087 independent review, PR preparation, and final stop
+```
+
+The corrective ledger is additive. Historical T001–T080 wording and checkboxes remain unchanged;
+T081 is explicitly retrospective and cannot be used as proof that the historical Phase 5 work was
+test-first. No Phase 7 task is created.
 
 **Historical note (not operative for this run)**: Earlier corrective closure from merged `main`
 baseline `2741429fb1a28d403adde69e36810bab16d12af5` addressed T054–T056. That historical work is
@@ -25,6 +58,11 @@ historical work and must not be rewritten. Feature 002, work after T080, Spec 00
 Rule/Alert/CSV/Reporting capability remain out of scope. T080 is checked only after deterministic
 PostgreSQL, hosted HTTP where runnable, honest frontend/browser blocker evidence, final
 Standards/Specification review, convergence, and final analysis are recorded.
+
+**Current corrective execution gate**: This invocation executes only T081–T087 on
+`fix/003-final-governance-corrective` from baseline `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`.
+The Phase 6 gate above is historical context; it does not prohibit this explicitly authorized
+post-Phase-6 governance closure. No Phase 7 or Feature 004 work is authorized.
 
 ## Checklist format
 
@@ -251,7 +289,11 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Phase 4 / US4 | 8 | T057-T064 |
 | Phase 5 / US5 | 8 | T065-T072 |
 | Phase 6 | 8 | T073-T080 |
-| **Total** | **80** | **T001-T080** |
+| Post-Phase-6 Corrective Closure | 7 | T081-T087 |
+| **Total** | **87** | **T001-T087** |
 
-**MVP for this implementation run**: Phase 6 acceptance hardening and final evidence only
+**Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
+
+**MVP for the current corrective run**: Post-Phase-6 governance, evidence, regression, and
+traceability closure only (T081–T087). Stop after T087.

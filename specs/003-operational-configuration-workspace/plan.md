@@ -1,6 +1,7 @@
 # Implementation Plan: Operational Configuration Workspace
 
-**Branch**: `003-operational-configuration-workspace` | **Date**: 2026-07-30 | **Spec**: [spec.md](spec.md)
+**Branch**: `fix/003-final-governance-corrective` (historical implementation branch:
+`003-operational-configuration-workspace`) | **Date**: 2026-07-30 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from
 `specs/003-operational-configuration-workspace/spec.md`
@@ -18,6 +19,10 @@ and the current Phase 6 continuation is explicitly authorized after accepted T00
 
 **Release Readiness**: **NO** — remains NO until all Feature 003 phases and mandatory release
 evidence pass with no mandatory blocker.
+
+**Current corrective plan gate**: The active branch is `fix/003-final-governance-corrective` and
+executes only additive Post-Phase-6 governance/evidence tasks T081–T087. The Phase 6 continuation
+wording above is historical context; no Phase 7, Feature 004, or post-T087 capability is in scope.
 
 **Constitution Amendment Required**: NO. Feature 003 stays inside the internal decision-support
 boundary, reuses the modular monolith, and strengthens test-first, secure, and operable behavior.
@@ -93,7 +98,7 @@ status remain separate; blocked evidence is never PASS.
 - Composition: API exposes HTTP only; Worker continues background execution; cross-module status
   composition uses public query contracts in `Composition/Postgres`.
 - Environment: approved local PostgreSQL is runnable; frontend behavior runner is
-  `BLOCKED_BY_PACKAGE_POLICY`; company CI/container evidence remains
+  `BLOCKED_BY_PACKAGE_POLICY`; company CI/non-containerized target-host evidence remains
   `BLOCKED_BY_COMPANY_APPROVAL`.
 - Artifacts: `spec.md`, `research.md`, `data-model.md`, `contracts/`, and `quickstart.md` exist.
 
@@ -223,12 +228,13 @@ plan/design → tasks → read-only analysis → remediation → constitution im
 one implementation phase → Standards/Spec review → Fast → Full → acceptance/release evidence.
 
 Every implementation phase executes red test, recorded red evidence, minimal green, review/refactor,
-architecture and repository-policy verification, checkpoint, and explicit stop. This run executes
+architecture and repository-policy verification, checkpoint, and explicit stop. The historical Phase 6 run executed
 Phase 6 only (T073–T080) from the authoritative merged `main` baseline
 `f93c2da8bcd71c0436c38d502ddd7a770c35e621` on the feature branch. It records acceptance,
 accessibility, security/scope, verification, review, convergence, and readiness evidence, then
 stops after T080. It must not execute work after T080, create Spec 004, expand Rule/Alert/CSV/
-Reporting capability, or merge automatically.
+Reporting capability, or merge automatically. The current corrective run is governed by the
+Post-Phase-6 gate above and executes only T081–T087, stopping after T087.
 
 ## Evidence Vocabulary
 
@@ -291,6 +297,16 @@ tests/
 **Structure Decision**: Extend existing module/application/host/Web locations. Do not create a new
 business module, workflow datastore, UI framework, or composition root. The operational workspace
 is a deep host-facing query/command facade over existing owner contracts.
+
+## Post-Phase-6 corrective closure gate
+
+The historical Phase 6 run executed T073–T080 from merged `main` baseline
+`f93c2da8bcd71c0436c38d502ddd7a770c35e621` on the feature branch. The current corrective closure
+executes only additive governance/evidence tasks T081–T087 from merged `main` baseline
+`045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a` on `fix/003-final-governance-corrective`. It does not
+reopen implementation phases, create Spec 004, expand Rule/Alert/CSV/Reporting capability, or
+merge automatically. Release-ready remains NO until mandatory target-host approval and other
+external evidence are available.
 
 ## Complexity Tracking
 
