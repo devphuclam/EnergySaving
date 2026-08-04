@@ -4,6 +4,7 @@
     <Project Path="src/Worker/IUMP.Worker.csproj" />
     <Project Path="src/BuildingBlocks/IUMP.BuildingBlocks.csproj" />
     <Project Path="src/Infrastructure/Postgres/IUMP.Infrastructure.Postgres.csproj" />
+    <Project Path="src/Infrastructure/DeploymentApproval/IUMP.Infrastructure.DeploymentApproval.csproj" />
     <Project Path="src/Hosting/Abstractions/IUMP.Hosting.Abstractions.csproj" />
     <Project Path="src/Composition/Postgres/IUMP.Composition.Postgres.csproj" />
   </Folder>
@@ -25,6 +26,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Unit/IUMP.Tests.Unit.csproj" />
     <Project Path="tests/Integration/IUMP.Tests.Integration.csproj" />
+    <Project Path="tests/Verification/DeploymentSignatureFixture/DeploymentSignatureFixture.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/IumpLocalRuntime/IumpLocalRuntime.csproj" />

@@ -123,3 +123,63 @@ is a prepared body only; no PR was created, no reviewer was requested, and no me
   task-count fixes.
 - Human review completed: NO; reviewer request: NO; CI/status check: NO.
 - Push branch: NOT RUN in this closure; merge performed: NO.
+
+## Current signed-approval corrective PR preparation (T123)
+
+This section supersedes the historical PR preparation above for the current branch. It is a
+prepared body only; the branch is pushed only after completion, no PR is created/merged, and no
+reviewer was requested.
+
+### Title
+
+`fix(feature-003): enforce signed deployment approval and DOCX package integrity`
+
+### Baseline and scope
+
+- Starting merged-main SHA: `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2`.
+- Corrective branch: `fix/003-signed-approval-closure`.
+- Current branch HEAD (chore): `826d1be29a4767b2b2a205907fd7749e5c7bc7bc` (disable automatic
+  opencode delegation, per AGENTS.md provider-neutral governance).
+- Corrective tasks: T110-T123; historical T001-T109 remain unchanged and labeled by their own closures.
+- Scope: signed-approval trust anchor, atomic manifest verification, DOCX package integrity,
+  visual-QA classification, Git/release evidence truth, and provider-neutral governance cleanup only.
+- No Phase 7, Spec 004, Rule/Alert/CSV/Reporting capability, merge, or product-scope expansion.
+
+### Signed-approval and trust contract
+
+- A deployment-target PASS requires approved company context (`CI=true` and
+  `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`, a company-provided
+  trusted evidence root, manifest path containment, reparse-escape rejection, matching SHA-256
+  attestation, and a detached CMS/PKCS#7 signature over the exact manifest bytes.
+- The verifier (`src/Infrastructure/DeploymentApproval/`) reads the manifest exactly once and hashes,
+  signature-verifies, and parses the same byte buffer; no reopen. Missing company trust policy is
+  `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; missing built-in cryptographic capability is
+  `BLOCKED_BY_MISSING_TOOL`; unsigned/malformed/modified/wrong-signer/expired/EKU-mismatch evidence is
+  `FAIL`.
+- Environment-only booleans/digests, self-signed developer signers, and synthetic contract PASS can
+  never be Full or release PASS.
+- DOCX verification is a machine-enforced structural package/text check; approved visual QA is a
+  documented non-mandatory `NOT_RUN` limitation.
+- `AGENTS.md` is provider-neutral; only the stable external-delegation principle remains.
+
+### Evidence and readiness
+
+- Deployment-target contract: PASS, `47 checks`, `0 failures` (signature now required for PASS).
+- Signed-approval contract: PASS, `14 checks`, `0 failures`.
+- DOCX package-integrity contract: PASS, `63 checks`, `0 failures` (structural only).
+- Release build: PASS, 0 warnings/0 errors including the two new framework-only projects.
+- Fast Feature 003: PASS=14.
+- Full Feature 003: exit 20, PASS=17, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003`,
+  `BLK-ENV-005`), no mandatory FAIL.
+- Unit: PASS; PostgreSQL integration: PASS, 15 suites/0 failures against
+  `127.0.0.1:5433/iump_dev`; no port 5432 access.
+- AC-005: PARTIAL; AC-011: PARTIAL; code implementation complete: YES (bounded); acceptance
+  evidence complete: NO; Release-ready: NO.
+- Spec Kit Analyze/Converge/Implement: `NOT_RUN` because provider-native commands are unavailable;
+  direct artifact comparison is recorded and never promoted to provider PASS.
+
+### Review and Git boundary
+
+- Standards review and Specification review run on this diff; results are recorded in the checklists.
+- Human review completed: NO; reviewer request: NO; CI/status check: NO.
+- Push branch: performed after this closure (push branch as the final step); merge performed: NO.

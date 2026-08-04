@@ -129,3 +129,30 @@ artifact comparison:
 
 No secrets were printed, no port 5432 was used, no package or container was introduced, and no
 merge/push was performed. The explicit stop remains T109.
+
+## Final signed-approval and release-evidence closure verification (T120)
+
+This verification is refreshed on branch `fix/003-signed-approval-closure` from baseline
+`2309cfecdd24538e320dcb70c35fcbd5d42bf9e2` (previous corrective integrated to `main` at that SHA).
+The refreshed numeric evidence:
+
+| Command | Exit | Classification | Evidence |
+|---|---|---:|---|---|
+| `.\tests\Verification\deployment-target.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `DeploymentTarget: checks=47 failures=0`; the trusted-boundary cases remain, and the valid-manifest case now requires detached signature evidence (unsigned manifests are `FAIL`). |
+| `.\tests\Verification\deployment-signature.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `DeploymentSignature: checks=14 failures=0`; synthetic signature fixtures cover valid (contract-only PASS, `synthetic=true`, `manifestReadCount=1`), unsigned/malformed/modified, wrong-signer/expired/EKU-mismatch/secret-key, missing trust anchor (`BLOCKED_BY_COMPANY_APPROVAL`), production synthetic signer cannot pass, and environment-only approval cannot pass. |
+| `.\tests\Verification\doc05-architecture.tests.ps1` | 0 | PASS / RUNNABLE_NOW | `Doc05Architecture: checks=63 failures=0`; now includes Open XML package integrity (required entries, relationship XML parse, office-document target, target traversal/existence, duplicate critical entries, malformed relationships). |
+| `dotnet build .\IUMP.slnx --no-restore --configuration Release` | 0 | PASS / RUNNABLE_NOW | Build succeeded, 0 warnings, 0 errors; includes `IUMP.Infrastructure.DeploymentApproval` and `DeploymentSignatureFixture` (no PackageReference, built-in framework capabilities only). |
+| `dotnet run --project .\tests\Unit\IUMP.Tests.Unit.csproj --no-restore` | 0 | PASS / RUNNABLE_NOW | `PASS: all tests`; all registered Unit suites report 0 failures. |
+| `dotnet run --project .\tests\Integration\IUMP.Tests.Integration.csproj --no-restore` | 0 | PASS / RUNNABLE_NOW | `T066 target=127.0.0.1:5433/iump_dev cases=14; assertions=15; failures=0`; `suites=15 failures=0`. |
+| `.\scripts\harness.ps1 -Mode Fast -Feature 003-operational-configuration-workspace` | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=14` (includes `deployment-target-contract`, `deployment-signature`, and `doc05-architecture`). |
+| `.\scripts\harness.ps1 -Mode Full -Feature 003-operational-configuration-workspace` | 20 | BLOCKED / `BLOCKED_BY_COMPANY_APPROVAL` | Fresh Full summary: `PASS=17`, `BLOCKED_BY_COMPANY_APPROVAL=2` (`BLK-ENV-003` approved company CI runner, `BLK-ENV-005` company-managed deployment trust policy/signer); no mandatory FAIL. |
+| `git diff --check` | 0 | PASS / RUNNABLE_NOW | No whitespace errors (only an LF/CRLF notice). |
+
+TDD evidence is explicit: the signed-approval red run stopped with `FAIL: environment-only approval
+cannot pass; unexpected=PASS` (FINDING-01); after the detached-signature requirement was integrated
+into `Test-DeploymentTargetApproval`, the same suite passed 14 checks. The DOCX package-integrity
+seam requires `scripts/common/DocxPackage.ps1` and throws `RED: DOCX package-integrity verifier is
+not implemented` when absent. No secrets, certificate private keys, signed production manifests, or
+protected policy were written; fixtures are temporary sanitized synthetic material only. Visual DOCX
+QA remains a documented non-mandatory `NOT_RUN` limitation. AC-005 and AC-011 remain PARTIAL,
+acceptance evidence is incomplete, and Release-ready remains NO.

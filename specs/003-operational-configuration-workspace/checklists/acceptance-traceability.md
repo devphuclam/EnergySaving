@@ -56,6 +56,21 @@ unsafe, or attestation-failed manifests are `FAIL`. A developer-created manifest
 approval. This gate does not change the acceptance matrix: AC-005 and AC-011 remain `PARTIAL`,
 acceptance evidence is not complete, and Release-ready remains `NO`.
 
+## Final signed-approval closure
+
+The signed-approval closure on `fix/003-signed-approval-closure` (baseline `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2`,
+previous corrective integrated to `main` at that SHA) is the current state. The Full deployment-target
+seam now additionally requires a detached CMS/PKCS#7 signature over the exact manifest bytes
+verified against a company-managed machine trust policy with LocalMachine certificate-chain
+validation; the manifest is read exactly once and the same byte buffer is hashed, signature-verified,
+and parsed. Environment-only booleans/digests, self-signed developer signers, and synthetic contract
+PASS can never be Full or release PASS. Missing cryptographic capability is `BLOCKED_BY_MISSING_TOOL`;
+missing company policy remains `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed,
+unsigned/wrong-signer/modified, or attestation-failed evidence is `FAIL`. Visual DOCX QA is a
+documented non-mandatory `NOT_RUN` limitation. This gate does not change the acceptance matrix:
+AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is not complete, and Release-ready remains
+`NO`.
+
 ## Corrective evidence boundary
 
 AC-005 is intentionally PARTIAL after the corrective review. The missing capability is an approved

@@ -4,6 +4,12 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $docxPath = Join-Path $repoRoot 'Business Docs\DOC-05_Software_Architecture_Document_v0.2.docx'
+$packageVerifierPath = Join-Path $repoRoot 'scripts\common\DocxPackage.ps1'
+
+if (-not (Test-Path -LiteralPath $packageVerifierPath -PathType Leaf)) {
+    throw 'RED: DOCX package-integrity verifier is not implemented'
+}
+. $packageVerifierPath
 
 if (-not (Test-Path -LiteralPath $docxPath -PathType Leaf)) {
     throw "RED: canonical DOC-05 v0.2 document is missing at $docxPath"
@@ -60,6 +66,11 @@ try {
 
     $zip = [System.IO.Compression.ZipFile]::OpenRead($workPath)
     try {
+        $packageResult = Test-DocxPackageIntegrity -Zip $zip
+        $script:checks += $packageResult.Checks
+        if ($packageResult.Failures.Count -gt 0) {
+            $packageResult.Failures | ForEach-Object { $script:failures.Add($_) }
+        }
         $entry = $zip.GetEntry('word/document.xml')
         if ($null -eq $entry) {
             throw 'DOCX does not contain word/document.xml'

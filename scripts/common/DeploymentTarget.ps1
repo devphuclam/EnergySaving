@@ -85,6 +85,75 @@ function Find-DeploymentManifestSecretKey {
     return $null
 }
 
+function Invoke-DeploymentSignatureVerifier {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string]$SignaturePath
+    )
+
+    if (-not (Test-CommandAvailable -Name 'dotnet')) {
+        return [pscustomobject]@{
+            Classification = 'BLOCKED_BY_MISSING_TOOL'
+            ExitCode = 20
+            BlockerId = 'BLK-ENV-001'
+            Evidence = 'approved company CI context=yes; signed approval verification requires the preinstalled .NET verifier; dotnet is unavailable'
+        }
+    }
+
+    $verifierProject = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) `
+        'src\Infrastructure\DeploymentApproval\IUMP.Infrastructure.DeploymentApproval.csproj'
+    if (-not (Test-Path -LiteralPath $verifierProject -PathType Leaf)) {
+        return [pscustomobject]@{
+            Classification = 'BLOCKED_BY_MISSING_TOOL'
+            ExitCode = 20
+            BlockerId = 'BLK-ENV-001'
+            Evidence = 'approved company CI context=yes; signed approval verifier utility is unavailable'
+        }
+    }
+
+    try {
+        $null = & dotnet run --project $verifierProject --no-restore -- `
+            --manifest $ManifestPath --signature $SignaturePath 2>$null | Out-Null
+        $exit = [int]$LASTEXITCODE
+    }
+    catch {
+        return [pscustomobject]@{
+            Classification = 'BLOCKED_BY_MISSING_TOOL'
+            ExitCode = 20
+            BlockerId = 'BLK-ENV-001'
+            Evidence = 'approved company CI context=yes; signed approval verifier could not be invoked'
+        }
+    }
+
+    switch ($exit) {
+        0 {
+            return [pscustomobject]@{
+                Classification = 'PASS'
+                ExitCode = 0
+                BlockerId = $null
+                Evidence = 'approved company CI context=yes; approval flag=true; trusted evidence root=inside; attestation=verified; detached signature=verified; company-managed trust policy=verified; manifest schema=valid; secret-like keys=none'
+            }
+        }
+        20 {
+            return [pscustomobject]@{
+                Classification = 'BLOCKED_BY_COMPANY_APPROVAL'
+                ExitCode = 20
+                BlockerId = 'BLK-ENV-005'
+                Evidence = 'approved company CI context=yes; approval flag=true; company-managed deployment trust policy or certificate chain is unavailable'
+            }
+        }
+        default {
+            return [pscustomobject]@{
+                Classification = 'FAIL'
+                ExitCode = 1
+                BlockerId = $null
+                Evidence = 'approved company CI context=yes; approval flag=true; detached signature evidence did not verify'
+            }
+        }
+    }
+}
+
 function Test-DeploymentTargetApproval {
     [CmdletBinding()]
     param(
@@ -93,7 +162,8 @@ function Test-DeploymentTargetApproval {
         [AllowNull()][string]$Ci = $env:CI,
         [AllowNull()][string]$CompanyCiApproved = $env:IUMP_COMPANY_CI_APPROVED,
         [AllowNull()][string]$TrustedEvidenceRoot = $env:IUMP_DEPLOYMENT_TRUSTED_ROOT,
-        [AllowNull()][string]$ExpectedSha256 = $env:IUMP_DEPLOYMENT_EVIDENCE_SHA256
+        [AllowNull()][string]$ExpectedSha256 = $env:IUMP_DEPLOYMENT_EVIDENCE_SHA256,
+        [AllowNull()][string]$SignaturePath = $env:IUMP_DEPLOYMENT_SIGNATURE_PATH
     )
 
     $ciApproved = [string]::Equals($Ci, 'true', [StringComparison]::OrdinalIgnoreCase) -and
@@ -240,6 +310,17 @@ function Test-DeploymentTargetApproval {
             -Evidence 'approval flag=true; evidence path provided=yes; approvedAtUtc is unreasonably in the future'
     }
 
-    New-DeploymentTargetResult -Classification 'PASS' -ExitCode 0 `
-        -Evidence 'approved company CI context=yes; approval flag=true; trusted evidence root=inside; attestation=verified; manifest schema=valid; deployment model=canonical; approval reference=present; secret-like keys=none'
+    if ([string]::IsNullOrWhiteSpace($SignaturePath)) {
+        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
+            -Evidence 'approved company CI context=yes; approval flag=true; evidence path inside; attestation=verified; manifest schema=valid; deployment model=canonical; detached signature evidence is unavailable and production PASS requires it'
+    }
+
+    if (-not (Test-Path -LiteralPath $SignaturePath -PathType Leaf)) {
+        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
+            -Evidence 'approved company CI context=yes; approval flag=true; evidence path inside; attestation=verified; manifest schema=valid; detached signature file is unavailable'
+    }
+
+    $signed = Invoke-DeploymentSignatureVerifier -ManifestPath $EvidencePath -SignaturePath $SignaturePath
+    New-DeploymentTargetResult -Classification $signed.Classification -ExitCode $signed.ExitCode `
+        -BlockerId $signed.BlockerId -Evidence $signed.Evidence
 }
