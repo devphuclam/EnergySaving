@@ -112,8 +112,15 @@ $parsedMissingTool = ConvertFrom-DeploymentVerifierProcessResult -Stdout @() -Pr
 Assert-Equal $parsedMissingTool.Classification 'BLOCKED_BY_MISSING_TOOL' 'behavioral parser missing-tool classification'
 Assert-Equal $parsedMissingTool.BlockerId 'BLK-ENV-001' 'behavioral parser missing-tool blocker'
 $parsedRuntimeFailure = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('runtime diagnostic') -ProcessExitCode 150 -InvocationError 'verifier-process-failure' -Production
-Assert-Equal $parsedRuntimeFailure.Classification 'BLOCKED_BY_MISSING_TOOL' 'behavioral parser runtime-failure classification'
-Assert-Equal $parsedRuntimeFailure.ExitCode 20 'behavioral parser runtime-failure exit'
+Assert-Equal $parsedRuntimeFailure.Classification 'FAIL' 'behavioral parser started-process crash classification'
+Assert-Equal $parsedRuntimeFailure.ExitCode 1 'behavioral parser started-process crash exit'
+$parsedExitWithoutProtocol = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('runtime diagnostic') -ProcessExitCode 0 -Production
+Assert-Equal $parsedExitWithoutProtocol.Classification 'FAIL' 'behavioral parser zero-exit without protocol classification'
+Assert-Equal $parsedExitWithoutProtocol.ExitCode 1 'behavioral parser zero-exit without protocol exit'
+$parsedExplicitCrash = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('runtime diagnostic') -ProcessExitCode 150 -InvocationOutcome 'ProcessExitedWithoutProtocol' -Production
+Assert-Equal $parsedExplicitCrash.Classification 'FAIL' 'explicit started-process crash classification'
+$parsedExplicitStartFailure = ConvertFrom-DeploymentVerifierProcessResult -Stdout @() -ProcessExitCode 20 -InvocationOutcome 'ProcessStartFailure' -Production
+Assert-Equal $parsedExplicitStartFailure.Classification 'BLOCKED_BY_MISSING_TOOL' 'explicit process-start failure classification'
 $validFailJson = [pscustomobject]@{
     status = 'FAIL'; classification = 'RUNNABLE_NOW'; exitCode = 1; blockerId = $null
     evidence = 'single signed-evidence fault'; synthetic = $false; manifestReadCount = 1; policyReadCount = 0

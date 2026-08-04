@@ -11,6 +11,8 @@ $verifierSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\Depl
 $classifierSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\ChainStatusClassifier.cs')
 $aclSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\PolicyAclEvaluator.cs')
 $pathSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\CanonicalPathPolicy.cs')
+$handleSecurityPath = Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\HandleSecurityEvaluator.cs'
+$handleSecuritySource = if (Test-Path -LiteralPath $handleSecurityPath) { Get-Content -Raw $handleSecurityPath } else { '' }
 
 function Assert-SourceContains {
     param([string]$Text, [string]$Expected, [string]$Name)
@@ -34,16 +36,20 @@ Assert-SourceContains $verifierSource 'allowedSignerCertificateSha256' 'policy v
 Assert-SourceContains $verifierSource 'policyReadCount' 'policy single-read evidence'
 Assert-SourceContains $verifierSource 'X509RevocationMode.Online' 'online revocation support'
 Assert-SourceContains $verifierSource 'X509RevocationMode.Offline' 'offline revocation support'
+Assert-SourceContains $verifierSource 'HandleSecurityEvaluator' 'production policy uses handle security evaluator'
+Assert-SourceContains $handleSecuritySource 'GetSecurityInfo' 'handle security descriptor retrieval'
+Assert-SourceContains $handleSecuritySource 'AccessCheck' 'Windows effective-access evaluation'
+Assert-SourceContains $handleSecuritySource 'GetFileInformationByHandle' 'handle file identity retrieval'
 Assert-SourceContains $verifierSource 'FileShare.Read' 'policy snapshot denies write/delete sharing'
-Assert-SourceContains $verifierSource 'GetAccessControl' 'policy ACL verification'
-Assert-SourceContains $verifierSource 'DeleteSubdirectoriesAndFiles' 'parent delete-child ACL verification'
+Assert-SourceNotContains $verifierSource 'GetAccessControl' 'production policy does not reopen pathname ACLs'
+Assert-SourceNotContains $verifierSource 'PolicyAclEvaluator.HasEffectiveUnsafePermission' 'production policy does not use custom ACL authority'
 Assert-SourceContains $verifierSource 'ReadPolicySnapshot' 'policy single-read implementation'
 Assert-SourceContains $pathSource 'CanonicalizeRoot' 'root path canonicalization'
 Assert-SourceContains $verifierSource 'CanonicalPathPolicy.CanonicalizeRoot' 'verifier uses rooted path policy'
 Assert-SourceContains $verifierSource 'Path.GetFullPath(Path.Combine' 'rooted ancestor traversal'
-Assert-SourceContains $verifierSource 'TestPolicyFileSecurity' 'policy file threat model'
-Assert-SourceContains $verifierSource 'TestImmediatePolicyDirectorySecurity' 'immediate policy directory threat model'
-Assert-SourceContains $verifierSource 'TestPolicyAncestorSecurity' 'higher policy ancestor threat model'
+Assert-SourceContains $verifierSource 'HandleSecurityTarget.PolicyFile' 'policy file threat model seam'
+Assert-SourceContains $verifierSource 'HandleSecurityTarget.ImmediateDirectory' 'immediate policy directory threat model seam'
+Assert-SourceContains $verifierSource 'HandleSecurityTarget.AncestorDirectory' 'higher policy ancestor threat model seam'
 Assert-SourceContains $aclSource 'InheritanceFlags' 'ACL inheritance applicability'
 Assert-SourceContains $aclSource 'PropagationFlags' 'ACL propagation applicability'
 Assert-SourceContains $aclSource 'AccessControlType.Deny' 'ACL deny precedence'
@@ -165,6 +171,18 @@ function Invoke-RootScenario {
     (ConvertFrom-Json -InputObject $jsonLine[0]).canonicalRoot
 }
 
+function Invoke-HandleScenario {
+    param([Parameter(Mandatory)][string]$Scenario)
+    $project = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $output = & dotnet run --project $project --no-restore -- ("--{0}" -f $Scenario) 'true' 2>$null
+    $exitCode = [int]$LASTEXITCODE
+    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if ($jsonLine.Count -ne 1) {
+        throw "handle fixture returned no result for $Scenario"
+    }
+    [pscustomobject]@{ Result = ConvertFrom-Json -InputObject $jsonLine[0]; ExitCode = $exitCode }
+}
+
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('iump-signed-approval-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
@@ -236,6 +254,19 @@ try {
     $uncRoot = Invoke-RootScenario -Scenario 'unc'
     Assert-Equal ($uncRoot -like '\\server\share*') $true 'UNC root remains rooted'
     Assert-Equal ($uncRoot -like '\\server\sharefolder*') $false 'UNC root boundary remains canonical'
+
+    $handle = Invoke-HandleScenario -Scenario 'handle-contract'
+    Assert-Equal $handle.ExitCode 0 'handle security fixture exit'
+    Assert-Equal $handle.Result.identityStable $true 'file identity is stable before and after read'
+    Assert-Equal $handle.Result.replacementBlocked $true 'no-delete sharing blocks replacement while handle is open'
+    Assert-Equal $handle.Result.fileUnsafe $true 'effective file write/ownership rights are not trusted'
+    Assert-Equal $handle.Result.directoryUnsafe $true 'effective immediate-directory replacement rights are not trusted'
+    Assert-Equal $handle.Result.ancestorUnsafe $true 'effective ancestor delete/ownership rights are not trusted'
+    Assert-Equal $handle.Result.policyReadCount 1 'handle policy read count'
+    Assert-Equal $handle.Result.securitySource 'handle' 'security decision source is opened handle'
+    $capability = Invoke-HandleScenario -Scenario 'handle-capability'
+    Assert-Equal $capability.ExitCode 0 'missing handle capability fixture exit'
+    Assert-Equal $capability.Result.capabilityUnavailable $true 'missing handle capability fails closed'
 
     $missingPolicy = Invoke-SyntheticVerifier -Fixture $valid -PolicyPath (Join-Path $tempRoot 'missing-policy.json')
     Assert-Equal $missingPolicy.status 'BLOCKED' 'missing trust anchor status'

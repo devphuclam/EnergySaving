@@ -365,7 +365,7 @@ variables exist. These states never imply acceptance completion or Release-ready
 
 ## Scope and Evidence Boundaries *(mandatory)*
 
-- **Current corrective closure**: The historical Phase 6 acceptance run covered T073–T080, the
+- **Historical corrective closure**: The historical Phase 6 acceptance run covered T073–T080, the
   first corrective closure covered T081–T087, and the deployment-gate closure covered T088–T097.
   This corrective branch adds only trusted-approval trust boundary, release-checkpoint
   normalization, repository-wide harness registration, DOCX structural verification, and evidence
@@ -388,7 +388,7 @@ variables exist. These states never imply acceptance completion or Release-ready
   actual classification; a blocked frontend behavior runner or company environment check is never
   promoted to PASS.
 
-## Current atomic review-remediation override (2026-08-04)
+## Historical atomic review-remediation override (superseded 2026-08-04)
 
 The authoritative current baseline is merged `main` commit
 `37606adde7ac39476e53d9aaf43ded608e45038e`; the active corrective branch is
@@ -399,3 +399,26 @@ It does not change the product requirements, acceptance matrix, or excluded capa
 AC-005 and AC-011 remain PARTIAL, Release-ready remains NO, and no Phase 7/Spec 004 work is
 authorized. Provider-native Spec Kit commands are NOT_RUN when unavailable; direct evidence is not
 represented as provider PASS.
+
+## Current post-merge handle-bound trust closure override (2026-08-04)
+
+The authoritative current Git baseline is merged `main` commit
+`4b4713cb42b1a03270a2688b344988d2945bab2c`. The active corrective branch is
+`fix/003-handle-bound-trust-closure`, executing only T157-T170 in the single Post-Merge
+Handle-Bound Trust Closure phase. The verifier remains observation/evidence-only and does not add
+equipment control, write-back, remote commands, savings claims, Phase 7, Spec 004, or product
+capability.
+
+The deployment trust policy flow must bind policy bytes, file identity, owner/DACL, and the security
+decision to the same opened `SafeFileHandle`; immediate and higher-ancestor directories are opened
+with no write/delete sharing and evaluated with Windows effective-access APIs. Missing Windows
+security capability is `BLOCKED_BY_MISSING_TOOL`/`BLK-ENV-001`; a started verifier crash or no
+protocol result is `FAIL`, never an environmental blocker. Policy schema v2, CMS/PKCS#7, certificate
+SHA-256 identity, digest algorithms, revocation policy, manifest schema, and acceptance semantics are
+unchanged.
+
+Current review terminology is explicit: Internal two-axis Standards/Specification self-review is
+the only available review evidence; independent human review is `NO`; GitHub CI/status evidence is
+`NO`. AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is incomplete, and Release-ready is
+`NO`. Provider-native Spec Kit Analyze/Implement/Converge is `NOT_RUN` because no executable
+provider command is available; direct artifacts are not provider PASS.

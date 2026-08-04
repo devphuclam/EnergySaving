@@ -124,7 +124,7 @@ is a prepared body only; no PR was created, no reviewer was requested, and no me
 - Human review completed: NO; reviewer request: NO; CI/status check: NO.
 - Push branch: NOT RUN in this closure; merge performed: NO.
 
-## Current signed-approval corrective PR preparation (T123)
+## Historical signed-approval corrective PR preparation (T123; superseded 2026-08-04)
 
 This section supersedes the historical PR preparation above for the current branch. It is a
 prepared body only; the branch is pushed only after completion, no PR is created/merged, and no
@@ -183,3 +183,13 @@ reviewer was requested.
 - Standards review and Specification review run on this diff; results are recorded in the checklists.
 - Human review completed: NO; reviewer request: NO; CI/status check: NO.
 - Push branch: performed after this closure (push branch as the final step); merge performed: NO.
+
+## Current post-merge handle-bound trust closure Git boundary
+
+This invocation does not prepare or create a PR. The implementation checkpoint is on
+`fix/003-handle-bound-trust-closure` from merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`.
+The only permitted Git mutation after the checkpoint is the local corrective commit
+`fix(feature-003): bind deployment policy trust to file handles`; push, PR, merge, reviewer request,
+CI/status evidence, deployment, and release are all `NO`/`NOT_RUN`. Internal two-axis
+Standards/Specification self-review is the available prior agent evidence; independent human review
+is `NO`, GitHub CI/status evidence is `NO`, and Release-ready remains `NO`.

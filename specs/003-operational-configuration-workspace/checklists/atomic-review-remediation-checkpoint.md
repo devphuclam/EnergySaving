@@ -1,4 +1,4 @@
-# Feature 003 Atomic Signed-Approval Review Remediation Checkpoint
+# Historical Feature 003 Atomic Signed-Approval Review Remediation Checkpoint
 
 Date: 2026-08-04
 Authoritative merged-main baseline: `37606adde7ac39476e53d9aaf43ded608e45038e`

@@ -1,4 +1,4 @@
-# Feature 003 Atomic Signed-Approval Review Remediation Analysis
+# Historical Feature 003 Atomic Signed-Approval Review Remediation Analysis
 
 Date: 2026-08-04
 

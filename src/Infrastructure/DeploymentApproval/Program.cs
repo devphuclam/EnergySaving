@@ -1,9 +1,7 @@
 using System.Security;
-using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
-using System.Security.Principal;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
@@ -156,6 +154,10 @@ internal static class Program
             catch (CapabilityUnavailableException)
             {
                 return MissingTool("deployment trust-policy security capability is unavailable", synthetic, manifestReadCount, 0);
+            }
+            catch (HandleSecurityCapabilityUnavailableException)
+            {
+                return MissingTool("deployment trust-policy handle-security capability is unavailable", synthetic, manifestReadCount, 0);
             }
             catch (FileNotFoundException)
             {
@@ -387,64 +389,117 @@ internal static class Program
             throw new CompanyPolicyUnavailableException("company-managed policy path is not canonical");
         }
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        readCount = 1;
-        if (enforceCompanySecurity)
-        {
-            var securityDisposition = ValidateCompanyPolicySecurity(path);
-            if (securityDisposition == PolicySecurityDisposition.MissingTool)
-            {
-                throw new CapabilityUnavailableException("company-managed policy ACL capability is unavailable");
-            }
-
-            if (securityDisposition == PolicySecurityDisposition.Unsafe)
-            {
-                throw new CompanyPolicyUnavailableException("company-managed policy ACL is not trust-bounded");
-            }
-        }
-
-        var bytes = ReadAll(stream);
         try
         {
-            using var document = JsonDocument.Parse(
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes));
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("policyVersion", out var version) ||
-                version.ValueKind != JsonValueKind.Number || version.GetInt32() != 2)
+            if (ContainsReparsePoint(path))
             {
-                throw new InvalidDataException("deployment trust policy version is unsupported");
+                throw new CompanyPolicyUnavailableException("company-managed deployment trust policy is a reparse point");
             }
 
-            var fingerprints = ReadStringArray(root, "allowedSignerCertificateSha256")
-                .Select(NormalizeFingerprint)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (fingerprints.Count == 0 || fingerprints.Any(value => !IsSha256(value)))
+            using var policyHandle = HandleSecurityEvaluator.OpenReadOnly(path, directory: false);
+            using var stream = new FileStream(policyHandle, FileAccess.Read, 4096, isAsync: false);
+            var identityBefore = HandleSecurityEvaluator.ReadIdentity(policyHandle);
+            readCount = 1;
+
+            if (enforceCompanySecurity)
             {
-                throw new InvalidDataException("deployment trust policy requires 64-character SHA-256 certificate fingerprints");
+                var policySecurity = HandleSecurityEvaluator.Assess(policyHandle, HandleSecurityTarget.PolicyFile);
+                if (policySecurity.OwnedByCurrentUser || policySecurity.HasUnsafeEffectiveAccess)
+                {
+                    throw new CompanyPolicyUnavailableException("company-managed policy file access is not trust-bounded");
+                }
+
+                var parent = Directory.GetParent(path);
+                if (parent is null || ContainsReparsePoint(parent.FullName))
+                {
+                    throw new CompanyPolicyUnavailableException("company-managed policy directory is not canonical");
+                }
+
+                using var parentHandle = HandleSecurityEvaluator.OpenReadOnly(parent.FullName, directory: true);
+                var parentSecurity = HandleSecurityEvaluator.Assess(parentHandle, HandleSecurityTarget.ImmediateDirectory);
+                if (parentSecurity.OwnedByCurrentUser || parentSecurity.HasUnsafeEffectiveAccess)
+                {
+                    throw new CompanyPolicyUnavailableException("company-managed policy directory access is not trust-bounded");
+                }
+
+                var ancestor = parent.Parent;
+                while (ancestor is not null)
+                {
+                    if (ContainsReparsePoint(ancestor.FullName))
+                    {
+                        throw new CompanyPolicyUnavailableException("company-managed policy ancestor is not canonical");
+                    }
+
+                    using var ancestorHandle = HandleSecurityEvaluator.OpenReadOnly(ancestor.FullName, directory: true);
+                    var ancestorSecurity = HandleSecurityEvaluator.Assess(ancestorHandle, HandleSecurityTarget.AncestorDirectory);
+                    if (ancestorSecurity.OwnedByCurrentUser || ancestorSecurity.HasUnsafeEffectiveAccess)
+                    {
+                        throw new CompanyPolicyUnavailableException("company-managed policy ancestor access is not trust-bounded");
+                    }
+
+                    var root = Path.GetPathRoot(ancestor.FullName);
+                    if (string.Equals(Path.GetFullPath(ancestor.FullName), Path.GetFullPath(root ?? string.Empty), StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+
+                    ancestor = ancestor.Parent;
+                }
             }
 
-            var ekuOids = ReadStringArray(root, "requiredEkuOids").ToHashSet(StringComparer.Ordinal);
-            var revocationText = root.TryGetProperty("revocationMode", out var revocation) &&
-                revocation.ValueKind == JsonValueKind.String
-                ? revocation.GetString()
-                : null;
-            var revocationMode = revocationText switch
+            var bytes = ReadAll(stream);
+            var identityAfter = HandleSecurityEvaluator.ReadIdentity(policyHandle);
+            if (identityBefore != identityAfter)
             {
-                "Online" => X509RevocationMode.Online,
-                "Offline" => X509RevocationMode.Offline,
-                _ => throw new InvalidDataException("deployment trust policy requires revocationMode Online or Offline")
-            };
+                throw new CompanyPolicyUnavailableException("company-managed policy identity changed during verification");
+            }
 
-            return new TrustPolicy(fingerprints, ekuOids, revocationMode);
+            try
+            {
+                using var document = JsonDocument.Parse(
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes));
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("policyVersion", out var version) ||
+                    version.ValueKind != JsonValueKind.Number || version.GetInt32() != 2)
+                {
+                    throw new InvalidDataException("deployment trust policy version is unsupported");
+                }
+
+                var fingerprints = ReadStringArray(root, "allowedSignerCertificateSha256")
+                    .Select(NormalizeFingerprint)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (fingerprints.Count == 0 || fingerprints.Any(value => !IsSha256(value)))
+                {
+                    throw new InvalidDataException("deployment trust policy requires 64-character SHA-256 certificate fingerprints");
+                }
+
+                var ekuOids = ReadStringArray(root, "requiredEkuOids").ToHashSet(StringComparer.Ordinal);
+                var revocationText = root.TryGetProperty("revocationMode", out var revocation) &&
+                    revocation.ValueKind == JsonValueKind.String
+                    ? revocation.GetString()
+                    : null;
+                var revocationMode = revocationText switch
+                {
+                    "Online" => X509RevocationMode.Online,
+                    "Offline" => X509RevocationMode.Offline,
+                    _ => throw new InvalidDataException("deployment trust policy requires revocationMode Online or Offline")
+                };
+
+                return new TrustPolicy(fingerprints, ekuOids, revocationMode);
+            }
+            catch (JsonException)
+            {
+                throw new InvalidDataException("deployment trust policy is malformed");
+            }
+            catch (DecoderFallbackException)
+            {
+                throw new InvalidDataException("deployment trust policy is not strict UTF-8");
+            }
         }
-        catch (JsonException)
+        catch (HandleSecurityCapabilityUnavailableException ex)
         {
-            throw new InvalidDataException("deployment trust policy is malformed");
-        }
-        catch (DecoderFallbackException)
-        {
-            throw new InvalidDataException("deployment trust policy is not strict UTF-8");
+            throw new CapabilityUnavailableException(ex.Message);
         }
     }
 
@@ -600,137 +655,6 @@ internal static class Program
         }
     }
 
-    [SupportedOSPlatform("windows")]
-    private static PolicySecurityDisposition ValidateCompanyPolicySecurity(string path)
-    {
-        try
-        {
-            if (ContainsReparsePoint(path))
-            {
-                return PolicySecurityDisposition.Unsafe;
-            }
-
-            var current = WindowsIdentity.GetCurrent();
-            var currentSid = current.User;
-            if (currentSid is null)
-            {
-                return PolicySecurityDisposition.MissingTool;
-            }
-
-            var principal = new WindowsPrincipal(current);
-            var policySecurity = new FileInfo(path).GetAccessControl();
-            if (IsOwnedByCurrentUser(policySecurity, currentSid) ||
-                TestPolicyFileSecurity(policySecurity, currentSid, principal))
-            {
-                return PolicySecurityDisposition.Unsafe;
-            }
-
-            var parent = Directory.GetParent(path);
-            if (parent is null || ContainsReparsePoint(parent.FullName))
-            {
-                return PolicySecurityDisposition.Unsafe;
-            }
-
-            var parentSecurity = parent.GetAccessControl();
-            if (IsOwnedByCurrentUser(parentSecurity, currentSid) ||
-                TestImmediatePolicyDirectorySecurity(parentSecurity, currentSid, principal))
-            {
-                return PolicySecurityDisposition.Unsafe;
-            }
-
-            var ancestor = parent.Parent;
-            while (ancestor is not null)
-            {
-                if (ContainsReparsePoint(ancestor.FullName))
-                {
-                    return PolicySecurityDisposition.Unsafe;
-                }
-
-                var ancestorSecurity = ancestor.GetAccessControl();
-                if (IsOwnedByCurrentUser(ancestorSecurity, currentSid) ||
-                    TestPolicyAncestorSecurity(ancestorSecurity, currentSid, principal))
-                {
-                    return PolicySecurityDisposition.Unsafe;
-                }
-
-                var root = Path.GetPathRoot(ancestor.FullName);
-                if (string.Equals(Path.GetFullPath(ancestor.FullName), Path.GetFullPath(root ?? string.Empty), StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
-                ancestor = ancestor.Parent;
-            }
-
-            return PolicySecurityDisposition.Safe;
-        }
-        catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException or PlatformNotSupportedException)
-        {
-            return PolicySecurityDisposition.MissingTool;
-        }
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static bool IsOwnedByCurrentUser(FileSystemSecurity security, SecurityIdentifier currentSid) =>
-        security.GetOwner(typeof(SecurityIdentifier)) is SecurityIdentifier owner && owner.Value == currentSid.Value;
-
-    [SupportedOSPlatform("windows")]
-    private static bool TestPolicyFileSecurity(
-        FileSystemSecurity security,
-        SecurityIdentifier currentSid,
-        WindowsPrincipal principal)
-    {
-        var unsafeRights = FileSystemRights.WriteData |
-            FileSystemRights.AppendData |
-            FileSystemRights.WriteAttributes |
-            FileSystemRights.WriteExtendedAttributes |
-            FileSystemRights.Delete |
-            FileSystemRights.DeleteSubdirectoriesAndFiles |
-            FileSystemRights.ChangePermissions |
-            FileSystemRights.TakeOwnership |
-            FileSystemRights.FullControl;
-
-        return PolicyAclEvaluator.HasEffectiveUnsafePermission(
-            security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>(),
-            currentSid,
-            principal,
-            unsafeRights,
-            targetIsDirectory: false);
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static bool TestImmediatePolicyDirectorySecurity(
-        FileSystemSecurity security,
-        SecurityIdentifier currentSid,
-        WindowsPrincipal principal) =>
-        PolicyAclEvaluator.HasEffectiveUnsafePermission(
-            security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>(),
-            currentSid,
-            principal,
-            FileSystemRights.CreateFiles |
-            FileSystemRights.CreateDirectories |
-            FileSystemRights.Delete |
-            FileSystemRights.DeleteSubdirectoriesAndFiles |
-            FileSystemRights.ChangePermissions |
-            FileSystemRights.TakeOwnership |
-            FileSystemRights.FullControl,
-            targetIsDirectory: true);
-
-    [SupportedOSPlatform("windows")]
-    private static bool TestPolicyAncestorSecurity(
-        FileSystemSecurity security,
-        SecurityIdentifier currentSid,
-        WindowsPrincipal principal) =>
-        PolicyAclEvaluator.HasEffectiveUnsafePermission(
-            security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>(),
-            currentSid,
-            principal,
-            FileSystemRights.Delete |
-            FileSystemRights.DeleteSubdirectoriesAndFiles |
-            FileSystemRights.ChangePermissions |
-            FileSystemRights.TakeOwnership |
-            FileSystemRights.FullControl,
-            targetIsDirectory: true);
-
     private static bool IsSha256(string? value) =>
         !string.IsNullOrWhiteSpace(value) &&
         value.Length == 64 &&
@@ -762,13 +686,6 @@ internal static class Program
         bool Synthetic,
         int ManifestReadCount,
         int PolicyReadCount);
-
-    private enum PolicySecurityDisposition
-    {
-        Safe,
-        Unsafe,
-        MissingTool
-    }
 
     private sealed class CapabilityUnavailableException(string message) : Exception(message);
 

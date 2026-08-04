@@ -361,7 +361,9 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Final Signed-Approval and Release-Evidence Corrective Closure | 14 | T110-T123 |
 | Atomic Signed-Approval and Post-Merge Corrective Closure | 17 | T124-T140 |
 | Atomic Signed-Approval Review Remediation | 16 | T141-T156 |
-| **Total** | **156** | **T001-T156** |
+| Historical total before current phase | **156** | **T001-T156** |
+| Post-Merge Handle-Bound Trust Closure | 14 | T157-T170 |
+| **Current total** | **170** | **T001-T170** |
 
 **Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
@@ -374,6 +376,12 @@ T110-T123 signed-approval and release-evidence closure and stops after T123.
 The current atomic signed-approval run is the additive T124-T140 corrective closure. This invocation
 stops at the Constitution-required implementation checkpoint after T137; T138-T140 remain pending
 for an explicitly authorized continuation.
+
+The current Post-Merge Handle-Bound Trust Closure is the additive T157-T170 phase from merged main
+`4b4713cb42b1a03270a2688b344988d2945bab2c` on `fix/003-handle-bound-trust-closure`. T138-T140 are
+reconciled as complete by their later evidence; T034 remains historically classified by its package
+or company-approval blocker. This phase stops at its implementation checkpoint and does not merge,
+release, create Phase 7, or create Spec 004.
 
 ---
 
@@ -393,9 +401,9 @@ for an explicitly authorized continuation.
 - [x] T135 [RUNNABLE_NOW] Replace the unnecessary WPF framework reference with the preinstalled non-UI framework that provides `System.Security.Cryptography.Pkcs`, or record the remaining architecture debt without installing packages.
 - [x] T136 [RUNNABLE_NOW] Update the temporary synthetic fixture and focused regression suites for policy v2, certificate SHA-256 identity, revocation/algorithm/path cases, cleanup, and no private-key or real-policy artifacts.
 - [x] T137 [RUNNABLE_NOW] Synchronize the current post-merge checkpoint, decision log, acceptance traceability, release checkpoint, and atomic corrective report with PR #7 merge truth and current blockers.
-- [ ] T138 [RUNNABLE_NOW] Run focused verification, unit/integration, Web lint/build, repository checks, Fast, and fresh Full harness; record PostgreSQL target and every PASS/FAIL/BLOCKED result without using port 5432 or substitutes.
-- [ ] T139 [RUNNABLE_NOW] Perform separate Standards and Specification reviews against the constitution, DOC-05, DOC-07, Feature 003 artifacts, and T124-T140; resolve all Critical/High/actionable Medium findings and record the review axes.
-- [ ] T140 [RUNNABLE_NOW] Run direct artifact Converge/final Analyze when provider commands are unavailable, verify unique task IDs and no scope creep, run `git diff --check`, prepare the PR, push only `fix/003-atomic-signed-approval`, and stop without merging or releasing.
+- [x] T138 [RUNNABLE_NOW] Run focused verification, unit/integration, Web lint/build, repository checks, Fast, and fresh Full harness; fulfilled by T142 and T151 with PostgreSQL target and every PASS/FAIL/BLOCKED result recorded without using port 5432 or substitutes.
+- [x] T139 [RUNNABLE_NOW] Perform separate Standards and Specification reviews against the constitution, DOC-05, DOC-07, Feature 003 artifacts, and T124-T140; fulfilled by T141 and T152-T153 with review terminology corrected in the current phase.
+- [x] T140 [RUNNABLE_NOW] Run direct artifact Converge/final Analyze when provider commands are unavailable, verify unique task IDs and no scope creep, run `git diff --check`, prepare the PR, push only `fix/003-atomic-signed-approval`, and stop without merging or releasing; fulfilled by T154-T156 and reconciled by T164-T170 without rewriting historical evidence.
 
 ---
 
@@ -417,3 +425,27 @@ for an explicitly authorized continuation.
 - [x] T154 [RUNNABLE_NOW] Run the actual final Analyze/convergence command if available; otherwise record provider `NOT_RUN` and perform direct artifact/code/test convergence, including unique IDs and no scope creep.
 - [x] T155 [RUNNABLE_NOW] Complete T138-T140 ledger evidence, update acceptance/release/final-verification artifacts and prepare the Feature 003 Atomic Review Remediation report and PR body; keep AC-005/AC-011 PARTIAL and Release-ready NO.
 - [x] T156 [RUNNABLE_NOW] Run `git diff --check`, verify no secrets/private keys/real policy/temporary fixture artifacts, commit `fix(feature-003): remediate atomic approval review findings`, push only `fix/003-atomic-review-remediation`, prepare/request the PR when capability exists, and stop without merging or creating Phase 7/Spec 004.
+
+## Post-Merge Handle-Bound Trust Closure
+
+This additive corrective phase starts from authoritative merged `main` commit
+`4b4713cb42b1a03270a2688b344988d2945bab2c` and uses branch
+`fix/003-handle-bound-trust-closure`. It addresses only handle-bound policy trust, Windows
+effective-access evaluation, process-start/crash classification, ledger reconciliation, and
+post-merge evidence truth. It does not create Phase 7, Spec 004, deployment, release approval, or
+product capability.
+
+- [x] T157 [RUNNABLE_NOW] Record the read-only direct Analyze findings F-08 through F-12, provider `NOT_RUN` status, source precedence, and implementation gate in `checklists/handle-bound-trust-analyze.md`.
+- [x] T158 [P] [RUNNABLE_NOW] Add red handle-bound regression assertions for single policy-file open/read, stable file identity, no pathname ACL authority, no-write/no-delete sharing, and replacement blocking in `tests/Verification/deployment-signature.tests.ps1` and the synthetic fixture.
+- [x] T159 [P] [RUNNABLE_NOW] Add red handle-security/effective-access contract scenarios for file, immediate-directory, and ancestor threat rights, capability-unavailable fail-closed behavior, and safe evidence redaction.
+- [x] T160 [P] [RUNNABLE_NOW] Add red process classification cases distinguishing missing command/project/runtime/process-start from started-process crash/no-protocol, malformed protocol, and valid structured results in `tests/Verification/deployment-target.tests.ps1`.
+- [x] T161 [RUNNABLE_NOW] Implement handle-bound policy file and directory opening with `SafeFileHandle`, file identity, handle security-descriptor retrieval, and Windows `AccessCheck` against the current process token; remove production reliance on pathname ACL evaluation and fail closed when the capability is unavailable.
+- [x] T162 [RUNNABLE_NOW] Implement the single-handle policy snapshot flow: fixed production path, no write/delete sharing, security decision from the opened file and directory handles, one byte read, identity before/after comparison, and parsing from the captured bytes without reopening.
+- [x] T163 [RUNNABLE_NOW] Correct `DeploymentTarget.ps1` process-result invocation mapping so only pre-start capability failures are `BLOCKED_BY_MISSING_TOOL`; any started process without one valid protocol result is `FAIL` with redacted evidence.
+- [x] T164 [RUNNABLE_NOW] Reconcile T138–T140 with T142/T151, T141/T152/T153, and T154–T156; verify unique task IDs, retain historical T034 classification, and remove contradictory current task counts.
+- [x] T165 [RUNNABLE_NOW] Synchronize one current post-merge state across `spec.md`, `plan.md`, acceptance traceability, release checkpoint, final verification, decision log, repository harness guidance, and the implementation checkpoint with `main` `4b4713c`, corrective commit, no PR/reviewer/CI evidence, and Release-ready `NO`.
+- [x] T166 [RUNNABLE_NOW] Correct current review terminology to `Internal two-axis Standards/Specification self-review: PASS`, `Independent human review: NO`, and `GitHub CI/status evidence: NO`, while preserving historical wording under historical headings.
+- [x] T167 [RUNNABLE_NOW] Run focused deployment-signature, deployment-target, repository-policy, architecture, repository-harness, and Release build checks; record exact RED/GREEN evidence and all PASS/FAIL/BLOCKED/NOT_RUN classifications.
+- [x] T168 [RUNNABLE_NOW] Run architecture/repository-policy/diff checks and the approved Unit, PostgreSQL Integration at `127.0.0.1:5433/iump_dev`, Web, Fast, and fresh Full verification where applicable; never use port 5432, Docker, package installation, substitute databases, or secrets.
+- [x] T169 [RUNNABLE_NOW] Create `checklists/handle-bound-trust-implementation-checkpoint.md` with handle/read/identity/effective-access/process-classification evidence, T138–T140 reconciliation, current Git truth, blockers, AC-005/AC-011 `PARTIAL`, Acceptance evidence `NO`, Release-ready `NO`, and explicit no-Phase-7/no-Spec-004 scope.
+- [x] T170 [RUNNABLE_NOW] Run `git diff --check`, inspect the diff for secrets/private keys/real policy/SID/security-descriptor/temporary fixture artifacts, commit `fix(feature-003): bind deployment policy trust to file handles`, and stop without push, PR, merge, release, final review, or convergence.

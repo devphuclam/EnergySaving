@@ -61,11 +61,11 @@ High findings: F-01, F-02, F-03, F-04, F-05 — must be resolved before T139 com
 Actionable Medium findings: F-06, F-07 — must be resolved or explicitly dispositioned before
 T139/T140 completion.
 
-## Post-remediation independent rerun (T152/T153)
+## Historical post-remediation internal two-axis self-review rerun (T152/T153)
 
 Date: 2026-08-04
 
-The independent Standards and Specification axes were rerun against the latest working tree after
+The separate internal Standards and Specification axes were rerun against the latest working tree after
 the remediation changes. No Critical or High finding remains. The following evidence closes the
 initial findings:
 
@@ -87,3 +87,9 @@ PARTIAL, and provider-native Spec Kit commands remain `NOT_RUN`.
 
 Review gate after remediation: Critical=0, High=0, actionable Medium=0; T152/T153 may be marked
 complete after the fresh T151 ledger is synchronized.
+
+## Current review terminology
+
+The historical rerun above is internal agent evidence, not independent human review. For the current
+phase, Internal two-axis Standards/Specification self-review is the available evidence; independent
+human review is `NO`; GitHub CI/status evidence is `NO`.

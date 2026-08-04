@@ -1,8 +1,8 @@
-# Feature 003 release-readiness checkpoint (current state)
+# Feature 003 release-readiness checkpoint (historical T110-T123; current state below)
 
 Date: 2026-08-04
-Baseline: `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2` (previous corrective integrated to `main`)
-Branch: `fix/003-signed-approval-closure`
+Historical baseline: `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2` (previous corrective integrated to `main`)
+Historical branch: `fix/003-signed-approval-closure`
 Scope: T110–T123 final signed-approval and release-evidence corrective closure; no merge, Phase 7,
 or Feature 004.
 
@@ -58,13 +58,19 @@ or Feature 004.
 - SpecKit provider analysis/convergence: recorded honestly when the provider command is available,
   otherwise `NOT_RUN` with direct artifact comparison, never promoted to PASS.
 
-## Current task ledger state
+## Historical task ledger state (superseded 2026-08-04)
 
 - `task_count=123`, `unique_task_count=123`, no duplicate task IDs.
 - Unchecked tasks: historical T034 (`BLOCKED_BY_PACKAGE_POLICY`) only; T098–T123 are complete for
   this bounded closure.
 - T080/T087/T097 and the T098–T109 trusted-approval closure are historical corrective closures and
   remain labeled historical; they do not describe the current branch state.
+
+## Current task ledger state — Handle-Bound Trust Closure
+
+- `task_count=170`, `unique_task_count=170`, no duplicate task IDs.
+- T138-T140 and T157-T169 are checked; T170 is the commit-and-stop action.
+- Historical T034 remains classified under its prior package/company blocker.
 
 ## Historical entries (superseded)
 
@@ -83,7 +89,7 @@ but explicitly withholds Release-ready approval until the listed external capabi
 and rerun. Stop here; do not merge, create Spec 004, or start Rule, Alert, CSV, Reporting, or any
 other Phase 7 work.
 
-## Atomic signed-approval implementation checkpoint (current phase)
+## Historical atomic signed-approval implementation checkpoint (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: `90bafced98f80b3bbbe80bf86f81ef1c28b694ef` (authoritative merged `main`, PR #7)
@@ -111,7 +117,7 @@ The signed-approval contract remains fail-closed: missing company policy is
 approval. No port 5432, substitute database, package install, container, secret, Phase 7, or Spec
 004 work was used.
 
-## Atomic signed-approval review remediation checkpoint (current corrective phase)
+## Historical atomic signed-approval review remediation checkpoint (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: `37606adde7ac39476e53d9aaf43ded608e45038e` (authoritative merged `main`)
@@ -130,3 +136,24 @@ The provider-native Spec Kit analyze/implement/converge command is **NOT_RUN** b
 executable provider command is installed; direct convergence and final analysis are recorded in
 `atomic-review-remediation-convergence.md` without claiming provider PASS. This checkpoint is the
 stop boundary for the single implementation phase; it does not authorize merge or release.
+
+## Current post-merge handle-bound trust closure checkpoint boundary
+
+Date: 2026-08-04
+Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
+Corrective branch: `fix/003-handle-bound-trust-closure`
+Scope: T157-T170 only; no merge, push, PR, deployment, release, Phase 7, or Spec 004.
+
+The current phase is implementation-ready for its bounded handle-security and process-classification
+seams after direct analysis. Release-ready remains `NO`. AC-005 and AC-011 remain `PARTIAL` and
+acceptance evidence remains `NO`. Existing Full company-approval blockers and frontend package-policy
+blocking remain separate from the runnable focused checks. Current review terminology is:
+
+- Internal two-axis Standards/Specification self-review: `PASS` when the phase review is recorded.
+- Independent human review: `NO`.
+- GitHub CI/status evidence: `NO`.
+
+The provider-native Spec Kit command status is `NOT_RUN` because no executable provider command is
+available. T138-T140 are complete through their later evidence; T034 remains historical and blocked
+under its prior classification. This section is the sole current post-merge state for this phase;
+earlier corrective sections are historical.

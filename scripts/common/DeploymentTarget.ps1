@@ -28,15 +28,32 @@ function ConvertFrom-DeploymentVerifierProcessResult {
         [AllowNull()][object[]]$Stdout = @(),
         [Parameter(Mandatory)][int]$ProcessExitCode,
         [AllowNull()][string]$InvocationError = $null,
+        [AllowNull()][ValidateSet('MissingCommand', 'MissingProject', 'MissingRuntime', 'ProcessStartFailure', 'ProcessExitedWithoutProtocol', 'StructuredResult')][string]$InvocationOutcome = $null,
         [switch]$Production
     )
 
-    if (-not [string]::IsNullOrWhiteSpace($InvocationError)) {
+    $outcome = $InvocationOutcome
+    if ([string]::IsNullOrWhiteSpace($outcome) -and -not [string]::IsNullOrWhiteSpace($InvocationError)) {
+        $outcome = switch ($InvocationError) {
+            'process-start-failure' { 'ProcessStartFailure' }
+            'verifier-process-failure' { 'ProcessExitedWithoutProtocol' }
+            default { 'ProcessStartFailure' }
+        }
+    }
+    if ($outcome -in @('MissingCommand', 'MissingProject', 'MissingRuntime', 'ProcessStartFailure')) {
         return [pscustomobject]@{
             Classification = 'BLOCKED_BY_MISSING_TOOL'
             ExitCode = 20
             BlockerId = 'BLK-ENV-001'
             Evidence = 'signed approval verifier process could not be started'
+        }
+    }
+    if ($outcome -eq 'ProcessExitedWithoutProtocol') {
+        return [pscustomobject]@{
+            Classification = 'FAIL'
+            ExitCode = 1
+            BlockerId = $null
+            Evidence = 'signed approval verifier process exited without a structured protocol result'
         }
     }
 
@@ -189,28 +206,18 @@ function Invoke-DeploymentSignatureVerifier {
         )
 
         $invocationError = $null
+        $invocationOutcome = 'StructuredResult'
         try {
             $output = @(& dotnet @arguments 2> $stderrPath)
             $processExitCode = [int]$LASTEXITCODE
         }
         catch {
-            $invocationError = 'process-start-failure'
+            $invocationOutcome = 'ProcessStartFailure'
             $processExitCode = 20
             $output = @()
         }
-        if ([string]::IsNullOrWhiteSpace($invocationError) -and $processExitCode -ne 0) {
-            $protocolLines = @($output | ForEach-Object {
-                    $line = ([string]$_).Trim()
-                    if ($line.StartsWith('IUMP_VERIFICATION_RESULT=', [StringComparison]::Ordinal)) {
-                        $line
-                    }
-                })
-            if ($protocolLines.Count -eq 0) {
-                $invocationError = 'verifier-process-failure'
-            }
-        }
         ConvertFrom-DeploymentVerifierProcessResult -Stdout $output -ProcessExitCode $processExitCode `
-            -InvocationError $invocationError -Production
+            -InvocationError $invocationError -InvocationOutcome $invocationOutcome -Production
     }
     finally {
         Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
