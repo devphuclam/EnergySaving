@@ -179,7 +179,7 @@ passing.
   mandatory gate); see `docs/decision-log.md` for the source-of-truth decision.
 - `verification-results.json` contains no credential values.
 
-## Current Feature 003 handle-bound trust closure guidance
+## Historical Feature 003 handle-bound trust closure guidance (superseded 2026-08-04)
 
 The current Feature 003 corrective phase starts from merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
 on `fix/003-handle-bound-trust-closure`. The deployment policy verifier must read policy bytes,
@@ -190,3 +190,14 @@ never a pathname-only PASS. A started verifier process that exits without one va
 protocol result is `FAIL`; only pre-start command/project/runtime/process-start failures are missing-tool
 blockers. Provider-native Spec Kit commands remain `NOT_RUN` when unavailable, and direct artifact
 comparison is not provider PASS. This guidance does not alter the product boundary or release gate.
+
+## Current Feature 003 final handle-trust review guidance
+
+The current corrective branch is `fix/003-final-handle-trust-review` from merged `main`
+`f0ed6cb8a2e8875415b737683aaebf4d3409d367`. Higher-ancestor effective access must include
+`FILE_DELETE_CHILD`, `DELETE`, `WRITE_DAC`, and `WRITE_OWNER`; unrelated sibling creation is not
+descendant replacement. Focused fixture evidence uses real Windows self-relative descriptors and
+the production `AccessCheck` implementation through a fixture-only seam. Safe/read-only/explicit-
+deny results are safe, unsafe rights are rejected, and invalid capability remains
+`BLOCKED_BY_MISSING_TOOL`/`BLK-ENV-001`. Handle/path, reparse, one-read identity, process
+classification, and product/release boundaries remain unchanged.

@@ -106,7 +106,7 @@ The fresh Full harness remains `BLOCKED` by `BLK-ENV-003` and `BLK-ENV-005`; fro
 `BLOCKED_BY_PACKAGE_POLICY`. Provider-native Spec Kit commands are `NOT_RUN`; direct convergence
 is recorded separately. No evidence in this remediation promotes Release-ready above `NO`.
 
-## Current post-merge handle-bound trust closure boundary
+## Historical post-merge handle-bound trust closure boundary (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
@@ -123,3 +123,24 @@ AC-005 and AC-011 remain `PARTIAL`; acceptance evidence is `NO`; Release-ready i
 existing approved browser/process-control and company deployment/CI evidence. Independent human
 review is `NO`, GitHub CI/status evidence is `NO`, and provider-native Spec Kit commands are
 `NOT_RUN` when unavailable.
+
+## Current Final Handle-Trust Review Closure boundary
+
+Date: 2026-08-04
+Baseline: merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`
+Merged corrective: `22ba9164b64fed51e13ad47780afc4fb354185fb` (directly integrated into `main`)
+Corrective branch: `fix/003-final-handle-trust-review`
+
+T171-T181 are limited to the higher-ancestor trust threat and evidence boundary. The production
+rights set now includes effective `FILE_DELETE_CHILD`, `DELETE`, `WRITE_DAC`, and `WRITE_OWNER` for
+higher ancestors, while unrelated sibling-creation rights remain outside descendant replacement
+semantics. A fixture-only self-relative descriptor seam calls the production Windows `AccessCheck`
+implementation and records safe/read-only/unsafe/explicit-deny/invalid-capability outcomes without
+creating production approval evidence. The existing fixed path, reparse checks, same-handle identity
+and byte snapshot, and started-process classification remain unchanged.
+
+Current truth: direct merge `YES`; corrective PR for this branch `NO`; reviewer `NO`; independent
+human review `NO`; GitHub CI/status evidence `NO`; internal two-axis Standards/Specification review
+is agent evidence only. AC-005 and AC-011 remain `PARTIAL`; acceptance evidence is `NO`; Release-ready
+is `NO`; provider-native Analyze/Implement/Converge is `NOT_RUN` when unavailable. No Phase 7,
+Spec 004, product capability, release, or deployment is included.

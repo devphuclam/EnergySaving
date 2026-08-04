@@ -13,6 +13,8 @@ $aclSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\Deploymen
 $pathSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\CanonicalPathPolicy.cs')
 $handleSecurityPath = Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\HandleSecurityEvaluator.cs'
 $handleSecuritySource = if (Test-Path -LiteralPath $handleSecurityPath) { Get-Content -Raw $handleSecurityPath } else { '' }
+$handleTestSeamPath = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\HandleSecurityEvaluatorTestSeam.cs'
+$handleTestSeamSource = if (Test-Path -LiteralPath $handleTestSeamPath) { Get-Content -Raw $handleTestSeamPath } else { '' }
 
 function Assert-SourceContains {
     param([string]$Text, [string]$Expected, [string]$Name)
@@ -32,6 +34,15 @@ function Assert-SourceNotContains {
     }
 }
 
+function Assert-SourcePattern {
+    param([string]$Text, [string]$Pattern, [string]$Name)
+    $script:checks++
+    if ($Text -notmatch $Pattern) {
+        $script:failures++
+        Write-Error ("FAIL: {0}; missing pattern={1}" -f $Name, $Pattern)
+    }
+}
+
 Assert-SourceContains $verifierSource 'allowedSignerCertificateSha256' 'policy v2 certificate SHA-256 identity'
 Assert-SourceContains $verifierSource 'policyReadCount' 'policy single-read evidence'
 Assert-SourceContains $verifierSource 'X509RevocationMode.Online' 'online revocation support'
@@ -40,9 +51,11 @@ Assert-SourceContains $verifierSource 'HandleSecurityEvaluator' 'production poli
 Assert-SourceContains $handleSecuritySource 'GetSecurityInfo' 'handle security descriptor retrieval'
 Assert-SourceContains $handleSecuritySource 'AccessCheck' 'Windows effective-access evaluation'
 Assert-SourceContains $handleSecuritySource 'GetFileInformationByHandle' 'handle file identity retrieval'
+Assert-SourceContains $handleTestSeamSource 'HasUnsafeEffectiveAccessForTest' 'fixture-only effective-access seam'
 Assert-SourceContains $verifierSource 'FileShare.Read' 'policy snapshot denies write/delete sharing'
 Assert-SourceNotContains $verifierSource 'GetAccessControl' 'production policy does not reopen pathname ACLs'
 Assert-SourceNotContains $verifierSource 'PolicyAclEvaluator.HasEffectiveUnsafePermission' 'production policy does not use custom ACL authority'
+Assert-SourceNotContains $verifierSource 'HasUnsafeEffectiveAccessForTest' 'production verifier does not use fixture seam'
 Assert-SourceContains $verifierSource 'ReadPolicySnapshot' 'policy single-read implementation'
 Assert-SourceContains $pathSource 'CanonicalizeRoot' 'root path canonicalization'
 Assert-SourceContains $verifierSource 'CanonicalPathPolicy.CanonicalizeRoot' 'verifier uses rooted path policy'
@@ -50,6 +63,7 @@ Assert-SourceContains $verifierSource 'Path.GetFullPath(Path.Combine' 'rooted an
 Assert-SourceContains $verifierSource 'HandleSecurityTarget.PolicyFile' 'policy file threat model seam'
 Assert-SourceContains $verifierSource 'HandleSecurityTarget.ImmediateDirectory' 'immediate policy directory threat model seam'
 Assert-SourceContains $verifierSource 'HandleSecurityTarget.AncestorDirectory' 'higher policy ancestor threat model seam'
+Assert-SourcePattern $handleSecuritySource '(?s)AncestorUnsafeRights\s*=\s*\[\s*FileDeleteChild' 'ancestor delete-child threat right'
 Assert-SourceContains $aclSource 'InheritanceFlags' 'ACL inheritance applicability'
 Assert-SourceContains $aclSource 'PropagationFlags' 'ACL propagation applicability'
 Assert-SourceContains $aclSource 'AccessControlType.Deny' 'ACL deny precedence'
@@ -267,6 +281,22 @@ try {
     $capability = Invoke-HandleScenario -Scenario 'handle-capability'
     Assert-Equal $capability.ExitCode 0 'missing handle capability fixture exit'
     Assert-Equal $capability.Result.capabilityUnavailable $true 'missing handle capability fails closed'
+
+    $effective = Invoke-HandleScenario -Scenario 'effective-access'
+    Assert-Equal $effective.ExitCode 0 'positive effective-access fixture exit'
+    Assert-Equal $effective.Result.safeNoUnsafe $true 'empty descriptor has no unsafe access'
+    Assert-Equal $effective.Result.readOnlySafe $true 'read-only descriptor is safe'
+    Assert-Equal $effective.Result.writeDataUnsafe $true 'effective FILE_WRITE_DATA is unsafe'
+    Assert-Equal $effective.Result.deleteUnsafe $true 'effective DELETE is unsafe'
+    Assert-Equal $effective.Result.ancestorDeleteUnsafe $true 'ancestor DELETE is unsafe'
+    Assert-Equal $effective.Result.ancestorDeleteChildUnsafe $true 'ancestor FILE_DELETE_CHILD is unsafe'
+    Assert-Equal $effective.Result.writeDacUnsafe $true 'effective WRITE_DAC is unsafe'
+    Assert-Equal $effective.Result.ancestorWriteDacUnsafe $true 'ancestor WRITE_DAC is unsafe'
+    Assert-Equal $effective.Result.writeOwnerUnsafe $true 'effective WRITE_OWNER is unsafe'
+    Assert-Equal $effective.Result.ancestorWriteOwnerUnsafe $true 'ancestor WRITE_OWNER is unsafe'
+    Assert-Equal $effective.Result.explicitDenySafe $true 'explicit deny wins in AccessCheck'
+    Assert-Equal $effective.Result.ancestorSiblingCreateSafe $true 'ancestor sibling creation is not descendant replacement'
+    Assert-Equal $effective.Result.invalidDescriptorBlocked $true 'invalid descriptor fails closed'
 
     $missingPolicy = Invoke-SyntheticVerifier -Fixture $valid -PolicyPath (Join-Path $tempRoot 'missing-policy.json')
     Assert-Equal $missingPolicy.status 'BLOCKED' 'missing trust anchor status'

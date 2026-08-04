@@ -66,7 +66,7 @@ or Feature 004.
 - T080/T087/T097 and the T098–T109 trusted-approval closure are historical corrective closures and
   remain labeled historical; they do not describe the current branch state.
 
-## Current task ledger state — Handle-Bound Trust Closure
+## Historical task ledger state — Handle-Bound Trust Closure (superseded 2026-08-04)
 
 - `task_count=170`, `unique_task_count=170`, no duplicate task IDs.
 - T138-T140 and T157-T169 are checked; T170 is the commit-and-stop action.
@@ -137,7 +137,7 @@ executable provider command is installed; direct convergence and final analysis 
 `atomic-review-remediation-convergence.md` without claiming provider PASS. This checkpoint is the
 stop boundary for the single implementation phase; it does not authorize merge or release.
 
-## Current post-merge handle-bound trust closure checkpoint boundary
+## Historical post-merge handle-bound trust closure checkpoint boundary (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
@@ -157,3 +157,31 @@ The provider-native Spec Kit command status is `NOT_RUN` because no executable p
 available. T138-T140 are complete through their later evidence; T034 remains historical and blocked
 under its prior classification. This section is the sole current post-merge state for this phase;
 earlier corrective sections are historical.
+
+## Current Final Handle-Trust Review Closure checkpoint boundary
+
+Date: 2026-08-04
+Baseline: merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`
+Merged corrective: `22ba9164b64fed51e13ad47780afc4fb354185fb` (direct integration `YES`)
+Corrective branch: `fix/003-final-handle-trust-review`
+Scope: T171-T181 only; no merge, tag, release, Phase 7, or Spec 004.
+
+| State | Result | Evidence / rationale |
+|---|---|---|
+| Planning-ready | YES | Direct F-13/F-14/F-15 analysis is recorded in `final-handle-trust-review-analyze.md`; T171-T181 are dependency ordered. |
+| Implementation-ready | YES | The bounded phase uses red evidence, minimal green changes, focused verification, and no unresolved Critical/High review finding. |
+| Code implementation complete | YES (bounded) | Higher-ancestor `FILE_DELETE_CHILD` is evaluated; fixture-only real Windows `AccessCheck` evidence covers safe, read-only, unsafe, deny, and invalid capability outcomes. |
+| Acceptance evidence complete | NO | AC-005 and AC-011 remain `PARTIAL`; no new product acceptance journey is claimed. |
+| Release-ready | NO | `BLK-ENV-003` and `BLK-ENV-005` remain company-approval blockers; frontend behavior remains package-policy blocked. |
+
+The current verification evidence is focused deployment-signature `96/0`, deployment-target
+`99/0`, solution Release build 0 warnings/0 errors, Unit PASS, PostgreSQL Integration 15 suites /
+0 failures against `127.0.0.1:5433/iump_dev`, Web lint/build PASS, repository policy/architecture/
+harness PASS, Fast exit 0 (`PASS=14`), and fresh Full exit 20 (`PASS=17`,
+`BLOCKED_BY_COMPANY_APPROVAL=2`). Full is explicitly non-passing because the blockers are real;
+there is no mandatory FAIL. Provider-native Spec Kit commands are `NOT_RUN` when unavailable.
+
+Standards/Specification review is internal agent evidence only (`PASS`, 0 Critical/High/actionable
+Medium); independent human review and GitHub CI/status evidence are `NO`. No secret, private key,
+real policy, production certificate/manifest, raw descriptor, port 5432, Docker, package install,
+substitute database, deployment, or release action was used.

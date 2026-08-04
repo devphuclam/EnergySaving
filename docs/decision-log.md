@@ -390,7 +390,7 @@ recorded in the feature checklist without claiming provider PASS.
 merge, release, Phase 7, Spec 004, package installation, container, port 5432, secret, or
 credential change is implied.
 
-### Current post-merge handle-bound trust closure
+### Historical post-merge handle-bound trust closure (superseded 2026-08-04)
 
 **Date**: 2026-08-04
 **Baseline**: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
@@ -410,3 +410,26 @@ GitHub CI/status evidence is `NO`. AC-005/AC-011 remain `PARTIAL` and Release-re
 
 **Scope**: one bounded implementation phase only; no merge, push, PR, deployment, release, Phase 7,
 Spec 004, package installation, Docker, port 5432, secret, or credential change is implied.
+
+### Current Final Handle-Trust Review Closure
+
+**Date**: 2026-08-04
+**Baseline**: merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`
+**Merged corrective**: `22ba9164b64fed51e13ad47780afc4fb354185fb` (directly integrated)
+**Branch**: `fix/003-final-handle-trust-review`
+
+The final bounded trust review adds effective `FILE_DELETE_CHILD` to higher-ancestor threat
+evaluation and proves safe/read-only/unsafe/deny outcomes through a fixture-only self-relative
+descriptor seam that invokes the production Windows `AccessCheck`. The fixed path, reparse checks,
+same-handle identity/security/byte snapshot, process classification, policy v2, CMS/PKCS#7,
+certificate/revocation, manifest, and product semantics remain unchanged. Invalid Windows security
+capability remains `BLOCKED_BY_MISSING_TOOL`/`BLK-ENV-001`; no synthetic descriptor is production
+approval evidence.
+
+Standards and Specification reviews are internal agent evidence only (`PASS`, no Critical/High/
+actionable Medium findings); independent human review and GitHub CI/status evidence are `NO`.
+AC-005/AC-011 remain `PARTIAL`, acceptance evidence is `NO`, and Release-ready is `NO`. Provider-
+native Spec Kit commands are `NOT_RUN` when unavailable.
+
+**Scope**: T171-T181 only; no Phase 7, Spec 004, product capability, release approval, merge,
+package installation, Docker, port 5432, secret, or credential change is implied.

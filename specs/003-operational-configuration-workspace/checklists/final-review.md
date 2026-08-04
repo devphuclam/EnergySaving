@@ -145,7 +145,7 @@ checks, 0 failures`; `deployment-target` contract `47 checks, 0 failures`; Relea
 warnings/0 errors. These review results are agent review evidence only and are not independent
 human review.
 
-## Current review status — Post-Merge Handle-Bound Trust Closure
+## Historical review status — Post-Merge Handle-Bound Trust Closure (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
@@ -162,3 +162,39 @@ The historical review sections above are not human approval evidence. Provider-n
 review/analyze/converge commands are `NOT_RUN` when unavailable, and direct comparison is not
 reported as provider PASS. No Critical or High finding is silently waived; Release-ready remains
 `NO`.
+
+## Current Final Handle-Trust Review Closure (T177-T178)
+
+Date: 2026-08-04
+Baseline: merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`
+Merged corrective: `22ba9164b64fed51e13ad47780afc4fb354185fb` (directly integrated into `main`)
+Branch: `fix/003-final-handle-trust-review`
+
+### Standards Review
+
+Result: **PASS — Critical 0 / High 0 / actionable Medium 0**.
+
+The review confirmed that `FILE_DELETE_CHILD` is included only in the higher-ancestor threat set;
+unrelated sibling-creation rights remain safe. The fixture-only partial seam calls the production
+Windows `AccessCheck` implementation against self-relative descriptors, frees every descriptor,
+does not print SDDL/SID/path/secret material, and maps invalid capability to the existing blocked
+classification. The production verifier still uses the fixed path, reparse checks, same-handle
+identity/security/byte snapshot, and started-process `FAIL` classification. No pathname ACL authority,
+custom production evaluator, insecure fallback, package install, Docker, port 5432, or unrelated
+feature work was introduced.
+
+### Specification Review
+
+Result: **PASS — Critical 0 / High 0 / actionable Medium 0**.
+
+The T171-T181 scope matches the requested Final Handle-Trust Review Closure: ancestor delete-child
+coverage, positive effective-access evidence, handle/path review, evidence synchronization, and
+explicit stop. The deterministic contract covers no-unsafe/read-only, `FILE_WRITE_DATA`, `DELETE`,
+`FILE_DELETE_CHILD`, `WRITE_DAC`, `WRITE_OWNER`, explicit deny, ancestor read/execute, and unrelated
+sibling creation. Constitution 1.1.0, DOC-05/DOC-07, Feature 003 acceptance semantics, AC-005/
+AC-011 `PARTIAL`, and Release-ready `NO` remain aligned. No policy/CMS/certificate/manifest change,
+Phase 7, Spec 004, or product capability was added.
+
+These are internal two-axis agent reviews only; they are not independent human review, company
+approval, GitHub CI/status evidence, or release approval. Provider-native review/analyze/converge
+commands remain `NOT_RUN` when unavailable.

@@ -361,9 +361,10 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Final Signed-Approval and Release-Evidence Corrective Closure | 14 | T110-T123 |
 | Atomic Signed-Approval and Post-Merge Corrective Closure | 17 | T124-T140 |
 | Atomic Signed-Approval Review Remediation | 16 | T141-T156 |
-| Historical total before current phase | **156** | **T001-T156** |
-| Post-Merge Handle-Bound Trust Closure | 14 | T157-T170 |
-| **Current total** | **170** | **T001-T170** |
+| Historical total before current phase | **170** | **T001-T170** |
+| Post-Merge Handle-Bound Trust Closure | 14 | T157-T170 (historical) |
+| Final Handle-Trust Review Closure | 11 | T171-T181 |
+| **Current total** | **181** | **T001-T181** |
 
 **Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
@@ -377,11 +378,12 @@ The current atomic signed-approval run is the additive T124-T140 corrective clos
 stops at the Constitution-required implementation checkpoint after T137; T138-T140 remain pending
 for an explicitly authorized continuation.
 
-The current Post-Merge Handle-Bound Trust Closure is the additive T157-T170 phase from merged main
+The Post-Merge Handle-Bound Trust Closure is historical additive work T157-T170 from merged main
 `4b4713cb42b1a03270a2688b344988d2945bab2c` on `fix/003-handle-bound-trust-closure`. T138-T140 are
 reconciled as complete by their later evidence; T034 remains historically classified by its package
-or company-approval blocker. This phase stops at its implementation checkpoint and does not merge,
-release, create Phase 7, or create Spec 004.
+or company-approval blocker. The current invocation is the additive Final Handle-Trust Review
+Closure T171-T181 from merged main `f0ed6cb8a2e8875415b737683aaebf4d3409d367` on
+`fix/003-final-handle-trust-review`; it does not create Phase 7, Spec 004, or product capability.
 
 ---
 
@@ -449,3 +451,26 @@ product capability.
 - [x] T168 [RUNNABLE_NOW] Run architecture/repository-policy/diff checks and the approved Unit, PostgreSQL Integration at `127.0.0.1:5433/iump_dev`, Web, Fast, and fresh Full verification where applicable; never use port 5432, Docker, package installation, substitute databases, or secrets.
 - [x] T169 [RUNNABLE_NOW] Create `checklists/handle-bound-trust-implementation-checkpoint.md` with handle/read/identity/effective-access/process-classification evidence, T138–T140 reconciliation, current Git truth, blockers, AC-005/AC-011 `PARTIAL`, Acceptance evidence `NO`, Release-ready `NO`, and explicit no-Phase-7/no-Spec-004 scope.
 - [x] T170 [RUNNABLE_NOW] Run `git diff --check`, inspect the diff for secrets/private keys/real policy/SID/security-descriptor/temporary fixture artifacts, commit `fix(feature-003): bind deployment policy trust to file handles`, and stop without push, PR, merge, release, final review, or convergence.
+
+---
+
+## Final Handle-Trust Review Closure
+
+This additive corrective phase starts from merged `main` commit
+`f0ed6cb8a2e8875415b737683aaebf4d3409d367` and uses branch
+`fix/003-final-handle-trust-review`. It addresses only higher-ancestor delete-child threat
+coverage, positive Windows effective-access evidence, handle/path boundary review, and post-merge
+truth synchronization. It does not redesign the trust architecture, change policy/CMS/certificate
+semantics, create Phase 7 or Spec 004, add product capability, or perform release approval.
+
+- [x] T171 [RUNNABLE_NOW] Record read-only direct Analyze findings F-13 through F-15, provider `NOT_RUN`, source precedence, and the bounded Final Handle-Trust Review Closure gate in `checklists/final-handle-trust-review-analyze.md`.
+- [x] T172 [P] [RUNNABLE_NOW] Add a red deterministic fixture assertion proving higher-ancestor `FILE_DELETE_CHILD` is unsafe while read/execute-only and unrelated sibling-creation rights remain safe for `HandleSecurityTarget.AncestorDirectory`.
+- [x] T173 [P] [RUNNABLE_NOW] Add a red positive effective-access contract using real Windows security descriptors and `AccessCheck` for safe/no-unsafe, read-only, write-data, delete, delete-child, `WRITE_DAC`, `WRITE_OWNER`, and explicit-deny scenarios, including invalid-descriptor capability classification.
+- [x] T174 [RUNNABLE_NOW] Implement `FILE_DELETE_CHILD` in higher-ancestor threat rights without adding unrelated sibling-creation rights, preserving the fixed policy path and existing handle-bound flow.
+- [x] T175 [RUNNABLE_NOW] Add the test-only effective-access seam that exercises the production Windows `AccessCheck` implementation against deterministic in-memory self-relative descriptors without making the seam production authority.
+- [x] T176 [RUNNABLE_NOW] Run focused regression, Release build, Unit, PostgreSQL Integration at `127.0.0.1:5433/iump_dev`, Web lint/build, repository policy/architecture/harness, Fast, and fresh Full checks; record exact PASS/FAIL/BLOCKED/NOT_RUN classifications without port 5432, Docker, package installation, substitutes, or secrets.
+- [x] T177 [RUNNABLE_NOW] Perform the final Standards Review for T171-T176 covering ancestor delete-child, handle identity/security, effective access, path/reparse boundaries, process classification, redaction, fixture cleanup, and maintainability; resolve all Critical/High/actionable Medium findings.
+- [x] T178 [RUNNABLE_NOW] Perform the final Specification Review for T171-T176 against Constitution 1.1.0, DOC-05, DOC-07, Feature 003 artifacts, acceptance criteria, task dependencies, and release gates; resolve all Critical/High/actionable Medium findings without calling self-review human approval.
+- [x] T179 [RUNNABLE_NOW] Synchronize current post-merge truth in `spec.md`, `plan.md`, acceptance traceability, release checkpoint, final verification/review, decision log, and checkpoint artifacts with `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`, merged corrective `22ba9164b64fed51e13ad47780afc4fb354185fb`, direct integration `YES`, PR/reviewer/CI evidence `NO`, AC-005/AC-011 `PARTIAL`, and Release-ready `NO`.
+- [x] T180 [RUNNABLE_NOW] Run final direct artifact/code/task comparison (provider-native Analyze/Converge remains `NOT_RUN` when unavailable), verify T001-T181 unique IDs and no Phase 7/Spec 004/scope creep, create `checklists/final-handle-trust-review-checkpoint.md`, and record remaining external blockers.
+- [x] T181 [RUNNABLE_NOW] Run `git diff --check`, inspect for secrets/private keys/real policy/certificates/manifests/raw descriptors/SIDs/temporary fixtures/bin/obj/unrelated work, commit `fix(feature-003): close final handle trust review`, push only `fix/003-final-handle-trust-review`, and stop without merge, force-push, tag, release, Phase 7, or Spec 004.

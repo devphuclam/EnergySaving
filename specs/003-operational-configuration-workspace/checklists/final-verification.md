@@ -207,7 +207,7 @@ rejection, evidence redaction, and process-start failure. Chain status scenarios
 mixed, revocation-unavailable-only, and empty failed chains. AC-005 and AC-011 remain PARTIAL;
 Release-ready remains NO. Provider-native Spec Kit analyze/converge remains `NOT_RUN`.
 
-## Current post-merge handle-bound trust closure verification
+## Historical post-merge handle-bound trust closure verification (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
@@ -226,3 +226,33 @@ Current review terminology: Internal two-axis Standards/Specification self-revie
 agent evidence; independent human review is `NO`; GitHub CI/status evidence is `NO`. Provider-native
 Spec Kit commands are `NOT_RUN` when unavailable. No port 5432, Docker, package installation,
 substitute database, secret, private key, real policy, or production manifest was used.
+
+## Current Final Handle-Trust Review Closure verification
+
+Date: 2026-08-04
+Baseline: merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`
+Merged corrective: `22ba9164b64fed51e13ad47780afc4fb354185fb` (direct integration `YES`)
+Corrective branch: `fix/003-final-handle-trust-review`
+Database target: PostgreSQL `127.0.0.1:5433/iump_dev` only; port 5432 was not contacted.
+
+| Command/check | Exit | Classification | Evidence |
+|---|---:|---|---|
+| Focused deployment-signature | 0 | PASS / RUNNABLE_NOW | 96 checks, 0 failures; ancestor delete-child and positive AccessCheck contract included |
+| Focused deployment-target | 0 | PASS / RUNNABLE_NOW | 99 checks, 0 failures; started no-protocol remains FAIL |
+| `dotnet build .\IUMP.slnx --no-restore --configuration Release` | 0 | PASS / RUNNABLE_NOW | 0 warnings, 0 errors |
+| Unit (`scripts/test.ps1`) | 0 | PASS / RUNNABLE_NOW | all registered suites passed |
+| PostgreSQL Integration | 0 | PASS / RUNNABLE_NOW | 15 suites, 0 failures at approved target |
+| Web `npm run lint` | 0 | PASS / RUNNABLE_NOW | existing Fast Refresh warnings only; no install/download |
+| Web `npm run build` | 0 | PASS / RUNNABLE_NOW | TypeScript/Vite build succeeded |
+| Repository policy/architecture/harness | 0 | PASS / RUNNABLE_NOW | all three contracts passed |
+| Fast Feature 003 | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=14` |
+| Full Feature 003 | 20 | BLOCKED | `PASS=17`; `BLK-ENV-003` and `BLK-ENV-005`; no mandatory FAIL |
+| `git diff --check` | 0 | PASS / RUNNABLE_NOW | no whitespace errors |
+
+TDD evidence is explicit: the red run failed on the missing ancestor `FILE_DELETE_CHILD` source
+contract and absent effective-access fixture; the green run produced the deterministic safe,
+read-only, unsafe, explicit-deny, ancestor, and invalid-capability results. The descriptor seam is
+fixture-only and emits only booleans/counts; no SID, raw descriptor, policy bytes, or path is output.
+AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is `NO`, and Release-ready is `NO`.
+Independent human review and GitHub CI/status evidence are `NO`; provider-native Spec Kit commands
+remain `NOT_RUN` when unavailable.

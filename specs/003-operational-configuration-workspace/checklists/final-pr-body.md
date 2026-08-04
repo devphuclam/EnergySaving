@@ -184,7 +184,7 @@ reviewer was requested.
 - Human review completed: NO; reviewer request: NO; CI/status check: NO.
 - Push branch: performed after this closure (push branch as the final step); merge performed: NO.
 
-## Current post-merge handle-bound trust closure Git boundary
+## Historical post-merge handle-bound trust closure Git boundary (superseded 2026-08-04)
 
 This invocation does not prepare or create a PR. The implementation checkpoint is on
 `fix/003-handle-bound-trust-closure` from merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`.
@@ -193,3 +193,13 @@ The only permitted Git mutation after the checkpoint is the local corrective com
 CI/status evidence, deployment, and release are all `NO`/`NOT_RUN`. Internal two-axis
 Standards/Specification self-review is the available prior agent evidence; independent human review
 is `NO`, GitHub CI/status evidence is `NO`, and Release-ready remains `NO`.
+
+## Current Final Handle-Trust Review Closure Git boundary
+
+Baseline is merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`, including corrective
+`22ba9164b64fed51e13ad47780afc4fb354185fb`. This closure uses branch
+`fix/003-final-handle-trust-review`. The allowed final Git action is the exact local commit
+`fix(feature-003): close final handle trust review` followed by pushing only this branch. No merge,
+force-push, tag, release, deployment, PR approval, reviewer approval, or GitHub CI/status evidence
+is claimed. Internal Standards/Specification review is agent evidence only; independent human review
+is `NO`, AC-005/AC-011 are `PARTIAL`, and Release-ready is `NO`.

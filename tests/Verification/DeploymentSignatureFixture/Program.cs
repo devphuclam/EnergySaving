@@ -3,6 +3,8 @@ using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 
@@ -225,6 +227,74 @@ if (options.ContainsKey("handle-capability"))
     }
 }
 
+if (options.ContainsKey("effective-access"))
+{
+    var capabilityUnavailable = false;
+    var safeNoUnsafe = false;
+    var readOnlySafe = false;
+    var writeDataUnsafe = false;
+    var deleteUnsafe = false;
+    var ancestorDeleteUnsafe = false;
+    var ancestorDeleteChildUnsafe = false;
+    var writeDacUnsafe = false;
+    var ancestorWriteDacUnsafe = false;
+    var writeOwnerUnsafe = false;
+    var ancestorWriteOwnerUnsafe = false;
+    var explicitDenySafe = false;
+    var ancestorSiblingCreateSafe = false;
+    var invalidDescriptorBlocked = false;
+    try
+    {
+        var currentSid = WindowsIdentity.GetCurrent().User?.Value
+            ?? throw new HandleSecurityCapabilityUnavailableException("current user SID unavailable");
+        safeNoUnsafe = !EvaluateDescriptor("D:", HandleSecurityTarget.AncestorDirectory);
+        readOnlySafe = !EvaluateDescriptor($"D:(A;;GR;;;{currentSid})", HandleSecurityTarget.AncestorDirectory);
+        writeDataUnsafe = EvaluateDescriptor($"D:(A;;0x00000002;;;{currentSid})", HandleSecurityTarget.PolicyFile);
+        deleteUnsafe = EvaluateDescriptor($"D:(A;;SD;;;{currentSid})", HandleSecurityTarget.PolicyFile);
+        ancestorDeleteUnsafe = EvaluateDescriptor($"D:(A;;SD;;;{currentSid})", HandleSecurityTarget.AncestorDirectory);
+        ancestorDeleteChildUnsafe = EvaluateDescriptor($"D:(A;;0x00000040;;;{currentSid})", HandleSecurityTarget.AncestorDirectory);
+        writeDacUnsafe = EvaluateDescriptor($"D:(A;;WD;;;{currentSid})", HandleSecurityTarget.PolicyFile);
+        ancestorWriteDacUnsafe = EvaluateDescriptor($"D:(A;;WD;;;{currentSid})", HandleSecurityTarget.AncestorDirectory);
+        writeOwnerUnsafe = EvaluateDescriptor($"D:(A;;WO;;;{currentSid})", HandleSecurityTarget.PolicyFile);
+        ancestorWriteOwnerUnsafe = EvaluateDescriptor($"D:(A;;WO;;;{currentSid})", HandleSecurityTarget.AncestorDirectory);
+        explicitDenySafe = !EvaluateDescriptor($"D:(D;;0x00000002;;;{currentSid})(A;;GA;;;{currentSid})", HandleSecurityTarget.PolicyFile);
+        ancestorSiblingCreateSafe = !EvaluateDescriptor($"D:(A;;CC;;;{currentSid})", HandleSecurityTarget.AncestorDirectory);
+        try
+        {
+            _ = HandleSecurityEvaluator.HasUnsafeEffectiveAccessForTest(
+                IntPtr.Zero,
+                HandleSecurityTarget.PolicyFile);
+        }
+        catch (HandleSecurityCapabilityUnavailableException)
+        {
+            invalidDescriptorBlocked = true;
+        }
+    }
+    catch (HandleSecurityCapabilityUnavailableException)
+    {
+        capabilityUnavailable = true;
+    }
+
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        safeNoUnsafe,
+        readOnlySafe,
+        writeDataUnsafe,
+        deleteUnsafe,
+        ancestorDeleteUnsafe,
+        ancestorDeleteChildUnsafe,
+        writeDacUnsafe,
+        ancestorWriteDacUnsafe,
+        writeOwnerUnsafe,
+        ancestorWriteOwnerUnsafe,
+        explicitDenySafe,
+        ancestorSiblingCreateSafe,
+        invalidDescriptorBlocked,
+        capabilityUnavailable
+    }));
+    Environment.Exit(capabilityUnavailable ? 20 : 0);
+}
+
 var root = Require(options, "root");
 Directory.CreateDirectory(root);
 
@@ -352,3 +422,44 @@ static string Require(IReadOnlyDictionary<string, string> options, string key) =
     options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
         ? value
         : throw new ArgumentException("missing fixture argument");
+
+[SupportedOSPlatform("windows")]
+static bool EvaluateDescriptor(string sddl, HandleSecurityTarget target)
+{
+    const string descriptorOwnerSid = "S-1-5-21-111111111-222222222-333333333-999";
+    var descriptorSddl = $"O:{descriptorOwnerSid}G:{descriptorOwnerSid}{sddl}";
+    if (!SecurityDescriptorFixtureNative.ConvertStringSecurityDescriptorToSecurityDescriptor(
+            descriptorSddl,
+            SecurityDescriptorFixtureNative.StringSecurityDescriptorRevision,
+            out var descriptor,
+            out _))
+    {
+        throw new HandleSecurityCapabilityUnavailableException("Windows test descriptor conversion is unavailable");
+    }
+
+    try
+    {
+        return HandleSecurityEvaluator.HasUnsafeEffectiveAccessForTest(descriptor, target);
+    }
+    finally
+    {
+        _ = SecurityDescriptorFixtureNative.LocalFree(descriptor);
+    }
+}
+
+[SupportedOSPlatform("windows")]
+internal static class SecurityDescriptorFixtureNative
+{
+    internal const uint StringSecurityDescriptorRevision = 1;
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(
+        string stringSecurityDescriptor,
+        uint stringSDRevision,
+        out IntPtr securityDescriptor,
+        out uint securityDescriptorSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr LocalFree(IntPtr memory);
+}

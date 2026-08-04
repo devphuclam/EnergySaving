@@ -400,7 +400,7 @@ AC-005 and AC-011 remain PARTIAL, Release-ready remains NO, and no Phase 7/Spec 
 authorized. Provider-native Spec Kit commands are NOT_RUN when unavailable; direct evidence is not
 represented as provider PASS.
 
-## Current post-merge handle-bound trust closure override (2026-08-04)
+## Historical post-merge handle-bound trust closure override (superseded 2026-08-04)
 
 The authoritative current Git baseline is merged `main` commit
 `4b4713cb42b1a03270a2688b344988d2945bab2c`. The active corrective branch is
@@ -422,3 +422,23 @@ the only available review evidence; independent human review is `NO`; GitHub CI/
 `NO`. AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is incomplete, and Release-ready is
 `NO`. Provider-native Spec Kit Analyze/Implement/Converge is `NOT_RUN` because no executable
 provider command is available; direct artifacts are not provider PASS.
+
+## Current Final Handle-Trust Review Closure override (2026-08-04)
+
+The authoritative current baseline is merged `main` commit
+`f0ed6cb8a2e8875415b737683aaebf4d3409d367`, which directly integrates corrective commit
+`22ba9164b64fed51e13ad47780afc4fb354185fb`. The active branch is
+`fix/003-final-handle-trust-review` and executes only T171-T181. The phase closes the higher-
+ancestor `FILE_DELETE_CHILD` threat gap, adds positive Windows `AccessCheck` evidence through a
+fixture-only seam, and synchronizes post-merge truth. It does not redesign handle trust, change
+policy/CMS/certificate/manifest semantics, add capability, create Phase 7 or Spec 004, or authorize
+release.
+
+Higher ancestors are unsafe when effective access grants `FILE_DELETE_CHILD`, `DELETE`, `WRITE_DAC`,
+or `WRITE_OWNER`; unrelated sibling-creation rights are not treated as descendant replacement.
+Safe/read-only/explicit-deny descriptors are accepted by the deterministic Windows effective-access
+contract, while unsafe rights are rejected and invalid descriptor capability remains
+`BLOCKED_BY_MISSING_TOOL`/`BLK-ENV-001`. AC-005 and AC-011 remain `PARTIAL`, acceptance evidence is
+incomplete, and Release-ready is `NO`. Internal two-axis review is agent evidence only;
+independent human review and GitHub CI/status evidence are `NO`. Provider-native Spec Kit commands
+are `NOT_RUN` when unavailable.

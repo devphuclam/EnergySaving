@@ -338,7 +338,7 @@ chain classification, and missing-tool evidence. Fresh verification is required 
 is pushed; Full remains subject to external company blockers. No merge, release, Phase 7, or Spec 004
 is part of this plan.
 
-## Current post-merge handle-bound trust closure plan override (2026-08-04)
+## Historical post-merge handle-bound trust closure plan override (superseded 2026-08-04)
 
 The authoritative baseline is merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`; the
 corrective branch is `fix/003-handle-bound-trust-closure`. T157-T170 is one bounded implementation
@@ -353,6 +353,22 @@ implementation, refactor, architecture/repository-policy verification, checkpoin
 Provider-native Spec Kit commands are `NOT_RUN` when unavailable; direct artifact work is not
 represented as provider PASS. Full/release evidence remains subject to company and package-policy
 blockers, so Release-ready remains `NO`.
+
+## Current Final Handle-Trust Review Closure plan override (2026-08-04)
+
+The authoritative baseline is merged `main` `f0ed6cb8a2e8875415b737683aaebf4d3409d367`, which
+contains merged corrective `22ba9164b64fed51e13ad47780afc4fb354185fb`. The active branch is
+`fix/003-final-handle-trust-review`; T171-T181 is one bounded corrective phase. Its seams are the
+higher-ancestor `FILE_DELETE_CHILD` threat set, a fixture-only Windows descriptor/`AccessCheck`
+positive contract, handle/path review, evidence synchronization, Standards/Specification review,
+and final direct artifact comparison. It does not alter policy/CMS/certificate/manifest semantics,
+add product capability, create Phase 7 or Spec 004, or authorize release.
+
+The required order is read-only Analyze, task append, red tests, recorded red evidence, minimal
+green rights/seam implementation, refactor, focused and full verification, Standards Review,
+Specification Review, current-truth checkpoint synchronization, direct comparison, commit/push,
+and explicit stop. Provider-native commands remain `NOT_RUN` when unavailable; direct evidence is
+not provider PASS. Full/release blockers remain external, so Release-ready is `NO`.
 
 ## Complexity Tracking
 

@@ -1,4 +1,4 @@
-# Feature 003 Handle-Bound Trust Implementation Checkpoint
+# Historical Feature 003 Handle-Bound Trust Implementation Checkpoint (superseded 2026-08-04)
 
 Date: 2026-08-04
 

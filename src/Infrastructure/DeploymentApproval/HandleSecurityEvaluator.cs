@@ -1,11 +1,10 @@
 using Microsoft.Win32.SafeHandles;
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 
 [SupportedOSPlatform("windows")]
-internal static class HandleSecurityEvaluator
+internal static partial class HandleSecurityEvaluator
 {
     private const uint GenericRead = 0x80000000;
     private const uint ReadControl = 0x00020000;
@@ -58,6 +57,7 @@ internal static class HandleSecurityEvaluator
 
     private static readonly uint[] AncestorUnsafeRights =
     [
+        FileDeleteChild,
         Delete,
         WriteDac,
         WriteOwner
@@ -130,14 +130,7 @@ internal static class HandleSecurityEvaluator
                 ? null
                 : new SecurityIdentifier(owner);
             var ownedByCurrentUser = ownerSid is not null && ownerSid.Value == currentSid.Value;
-            var unsafeRights = target switch
-            {
-                HandleSecurityTarget.PolicyFile => PolicyFileUnsafeRights,
-                HandleSecurityTarget.ImmediateDirectory => ImmediateDirectoryUnsafeRights,
-                HandleSecurityTarget.AncestorDirectory => AncestorUnsafeRights,
-                _ => throw new ArgumentOutOfRangeException(nameof(target))
-            };
-            var hasUnsafeAccess = HasAnyEffectiveAccess(descriptor, token, unsafeRights);
+            var hasUnsafeAccess = HasAnyEffectiveAccess(descriptor, token, GetUnsafeRights(target));
             return new HandleSecurityAssessment(
                 ReadIdentity(handle),
                 ownedByCurrentUser,
@@ -151,6 +144,14 @@ internal static class HandleSecurityEvaluator
             }
         }
     }
+
+    private static IReadOnlyList<uint> GetUnsafeRights(HandleSecurityTarget target) => target switch
+    {
+        HandleSecurityTarget.PolicyFile => PolicyFileUnsafeRights,
+        HandleSecurityTarget.ImmediateDirectory => ImmediateDirectoryUnsafeRights,
+        HandleSecurityTarget.AncestorDirectory => AncestorUnsafeRights,
+        _ => throw new ArgumentOutOfRangeException(nameof(target))
+    };
 
     private static SafeAccessTokenHandle OpenCurrentProcessToken()
     {
