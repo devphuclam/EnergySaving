@@ -3,13 +3,13 @@
 **Feature**: 004 Industrial Operations UI/UX Redesign
 **Constitution**: 1.1.0
 **Baseline**: `48c439535d95437c63c7cb07f5e70ab64ee5db34` (in HEAD ancestry; verified)
-**Branch**: `codex/004-industrial-operations-ui-ux-redesign`
+**Branch**: `004-industrial-operations-ui-ux-redesign`
 **Date**: 2026-08-04
 **Status**: PLANNING — no implementation performed.
 
 ## 1. Actual commands executed
 
-- `git status --short` / `git branch --show-current` / `git rev-parse HEAD` / `git log -8 --oneline` — PASS (clean tracked tree; on `codex/004-industrial-operations-ui-ux-redesign` at `863f339fccaa82840c98b622ca61b62b726abf4c`).
+- `git status --short` / `git branch --show-current` / `git rev-parse HEAD` / `git log -8 --oneline` — PASS (clean tracked tree; on `004-industrial-operations-ui-ux-redesign` at `863f339fccaa82840c98b622ca61b62b726abf4c`).
 - `git merge-base --is-ancestor 48c439535d95437c63c7cb07f5e70ab64ee5db34 HEAD` — PASS (baseline in ancestry).
 - `.specify/scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly` — PASS (FEATURE_DIR/SPEC/PLAN/TASKS under `specs/004-industrial-operations-ui-ux-redesign`).
 - `.specify/scripts/powershell/setup-plan.ps1 -Json` — PASS (plan template copied to `specs/004-industrial-operations-ui-ux-redesign/plan.md`; parsed FEATURE_SPEC, IMPL_PLAN, SPECS_DIR, BRANCH).

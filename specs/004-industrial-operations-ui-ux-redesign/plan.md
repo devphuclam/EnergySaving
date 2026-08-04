@@ -1,6 +1,6 @@
 # Implementation Plan: Industrial Operations UI/UX Redesign
 
-**Branch**: `codex/004-industrial-operations-ui-ux-redesign` | **Date**: 2026-08-04 | **Spec**:
+**Branch**: `004-industrial-operations-ui-ux-redesign` | **Date**: 2026-08-04 | **Spec**:
 [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/004-industrial-operations-ui-ux-redesign/spec.md`
@@ -101,7 +101,7 @@ The planning gate MUST verify:
 - Planning-ready does not authorize green implementation or release: YES — recorded above.
 
 **Planning gate evidence**: `PASS` — planning artifacts committed on branch
-`codex/004-industrial-operations-ui-ux-redesign` at baseline `48c4395` (in HEAD ancestry);
+`004-industrial-operations-ui-ux-redesign` at baseline `48c4395` (in HEAD ancestry);
 verified by `git merge-base --is-ancestor 48c439535d95437c63c7cb07f5e70ab64ee5db34 HEAD`.
 
 ### Implementation gate
