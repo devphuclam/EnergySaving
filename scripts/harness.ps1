@@ -47,6 +47,7 @@ $scriptChecks = [ordered]@{
     'architecture' = 'tests\Verification\architecture.tests.ps1'
     'architecture-red-fixture' = 'tests\Verification\architecture-red-fixture.tests.ps1'
     'deployment-target-contract' = 'tests\Verification\deployment-target.tests.ps1'
+    'deployment-signature' = 'tests\Verification\deployment-signature.tests.ps1'
     'doc05-architecture' = 'tests\Verification\doc05-architecture.tests.ps1'
 }
 if ($Feature -eq '003-operational-configuration-workspace') {

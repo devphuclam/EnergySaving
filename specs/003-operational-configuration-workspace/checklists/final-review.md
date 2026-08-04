@@ -124,3 +124,23 @@ the union of the baseline and current working-tree diff:
 
 These are agent review results, not human approval, company approval, release approval, or a merge
 decision.
+
+## Two-axis review report (T121-T122)
+
+Date: 2026-08-04
+Fixed baseline: `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2`
+Branch: `fix/003-signed-approval-closure`
+
+The required Standards and Specification axes were run as separate direct review passes (sub-agent
+review is unavailable: `Model not found: opencode/deepseek-v4-flash-free#max`) against the union of
+the baseline and the T110-T123 diff:
+
+| Axis | Result | Findings |
+|---|---|---|
+| Standards | PASS | No documented hard breach. No secrets, certificate private keys, signed production manifests, protected policy, port 5432, Docker/package/public-registry use, or untruthful result classification. Detached CMS/PKCS#7 verification uses only preinstalled .NET framework capabilities (WPF framework reference provides `System.Security.Cryptography.Pkcs` without any package); manifest read exactly once via `FileShare.Read` (write/delete sharing denied); same byte buffer is hashed, signature-verified, and parsed; chain builds against the System (LocalMachine) trust store with no flags; evidence is redacted; `bin/obj` outputs are git-ignored. During the review, `BuildCompanyChain` was tightened to `X509ChainTrustMode.System` so developer CurrentUser roots cannot satisfy the LocalMachine chain requirement. |
+| Specification | PASS | No unresolved Critical/High/actionable Medium finding. FINDING-01 (environment-only approval cannot pass) is closed by the detached-signature requirement in `Test-DeploymentTargetApproval`; FINDING-02 (single-read/TOCTOU) by `ReadBytesOnce` plus `manifestReadCount=1` assertions; FINDING-03 (Git/release truth) by release-checkpoint/final-verification/final-pr-body/acceptance-traceability sync to `2309cfec` and branch `fix/003-signed-approval-closure`; FINDING-04 (DOCX package integrity) by the 63-check `doc05-architecture` seam; FINDING-05 (visual QA) by the non-mandatory `NOT_RUN` decision in `docs/decision-log.md`; FINDING-06 (AGENTS.md provider scope) by the provider-neutral rewrite in commit `826d1be`. Task ledger is 123 unique IDs, no duplicates; AC-005/AC-011 remain PARTIAL; Release-ready remains NO; no Phase 7/Spec 004/product scope creep. |
+
+Focused regression evidence after the review correction: `deployment-signature` contract `14
+checks, 0 failures`; `deployment-target` contract `47 checks, 0 failures`; Release build 0
+warnings/0 errors. These review results are agent review evidence only and are not independent
+human review.

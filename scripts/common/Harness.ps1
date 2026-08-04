@@ -147,6 +147,7 @@ function Get-HarnessCheckPlan {
         'architecture',
         'architecture-red-fixture',
         'deployment-target-contract',
+        'deployment-signature',
         'doc05-architecture',
         'unit'
     )

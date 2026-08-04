@@ -107,6 +107,29 @@ capability, or merge the corrective branch.
 - [x] T108 [RUNNABLE_NOW] Perform an independent Specification review against DOC-05/DOC-07, constitution, Feature 003 artifacts, and the five corrective findings; resolve all Critical/High/actionable Medium findings and record the result
 - [x] T109 [RUNNABLE_NOW] Run Spec Kit Converge and final Analyze when provider commands are available, otherwise perform direct append-only artifact comparison; verify unique task IDs, no silently skipped harness check, no stale current containerized wording, prepare a PR title/body with baseline, tasks, trust model, evidence, and blockers/status but do not merge it, and record the explicit Feature 003 stop
 
+## Final Signed-Approval and Release-Evidence Corrective Closure
+
+This additive closure starts from authoritative merged-main ancestry `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2`.
+It addresses the signed approval trust anchor, atomic manifest verification, DOCX package integrity,
+visual-QA gate classification, current Git/checkpoint truth, and provider-specific governance cleanup.
+It does not rewrite T001-T109, create Phase 7, create Spec 004, add product capability, or merge the
+corrective branch.
+
+- [x] T110 [P] [RUNNABLE_NOW] Run the read-only capability/trust-anchor analysis and record the exact availability of `System.Security.Cryptography.Pkcs`, `SignedCms`, `X509Certificate2`, `X509Chain`, Windows certificate stores, and SHA-256 in `specs/003-operational-configuration-workspace/checklists/final-signed-approval-analyze.md`; classify missing built-in capability as `BLOCKED_BY_MISSING_TOOL` and preserve production `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005` without inventing policy
+- [x] T111 [P] [RUNNABLE_NOW] Add failing signed-manifest regression tests in `tests/Verification/deployment-signature.tests.ps1` using only built-in APIs and temporary sanitized fixtures; cover missing company trust anchor, unsigned/malformed/modified manifests, wrong or expired signer, self-signed developer signer outside policy, required EKU/OID mismatch, valid synthetic signature as contract-only PASS, production Full remaining blocked, single-read/reopen count, secret/path redaction, and cleanup
+- [x] T112 [P] [RUNNABLE_NOW] Extend `tests/Verification/doc05-architecture.tests.ps1` with red tests for required Open XML package entries, relationship XML parsing, office-document relationship target, relationship-target traversal/entry existence, duplicate critical entries, and malformed relationship XML without writing or extracting into the repository
+- [x] T113 [RUNNABLE_NOW] Add the provider-neutral signed-approval verifier utility under `src/Infrastructure/DeploymentApproval/` with only preinstalled .NET framework capabilities and no new package; expose a machine-readable contract for exact manifest bytes, detached CMS/PKCS#7 verification, certificate validity/chain/signer policy, synthetic contract mode, and fail-closed missing-tool status
+- [x] T114 [RUNNABLE_NOW] Implement the atomic manifest snapshot and production trust-boundary contract: open/read manifest bytes exactly once with write/delete sharing denied, hash/signature-verify/decode/parse the same byte buffer, require a company-managed machine trust policy and LocalMachine certificate-chain validation, reject environment-only booleans/digests/self-signed developer trust, preserve redacted evidence and exit codes 0/1/20, and never reopen the manifest
+- [x] T115 [RUNNABLE_NOW] Integrate signed approval into `scripts/common/DeploymentTarget.ps1` and `scripts/harness.ps1`; require detached signature evidence for production PASS, classify missing cryptographic capability as `BLOCKED_BY_MISSING_TOOL`, missing company policy as `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`, malformed/unsigned/wrong-signer/modified evidence as `FAIL`, and ensure synthetic contract PASS cannot become Full release PASS
+- [x] T116 [RUNNABLE_NOW] Implement the DOCX package-integrity checks in `tests/Verification/doc05-architecture.tests.ps1` using built-in ZIP/XML APIs, preserving the structural-only classification and temporary-copy/no-repository-write guarantees
+- [x] T117 [RUNNABLE_NOW] Resolve the visual DOCX QA source-of-truth decision in `docs/decision-log.md`, `docs/repository-harness.md`, `specs/003-operational-configuration-workspace/checklists/release-checkpoint.md`, and `specs/003-operational-configuration-workspace/checklists/final-verification.md`; make visual QA either a machine-enforced mandatory Full gate or an explicit non-mandatory `NOT_RUN` limitation, never both a release blocker and an unenforced check
+- [x] T118 [RUNNABLE_NOW] Synchronize current Git/release evidence in `specs/003-operational-configuration-workspace/checklists/release-checkpoint.md`, `final-verification.md`, `final-pr-body.md`, and `acceptance-traceability.md`: previous corrective integrated directly to main at `2309cfec`, current branch/commit/PR/human-review/CI state truthful, AC-005 and AC-011 remain PARTIAL, and Release-ready remains NO
+- [x] T119 [RUNNABLE_NOW] Verify provider-specific OpenCode/DeepSeek instructions are absent from `AGENTS.md`; retain only the stable external-delegation principle and do not introduce provider/model scope into Feature 003 artifacts
+- [x] T120 [RUNNABLE_NOW] Run exact focused contract tests, approved Unit/PostgreSQL/Web/policy/architecture checks, Fast harnesses, and a fresh Full harness; record PASS/FAIL/BLOCKED/NOT_RUN with exact blocker IDs, no secrets, no port 5432, no package/container/substitute database, and no fabricated company signature
+- [x] T121 [RUNNABLE_NOW] Perform the independent Standards review of the signed-approval corrective diff from baseline `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2`, resolve all Critical/High/actionable Medium findings, and record the two-axis result
+- [x] T122 [RUNNABLE_NOW] Perform the independent Specification review against DOC-05/DOC-07, constitution, Feature 003 artifacts, and findings FINDING-01 through FINDING-06; resolve all Critical/High/actionable Medium findings and record the result
+- [x] T123 [RUNNABLE_NOW] Run provider-native Spec Kit Converge and final Analyze when available, otherwise perform direct append-only artifact comparison; verify unique task IDs, no environment-only production PASS, atomic hash/verify/parse, complete DOCX package checks, visual-QA classification, truthful Git state, AC-005/AC-011 PARTIAL, Release-ready NO, no Phase 7/Spec 004, prepare but do not merge a real PR, push only the corrective branch, and stop
+
 ## Checklist format
 
 Every task uses `- [ ] T### [P?] [Story?] [classification] description with exact file path`.
@@ -335,11 +358,13 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Post-Phase-6 Corrective Closure | 7 | T081-T087 |
 | Final Documentation and Deployment-Gate Corrective Closure | 10 | T088-T097 |
 | Final Trusted-Approval and Checkpoint Corrective Closure | 12 | T098-T109 |
-| **Total** | **109** | **T001-T109** |
+| Final Signed-Approval and Release-Evidence Corrective Closure | 14 | T110-T123 |
+| **Total** | **123** | **T001-T123** |
 
 **Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
 
 **Historical MVP for the prior corrective run**: Post-Phase-6 governance, evidence, regression,
-and traceability closure only (T081-T087). The current corrective run is the additive T098-T109
-trusted-approval and checkpoint closure and stops after T109.
+and traceability closure only (T081-T087). The preceding corrective run was the additive T098-T109
+trusted-approval and checkpoint closure and stopped after T109. The current run is the additive
+T110-T123 signed-approval and release-evidence closure and stops after T123.

@@ -168,10 +168,13 @@ passing.
   `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; malformed, unsafe, or attestation-failed manifest
   evidence is `FAIL`. A developer-created manifest is never treated as company approval and no
   bypass variables exist.
-- Repository-wide harness checks (`deployment-target-contract`, `doc05-architecture`) are
-  registered before Feature-scoped checks so they run for every relevant Feature and are never
-  silently skipped. The `doc05-architecture` check structurally verifies DOC-05 v0.2 restricted
-  non-containerized wording, the corrected date, deployment components, and ADR AR-11; it copies a
-  locked document to a temporary path, never writes into the repository, and its text-level PASS is
-  never promoted to a visual PASS (approved visual rendering remains separately blocked).
+- Repository-wide harness checks (`deployment-target-contract`, `deployment-signature`,
+  `doc05-architecture`) are registered before Feature-scoped checks so they run for every relevant
+  Feature and are never silently skipped. The `doc05-architecture` check structurally verifies
+  DOC-05 v0.2 restricted non-containerized wording, the corrected date, deployment components, and
+  ADR AR-11; it verifies Open XML package integrity (required entries, relationship XML,
+  office-document target, no traversal), copies a locked document to a temporary path, never writes
+  into the repository, and its text-level PASS is never promoted to a visual PASS. Approved visual
+  DOCX rendering is a documented `NOT_RUN` limitation (not a release blocker and not an unenforced
+  mandatory gate); see `docs/decision-log.md` for the source-of-truth decision.
 - `verification-results.json` contains no credential values.

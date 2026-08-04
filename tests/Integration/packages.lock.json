@@ -119,22 +119,6 @@
           "Npgsql": "[10.0.3, )"
         }
       },
-      "iump.tests.unit": {
-        "type": "Project",
-        "dependencies": {
-          "IUMP.Api": "[1.0.0, )",
-          "IUMP.BuildingBlocks": "[1.0.0, )",
-          "IUMP.Modules.Acquisition": "[1.0.0, )",
-          "IUMP.Modules.Audit": "[1.0.0, )",
-          "IUMP.Modules.Catalog": "[1.0.0, )",
-          "IUMP.Modules.IAM": "[1.0.0, )",
-          "IUMP.Modules.Integration": "[1.0.0, )",
-          "IUMP.Modules.Operations": "[1.0.0, )",
-          "IUMP.Modules.Organization": "[1.0.0, )",
-          "IUMP.Modules.Telemetry": "[1.0.0, )",
-          "IUMP.Worker": "[1.0.0, )"
-        }
-      },
       "iump.worker": {
         "type": "Project",
         "dependencies": {

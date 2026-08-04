@@ -324,3 +324,19 @@ prevents a locally supplied manifest from being promoted to company-approved dep
 
 **Scope**: verification-contract change only. No deployment, release, target-host approval, or
 capability change is implied.
+
+### Visual DOCX QA source of truth after Feature 003 signed-approval closure
+
+**Date**: 2026-08-04
+**Decision**: Visual DOCX QA is an explicit non-mandatory `NOT_RUN` limitation, not a release
+blocker and not an unenforced mandatory gate. The machine-enforced DOCX gate is the
+`doc05-architecture` harness check, which verifies package structure (required Open XML entries,
+relationship XML, office-document target, no traversal), document text, and the restricted
+non-containerized wording via built-in ZIP/XML APIs and a temporary copy of a locked document.
+Approved visual rendering of DOC-05 v0.2 is unavailable in this runtime, so visual QA is recorded
+as `NOT_RUN` with that exact reason wherever release evidence is described; a text-level structural
+PASS is never promoted to a visual PASS. This resolves the ambiguity where visual QA was named both
+a release blocker and an unenforced check.
+
+**Scope**: evidence-classification decision only. No renderer installation, repository write,
+document conversion, or release approval is implied.

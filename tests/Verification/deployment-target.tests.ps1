@@ -260,13 +260,13 @@ try {
         -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $badDateSha
     Assert-Equal $badDateResult.classification 'FAIL' 'invalid date classification'
 
-    $pass = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $validPath `
+    $unsignedPass = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $validPath `
         -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $validSha
-    Assert-Equal $pass.classification 'PASS' 'valid manifest classification'
-    Assert-Blank $pass.blockerId 'valid manifest blocker'
-    Assert-Equal $pass.exitCode 0 'valid manifest exit'
-    Assert-NotContains ([string]$pass.evidence) 'approved static web host' 'manifest content not logged'
-    Assert-NotContains ([string]$pass.evidence) 'APPROVAL-2026-001' 'approval reference not logged'
+    Assert-Equal $unsignedPass.classification 'FAIL' 'unsigned manifest cannot pass'
+    Assert-Equal $unsignedPass.exitCode 1 'unsigned manifest exit'
+    Assert-Contains ([string]$unsignedPass.evidence) 'detached signature evidence is unavailable' 'unsigned manifest evidence text'
+    Assert-NotContains ([string]$unsignedPass.evidence) 'approved static web host' 'manifest content not logged'
+    Assert-NotContains ([string]$unsignedPass.evidence) 'APPROVAL-2026-001' 'approval reference not logged'
 
     . (Join-Path $repoRoot 'scripts\common\Harness.ps1')
     $fastPlan = @(Get-HarnessCheckPlan -Mode Fast)
