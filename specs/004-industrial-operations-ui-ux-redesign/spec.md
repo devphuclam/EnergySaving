@@ -1,6 +1,6 @@
 # Feature Specification: Industrial Operations UI/UX Redesign
 
-**Feature Branch**: `codex/004-industrial-operations-ui-ux-redesign`
+**Feature Branch**: `004-industrial-operations-ui-ux-redesign`
 
 **Created**: 2026-08-04
 
