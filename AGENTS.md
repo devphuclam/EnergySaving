@@ -1,11 +1,12 @@
 # IUMP Agent Instructions
 
-## External agent delegation
+## Agent selection
 
-Codex must not launch or invoke OpenCode automatically. If a task would benefit from that external
-agent, pause and provide the user with one precise prompt containing the paths, scope, acceptance
-criteria, allowed commands, and required report. Continue only after the user manually sends that
-prompt and returns the result; never assume an external-agent result or silently switch providers.
+The user decides which available agent executes each task. When the user assigns the task to
+Codex, Codex may execute it directly. When the user assigns the task to OpenCode, the user may
+invoke OpenCode and return its report. Do not switch agents or providers silently, and do not
+claim work performed by another agent without its actual report. Every agent remains subject to
+the repository's security, database, package, scope, and evidence rules below.
 
 ## Repository harness
 
