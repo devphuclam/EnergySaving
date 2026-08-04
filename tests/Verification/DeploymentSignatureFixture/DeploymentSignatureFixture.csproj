@@ -5,6 +5,9 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\ChainStatusClassifier.cs" Link="ChainStatusClassifier.cs" />
+    <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\PolicyAclEvaluator.cs" Link="PolicyAclEvaluator.cs" />
+    <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\CanonicalPathPolicy.cs" Link="CanonicalPathPolicy.cs" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
   </ItemGroup>
 </Project>

@@ -387,3 +387,15 @@ variables exist. These states never imply acceptance completion or Release-ready
 - **Evidence classification**: Every check is reported as PASS, FAIL, NOT_RUN, or BLOCKED with its
   actual classification; a blocked frontend behavior runner or company environment check is never
   promoted to PASS.
+
+## Current atomic review-remediation override (2026-08-04)
+
+The authoritative current baseline is merged `main` commit
+`37606adde7ac39476e53d9aaf43ded608e45038e`; the active corrective branch is
+`fix/003-atomic-review-remediation`. This additive T141-T156 scope addresses only review findings
+in the signed-approval evidence seam (root canonicalization, valid single-fault fixtures, ACL
+applicability, chain precedence, missing-tool mapping, structured parsing, and truth synchronization).
+It does not change the product requirements, acceptance matrix, or excluded capabilities above.
+AC-005 and AC-011 remain PARTIAL, Release-ready remains NO, and no Phase 7/Spec 004 work is
+authorized. Provider-native Spec Kit commands are NOT_RUN when unavailable; direct evidence is not
+represented as provider PASS.

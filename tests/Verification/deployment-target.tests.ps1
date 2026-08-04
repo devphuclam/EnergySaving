@@ -50,9 +50,11 @@ Assert-NotContains $deploymentSource 'Get-FileHash' 'PowerShell must not hash th
 Assert-NotContains $deploymentSource 'Get-Content' 'PowerShell must not read the manifest'
 Assert-NotContains $deploymentSource '$manifestText' 'PowerShell must not parse manifest text'
 Assert-Contains $deploymentSource '--expected-sha256' 'expected SHA-256 must reach verifier'
-Assert-Contains $deploymentSource 'ConvertFrom-Json -InputObject $jsonLine' 'PowerShell must parse verifier JSON'
+Assert-Contains $deploymentSource 'ConvertFrom-DeploymentVerifierProcessResult' 'PowerShell must use the behavioral verifier-result parser'
+Assert-Contains $deploymentSource 'IUMP_VERIFICATION_RESULT=' 'PowerShell must use the explicit verifier-result protocol'
 Assert-Contains $deploymentSource 'manifestReadCount' 'PowerShell must validate manifest read count'
-Assert-Contains $deploymentSource 'jsonLines.Count -ne 1' 'PowerShell must reject malformed or multiple verifier JSON results'
+Assert-Contains $deploymentSource 'jsonLines.Count -ne 1' 'PowerShell parser must reject malformed or multiple verifier JSON results'
+Assert-NotContains $deploymentSource "StartsWith('{'," 'PowerShell must not discover protocol by arbitrary JSON braces'
 Assert-Contains $deploymentSource 'BLOCKED_BY_MISSING_TOOL' 'PowerShell must preserve missing-tool classification'
 Assert-Contains $deploymentSource 'BLOCKED_BY_COMPANY_APPROVAL' 'PowerShell must preserve company-approval classification'
 
@@ -79,6 +81,120 @@ function Get-ManifestSha256 {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
+function Invoke-Fixture {
+    param([Parameter(Mandatory)][string]$Root, [string]$Variant = 'valid')
+    $project = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $output = & dotnet run --project $project --no-restore -- --root $Root --variant $Variant 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'signed fixture generation failed' }
+    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if ($jsonLine.Count -ne 1) { throw 'signed fixture returned no machine-readable result' }
+    ConvertFrom-Json -InputObject $jsonLine[0]
+}
+
+function New-VerifierProtocolLine {
+    param([Parameter(Mandatory)]$Result)
+    'IUMP_VERIFICATION_RESULT=' + ($Result | ConvertTo-Json -Compress -Depth 5)
+}
+
+$validPassJson = [pscustomobject]@{
+    status = 'PASS'; classification = 'RUNNABLE_NOW'; exitCode = 0; blockerId = $null
+    evidence = 'synthetic parser contract'; synthetic = $false; manifestReadCount = 1; policyReadCount = 1
+}
+$parsedPass = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('build noise', (New-VerifierProtocolLine $validPassJson)) -ProcessExitCode 0 -Production
+Assert-Equal $parsedPass.Classification 'PASS' 'behavioral parser PASS classification'
+Assert-Equal $parsedPass.ExitCode 0 'behavioral parser PASS exit'
+Assert-Equal $parsedPass.ManifestReadCount 1 'behavioral parser PASS manifest read count'
+$parsedNoJson = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('build noise') -ProcessExitCode 1 -Production
+Assert-Equal $parsedNoJson.Classification 'FAIL' 'behavioral parser no JSON classification'
+$parsedMultiple = ConvertFrom-DeploymentVerifierProcessResult -Stdout @((New-VerifierProtocolLine $validPassJson), (New-VerifierProtocolLine $validPassJson)) -ProcessExitCode 0 -Production
+Assert-Equal $parsedMultiple.Classification 'FAIL' 'behavioral parser multiple JSON classification'
+$parsedMissingTool = ConvertFrom-DeploymentVerifierProcessResult -Stdout @() -ProcessExitCode 20 -InvocationError 'process-start-failure' -Production
+Assert-Equal $parsedMissingTool.Classification 'BLOCKED_BY_MISSING_TOOL' 'behavioral parser missing-tool classification'
+Assert-Equal $parsedMissingTool.BlockerId 'BLK-ENV-001' 'behavioral parser missing-tool blocker'
+$parsedRuntimeFailure = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('runtime diagnostic') -ProcessExitCode 150 -InvocationError 'verifier-process-failure' -Production
+Assert-Equal $parsedRuntimeFailure.Classification 'BLOCKED_BY_MISSING_TOOL' 'behavioral parser runtime-failure classification'
+Assert-Equal $parsedRuntimeFailure.ExitCode 20 'behavioral parser runtime-failure exit'
+$validFailJson = [pscustomobject]@{
+    status = 'FAIL'; classification = 'RUNNABLE_NOW'; exitCode = 1; blockerId = $null
+    evidence = 'single signed-evidence fault'; synthetic = $false; manifestReadCount = 1; policyReadCount = 0
+}
+$parsedFail = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $validFailJson) -ProcessExitCode 1 -Production
+Assert-Equal $parsedFail.Classification 'FAIL' 'behavioral parser FAIL classification'
+Assert-Equal $parsedFail.ExitCode 1 'behavioral parser FAIL exit'
+$validCompanyBlockedJson = [pscustomobject]@{
+    status = 'BLOCKED'; classification = 'BLOCKED_BY_COMPANY_APPROVAL'; exitCode = 20; blockerId = 'BLK-ENV-005'
+    evidence = 'company-managed policy is unavailable'; synthetic = $false; manifestReadCount = 1; policyReadCount = 0
+}
+$parsedCompanyBlocked = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $validCompanyBlockedJson) -ProcessExitCode 20 -Production
+Assert-Equal $parsedCompanyBlocked.Classification 'BLOCKED_BY_COMPANY_APPROVAL' 'behavioral parser company blocker classification'
+Assert-Equal $parsedCompanyBlocked.BlockerId 'BLK-ENV-005' 'behavioral parser company blocker id'
+$missingFieldJson = [ordered]@{}
+$validPassJson.PSObject.Properties | ForEach-Object { $missingFieldJson[$_.Name] = $_.Value }
+$missingFieldJson.Remove('policyReadCount')
+$parsedMissingField = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('IUMP_VERIFICATION_RESULT=' + ($missingFieldJson | ConvertTo-Json -Compress)) -ProcessExitCode 0 -Production
+Assert-Equal $parsedMissingField.Classification 'FAIL' 'behavioral parser missing required field'
+$wrongTypeJson = $validPassJson | Select-Object *
+$wrongTypeJson.exitCode = '0'
+$parsedWrongType = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $wrongTypeJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedWrongType.Classification 'FAIL' 'behavioral parser wrong numeric type'
+$wrongBooleanJson = $validPassJson | Select-Object *
+$wrongBooleanJson.synthetic = 'false'
+$parsedWrongBoolean = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $wrongBooleanJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedWrongBoolean.Classification 'FAIL' 'behavioral parser wrong boolean type'
+$wrongBlockerJson = $validPassJson | Select-Object *
+$wrongBlockerJson.blockerId = [pscustomobject]@{ value = 'BLK-ENV-001' }
+$parsedWrongBlocker = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $wrongBlockerJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedWrongBlocker.Classification 'FAIL' 'behavioral parser wrong blocker type'
+$parsedMismatch = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $validPassJson) -ProcessExitCode 1 -Production
+Assert-Equal $parsedMismatch.Classification 'FAIL' 'behavioral parser process-exit mismatch'
+$invalidBlockerJson = $validPassJson | Select-Object *
+$invalidBlockerJson.status = 'BLOCKED'
+$invalidBlockerJson.classification = 'BLOCKED_BY_COMPANY_APPROVAL'
+$invalidBlockerJson.exitCode = 20
+$invalidBlockerJson.blockerId = 'BLK-ENV-001'
+$parsedInvalidBlocker = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $invalidBlockerJson) -ProcessExitCode 20 -Production
+Assert-Equal $parsedInvalidBlocker.Classification 'FAIL' 'behavioral parser unexpected blocker id'
+$redactedJson = $validPassJson | Select-Object *
+$redactedJson.evidence = 'secret=must-not-appear'
+$parsedRedacted = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $redactedJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedRedacted.Classification 'FAIL' 'behavioral parser secret redaction'
+$colonRedactedJson = $validPassJson | Select-Object *
+$colonRedactedJson.evidence = 'connectionString: must-not-appear'
+$parsedColonRedacted = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $colonRedactedJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedColonRedacted.Classification 'FAIL' 'behavioral parser colon-secret redaction'
+$pathEvidenceJson = $validPassJson | Select-Object *
+$pathEvidenceJson.evidence = 'C:\sensitive\manifest.json'
+$parsedPathEvidence = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $pathEvidenceJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedPathEvidence.Classification 'FAIL' 'behavioral parser path redaction'
+$uncEvidenceJson = $validPassJson | Select-Object *
+$uncEvidenceJson.evidence = '\\server\share\manifest.json'
+$parsedUncEvidence = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $uncEvidenceJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedUncEvidence.Classification 'FAIL' 'behavioral parser UNC path redaction'
+$unixEvidenceJson = $validPassJson | Select-Object *
+$unixEvidenceJson.evidence = '/tmp/sensitive/manifest.json'
+$parsedUnixEvidence = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $unixEvidenceJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedUnixEvidence.Classification 'FAIL' 'behavioral parser Unix path redaction'
+$syntheticProductionJson = $validPassJson | Select-Object *
+$syntheticProductionJson.synthetic = $true
+$parsedSyntheticProduction = ConvertFrom-DeploymentVerifierProcessResult -Stdout @(New-VerifierProtocolLine $syntheticProductionJson) -ProcessExitCode 0 -Production
+Assert-Equal $parsedSyntheticProduction.Classification 'FAIL' 'behavioral parser production synthetic rejection'
+$malformedJson = ConvertFrom-DeploymentVerifierProcessResult -Stdout @('IUMP_VERIFICATION_RESULT={not-json}') -ProcessExitCode 1 -Production
+Assert-Equal $malformedJson.Classification 'FAIL' 'behavioral parser malformed JSON'
+
+$signedVerifierProject = Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\IUMP.Infrastructure.DeploymentApproval.csproj'
+function Invoke-SyntheticFixtureVerifier {
+    param([Parameter(Mandatory)]$Fixture)
+    $trustedRoot = Split-Path -Parent $Fixture.manifestPath
+    $expectedSha = (Get-FileHash -LiteralPath $Fixture.manifestPath -Algorithm SHA256).Hash
+    $output = & dotnet run --project $signedVerifierProject --no-restore -- --mode synthetic `
+        --manifest $Fixture.manifestPath --signature $Fixture.signaturePath --policy $Fixture.policyPath `
+        --trusted-root $trustedRoot --expected-sha256 $expectedSha --repository-root $repoRoot 2>$null
+    $exitCode = [int]$LASTEXITCODE
+    $jsonLine = @($output | Where-Object { $_ -like 'IUMP_VERIFICATION_RESULT=*' } | ForEach-Object { $_.Substring('IUMP_VERIFICATION_RESULT='.Length) })
+    if ($jsonLine.Count -ne 1) { throw 'synthetic verifier returned no protocol result' }
+    [pscustomobject]@{ Result = ConvertFrom-Json -InputObject $jsonLine[0]; ExitCode = $exitCode }
+}
+
 try {
     $validPath = Join-Path $tempRoot 'valid.json'
     (New-ValidManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $validPath -Encoding UTF8
@@ -92,6 +208,31 @@ try {
     if ($fixtureJson.Count -ne 1) { throw 'signed fixture JSON result unavailable' }
     $signedFixture = ConvertFrom-Json -InputObject $fixtureJson[0]
     $signedSha = Get-ManifestSha256 -Path $signedFixture.manifestPath
+
+    $singleFaultExpectations = @{
+        'malformed-json' = 'manifest JSON is malformed or unreadable'
+        'missing-field' = 'manifest schema requires non-empty scalar string fields'
+        'non-scalar' = 'manifest schema requires non-empty scalar string fields'
+        'wrong-model' = 'deployment model is not the canonical restricted non-containerized value'
+        'secret' = 'manifest contains a prohibited secret-like field name'
+        'non-utc' = 'approvedAtUtc must be ISO-8601 UTC and not unreasonably in the future'
+        'future' = 'approvedAtUtc must be ISO-8601 UTC and not unreasonably in the future'
+    }
+    foreach ($variant in $singleFaultExpectations.Keys) {
+        $faultFixture = Invoke-Fixture -Root (Join-Path $tempRoot ('single-fault-' + $variant)) -Variant $variant
+        $faultResult = Invoke-SyntheticFixtureVerifier -Fixture $faultFixture
+        Assert-Equal $faultResult.Result.status 'FAIL' "$variant single-fault status"
+        Assert-Equal $faultResult.ExitCode 1 "$variant single-fault exit"
+        Assert-Contains ([string]$faultResult.Result.evidence) $singleFaultExpectations[$variant] "$variant single-fault evidence"
+    }
+
+    $shaMismatchOutput = & dotnet run --project $signedVerifierProject --no-restore -- --mode synthetic `
+        --manifest $signedFixture.manifestPath --signature $signedFixture.signaturePath --policy $signedFixture.policyPath `
+        --trusted-root (Split-Path -Parent $signedFixture.manifestPath) --expected-sha256 ('0' * 64) --repository-root $repoRoot 2>$null
+    $shaMismatchJson = @($shaMismatchOutput | Where-Object { $_ -like 'IUMP_VERIFICATION_RESULT=*' } | ForEach-Object { $_.Substring('IUMP_VERIFICATION_RESULT='.Length) })
+    $shaMismatchResult = ConvertFrom-Json -InputObject $shaMismatchJson[0]
+    Assert-Equal $shaMismatchResult.status 'FAIL' 'SHA mismatch single-fault status'
+    Assert-Contains ([string]$shaMismatchResult.evidence) 'approved manifest attestation does not match' 'SHA mismatch single-fault evidence'
 
     $productionBlocked = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $signedFixture.manifestPath `
         -SignaturePath $signedFixture.signaturePath -Ci 'true' -CompanyCiApproved 'true' `
@@ -195,98 +336,6 @@ try {
         -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $validSha
     Assert-Equal $missingEvidence.classification 'BLOCKED_BY_COMPANY_APPROVAL' 'missing evidence classification'
     Assert-Equal $missingEvidence.blockerId 'BLK-ENV-005' 'missing evidence blocker'
-
-    $malformedPath = Join-Path $tempRoot 'malformed.json'
-    '{"deploymentModel":' | Set-Content -LiteralPath $malformedPath -Encoding UTF8
-    $malformedSha = Get-ManifestSha256 -Path $malformedPath
-    $malformed = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $malformedPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $malformedSha
-    Assert-Equal $malformed.classification 'FAIL' 'malformed JSON classification'
-    Assert-Blank $malformed.blockerId 'malformed JSON blocker'
-    Assert-Equal $malformed.exitCode 1 'malformed JSON exit'
-
-    $missingFieldPath = Join-Path $tempRoot 'missing-field.json'
-    $missingField = New-ValidManifest
-    $missingField.Remove('rollbackRunbookReference')
-    ($missingField | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $missingFieldPath -Encoding UTF8
-    $missingFieldSha = Get-ManifestSha256 -Path $missingFieldPath
-    $missingFieldResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $missingFieldPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $missingFieldSha
-    Assert-Equal $missingFieldResult.classification 'FAIL' 'missing field classification'
-
-    $wrongModelPath = Join-Path $tempRoot 'wrong-model.json'
-    $wrongModel = New-ValidManifest
-    $wrongModel.deploymentModel = 'containerized'
-    ($wrongModel | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $wrongModelPath -Encoding UTF8
-    $wrongModelSha = Get-ManifestSha256 -Path $wrongModelPath
-    $wrongModelResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $wrongModelPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $wrongModelSha
-    Assert-Equal $wrongModelResult.classification 'FAIL' 'wrong model classification'
-
-    $nonScalarPath = Join-Path $tempRoot 'non-scalar.json'
-    $nonScalarManifest = New-ValidManifest
-    $nonScalarManifest.webHosting = [ordered]@{ value = 'not-a-scalar' }
-    ($nonScalarManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $nonScalarPath -Encoding UTF8
-    $nonScalarSha = Get-ManifestSha256 -Path $nonScalarPath
-    $nonScalarResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $nonScalarPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $nonScalarSha
-    Assert-Equal $nonScalarResult.classification 'FAIL' 'non-scalar field classification'
-
-    $apiKeyPath = Join-Path $tempRoot 'api-key.json'
-    $apiKeyManifest = New-ValidManifest
-    $apiKeyManifest.apiKey = 'must-not-be-accepted'
-    ($apiKeyManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $apiKeyPath -Encoding UTF8
-    $apiKeySha = Get-ManifestSha256 -Path $apiKeyPath
-    $apiKeyResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $apiKeyPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $apiKeySha
-    Assert-Equal $apiKeyResult.classification 'FAIL' 'api key field classification'
-
-    $localDatePath = Join-Path $tempRoot 'local-date.json'
-    $localDateManifest = New-ValidManifest
-    $localDateManifest.approvedAtUtc = '2026-08-03T00:00:00'
-    ($localDateManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $localDatePath -Encoding UTF8
-    $localDateSha = Get-ManifestSha256 -Path $localDatePath
-    $localDateResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $localDatePath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $localDateSha
-    Assert-Equal $localDateResult.classification 'FAIL' 'non-UTC date classification'
-
-    $futureDatePath = Join-Path $tempRoot 'future-date.json'
-    $futureDateManifest = New-ValidManifest
-    $futureDateManifest.approvedAtUtc = '2099-08-03T00:00:00Z'
-    ($futureDateManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $futureDatePath -Encoding UTF8
-    $futureDateSha = Get-ManifestSha256 -Path $futureDatePath
-    $futureDateResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $futureDatePath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $futureDateSha
-    Assert-Equal $futureDateResult.classification 'FAIL' 'future date classification'
-
-    $secretPath = Join-Path $tempRoot 'secret-key.json'
-    $secretManifest = New-ValidManifest
-    $secretManifest.secret = 'must-not-be-echoed'
-    ($secretManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $secretPath -Encoding UTF8
-    $secretSha = Get-ManifestSha256 -Path $secretPath
-    $secretResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $secretPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $secretSha
-    Assert-Equal $secretResult.classification 'FAIL' 'secret key classification'
-    Assert-NotContains ([string]$secretResult.evidence) 'must-not-be-echoed' 'secret value redaction'
-
-    $nestedSecretPath = Join-Path $tempRoot 'nested-secret-key.json'
-    $nestedSecretManifest = New-ValidManifest
-    $nestedSecretManifest.metadata = [ordered]@{ token = 'nested-must-not-be-echoed' }
-    ($nestedSecretManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $nestedSecretPath -Encoding UTF8
-    $nestedSecretSha = Get-ManifestSha256 -Path $nestedSecretPath
-    $nestedSecretResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $nestedSecretPath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $nestedSecretSha
-    Assert-Equal $nestedSecretResult.classification 'FAIL' 'nested secret key classification'
-    Assert-NotContains ([string]$nestedSecretResult.evidence) 'nested-must-not-be-echoed' 'nested secret value redaction'
-
-    $badDatePath = Join-Path $tempRoot 'bad-date.json'
-    $badDate = New-ValidManifest
-    $badDate.approvedAtUtc = 'not-a-date'
-    ($badDate | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $badDatePath -Encoding UTF8
-    $badDateSha = Get-ManifestSha256 -Path $badDatePath
-    $badDateResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $badDatePath `
-        -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $badDateSha
-    Assert-Equal $badDateResult.classification 'FAIL' 'invalid date classification'
 
     $unsignedPass = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $validPath `
         -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $validSha

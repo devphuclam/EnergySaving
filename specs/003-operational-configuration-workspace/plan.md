@@ -328,6 +328,16 @@ and repository-wide harness checks (`deployment-target-contract`, `doc05-archite
 registered for all relevant Features. Release-ready remains NO while mandatory company,
 target-host, and browser evidence is blocked.
 
+## Current atomic review-remediation plan override (2026-08-04)
+
+The current plan baseline is merged `main` commit `37606adde7ac39476e53d9aaf43ded608e45038e` on
+`fix/003-atomic-review-remediation`. T141-T156 is one bounded corrective implementation phase after
+independent Standards/Specification findings F-01..F-07. It preserves the Feature 003 architecture
+and product scope while hardening signed-approval evidence, parser contracts, ACL threat checks,
+chain classification, and missing-tool evidence. Fresh verification is required before the branch
+is pushed; Full remains subject to external company blockers. No merge, release, Phase 7, or Spec 004
+is part of this plan.
+
 ## Complexity Tracking
 
 No constitutional violation or extra architectural layer requires justification.

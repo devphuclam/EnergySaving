@@ -40,14 +40,14 @@ internal static class Program
             var options = ParseArguments(args);
             var synthetic = string.Equals(options.GetValueOrDefault("mode"), "synthetic", StringComparison.Ordinal);
             var result = Verify(options, synthetic);
-            Console.WriteLine(JsonSerializer.Serialize(result));
+            WriteResult(result);
             return result.ExitCode;
         }
         catch (CapabilityUnavailableException ex)
         {
             var result = new VerificationResult(
                 "BLOCKED", "BLOCKED_BY_MISSING_TOOL", 20, "BLK-ENV-001", ex.Message, false, 0, 0);
-            Console.WriteLine(JsonSerializer.Serialize(result));
+            WriteResult(result);
             return result.ExitCode;
         }
         catch (Exception)
@@ -55,10 +55,13 @@ internal static class Program
             var result = new VerificationResult(
                 "FAIL", "RUNNABLE_NOW", 1, null,
                 "deployment approval evidence could not be verified", false, 0, 0);
-            Console.WriteLine(JsonSerializer.Serialize(result));
+            WriteResult(result);
             return result.ExitCode;
         }
     }
+
+    private static void WriteResult(VerificationResult result) =>
+        Console.WriteLine($"IUMP_VERIFICATION_RESULT={JsonSerializer.Serialize(result)}");
 
     private static VerificationResult Verify(IReadOnlyDictionary<string, string> options, bool synthetic)
     {
@@ -75,9 +78,14 @@ internal static class Program
             return pathResult;
         }
 
+        if (string.IsNullOrWhiteSpace(expectedSha))
+        {
+            return Blocked("approved manifest attestation is unavailable", synthetic);
+        }
+
         if (!IsSha256(expectedSha))
         {
-            return Blocked("approved manifest attestation is unavailable or malformed", synthetic);
+            return Fail("approved manifest attestation is malformed", synthetic);
         }
 
         byte[] manifestBytes;
@@ -145,6 +153,10 @@ internal static class Program
             {
                 return Blocked("company-managed deployment trust policy is unavailable", synthetic, manifestReadCount, 0);
             }
+            catch (CapabilityUnavailableException)
+            {
+                return MissingTool("deployment trust-policy security capability is unavailable", synthetic, manifestReadCount, 0);
+            }
             catch (FileNotFoundException)
             {
                 return Blocked("deployment trust policy is unavailable", synthetic, manifestReadCount, 0);
@@ -176,6 +188,11 @@ internal static class Program
             if (!synthetic)
             {
                 var chain = BuildCompanyChain(signer, policy.RevocationMode);
+                if (chain == ChainDisposition.MissingTool)
+                {
+                    return MissingTool("certificate-chain capability is unavailable", false, manifestReadCount, policyReadCount);
+                }
+
                 if (chain == ChainDisposition.Blocked)
                 {
                     return Blocked("certificate revocation or trust-chain evidence is unavailable", false, manifestReadCount, policyReadCount);
@@ -218,7 +235,7 @@ internal static class Program
         string signatureFull;
         try
         {
-            rootFull = Path.GetFullPath(trustedRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            rootFull = CanonicalPathPolicy.CanonicalizeRoot(trustedRoot);
             manifestFull = Path.GetFullPath(manifestPath);
             signatureFull = Path.GetFullPath(signaturePath);
         }
@@ -244,7 +261,7 @@ internal static class Program
 
         foreach (var candidate in new[] { manifestFull, signatureFull })
         {
-            if (!IsContainedPath(candidate, rootFull) || ContainsReparsePoint(candidate))
+            if (!CanonicalPathPolicy.IsContainedPath(candidate, rootFull) || ContainsReparsePoint(candidate))
             {
                 return Fail("manifest and signature must remain inside the trusted evidence root", synthetic);
             }
@@ -253,8 +270,8 @@ internal static class Program
             {
                 try
                 {
-                    var repositoryFull = Path.GetFullPath(repositoryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    if (IsContainedPath(candidate, repositoryFull))
+                    var repositoryFull = CanonicalPathPolicy.CanonicalizeRoot(repositoryRoot);
+                    if (CanonicalPathPolicy.IsContainedPath(candidate, repositoryFull))
                     {
                         return Fail("signed evidence must not be loaded from the repository", synthetic);
                     }
@@ -274,12 +291,6 @@ internal static class Program
         return null;
     }
 
-    private static bool IsContainedPath(string candidate, string root)
-    {
-        var separator = Path.DirectorySeparatorChar.ToString();
-        return candidate.StartsWith(root + separator, StringComparison.OrdinalIgnoreCase);
-    }
-
     private static bool HasTraversalSegment(string path) => path
         .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
         .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
@@ -291,17 +302,24 @@ internal static class Program
         {
             var fullPath = Path.GetFullPath(path);
             var root = Path.GetPathRoot(fullPath) ?? string.Empty;
-            var current = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                return true;
+            }
+
+            var current = Path.GetFullPath(root);
+            if (IsExistingReparsePoint(current))
+            {
+                return true;
+            }
+
             var remainder = fullPath[root.Length..];
             foreach (var segment in remainder.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
             {
-                current = Path.Combine(current, segment);
-                if (File.Exists(current) || Directory.Exists(current))
+                current = Path.GetFullPath(Path.Combine(current, segment));
+                if (IsExistingReparsePoint(current))
                 {
-                    if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
             return false;
@@ -310,6 +328,16 @@ internal static class Program
         {
             return true;
         }
+    }
+
+    private static bool IsExistingReparsePoint(string path)
+    {
+        if (!File.Exists(path) && !Directory.Exists(path))
+        {
+            return false;
+        }
+
+        return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
     }
 
     private static Dictionary<string, string> ParseArguments(IReadOnlyList<string> args)
@@ -361,9 +389,18 @@ internal static class Program
 
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         readCount = 1;
-        if (enforceCompanySecurity && !ValidateCompanyPolicySecurity(path))
+        if (enforceCompanySecurity)
         {
-            throw new CompanyPolicyUnavailableException("company-managed policy ACL is not trust-bounded");
+            var securityDisposition = ValidateCompanyPolicySecurity(path);
+            if (securityDisposition == PolicySecurityDisposition.MissingTool)
+            {
+                throw new CapabilityUnavailableException("company-managed policy ACL capability is unavailable");
+            }
+
+            if (securityDisposition == PolicySecurityDisposition.Unsafe)
+            {
+                throw new CompanyPolicyUnavailableException("company-managed policy ACL is not trust-bounded");
+            }
         }
 
         var bytes = ReadAll(stream);
@@ -404,6 +441,10 @@ internal static class Program
         catch (JsonException)
         {
             throw new InvalidDataException("deployment trust policy is malformed");
+        }
+        catch (DecoderFallbackException)
+        {
+            throw new InvalidDataException("deployment trust policy is not strict UTF-8");
         }
     }
 
@@ -547,76 +588,84 @@ internal static class Program
                 return ChainDisposition.Valid;
             }
 
-            var statuses = chain.ChainStatus.Select(status => status.Status).ToArray();
-            return statuses.Any(status =>
-                (status & (X509ChainStatusFlags.RevocationStatusUnknown |
-                           X509ChainStatusFlags.OfflineRevocation)) != 0)
-                ? ChainDisposition.Blocked
-                : ChainDisposition.Invalid;
+            return ChainStatusClassifier.Classify(chain.ChainStatus.Select(status => status.Status), buildSucceeded: false);
         }
         catch (PlatformNotSupportedException)
         {
-            return ChainDisposition.Blocked;
+            return ChainStatusClassifier.ClassifyException(new PlatformNotSupportedException());
         }
         catch (CryptographicException)
         {
-            return ChainDisposition.Blocked;
+            return ChainStatusClassifier.ClassifyException(new CryptographicException());
         }
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool ValidateCompanyPolicySecurity(string path)
+    private static PolicySecurityDisposition ValidateCompanyPolicySecurity(string path)
     {
         try
         {
             if (ContainsReparsePoint(path))
             {
-                return false;
+                return PolicySecurityDisposition.Unsafe;
             }
 
             var current = WindowsIdentity.GetCurrent();
             var currentSid = current.User;
             if (currentSid is null)
             {
-                return false;
+                return PolicySecurityDisposition.MissingTool;
             }
 
             var principal = new WindowsPrincipal(current);
             var policySecurity = new FileInfo(path).GetAccessControl();
             if (IsOwnedByCurrentUser(policySecurity, currentSid) ||
-                HasUnsafeAllow(policySecurity.GetAccessRules(true, true, typeof(SecurityIdentifier)), currentSid, principal, isDirectory: false))
+                TestPolicyFileSecurity(policySecurity, currentSid, principal))
             {
-                return false;
+                return PolicySecurityDisposition.Unsafe;
             }
 
             var parent = Directory.GetParent(path);
-            while (parent is not null)
+            if (parent is null || ContainsReparsePoint(parent.FullName))
             {
-                if (ContainsReparsePoint(parent.FullName))
+                return PolicySecurityDisposition.Unsafe;
+            }
+
+            var parentSecurity = parent.GetAccessControl();
+            if (IsOwnedByCurrentUser(parentSecurity, currentSid) ||
+                TestImmediatePolicyDirectorySecurity(parentSecurity, currentSid, principal))
+            {
+                return PolicySecurityDisposition.Unsafe;
+            }
+
+            var ancestor = parent.Parent;
+            while (ancestor is not null)
+            {
+                if (ContainsReparsePoint(ancestor.FullName))
                 {
-                    return false;
+                    return PolicySecurityDisposition.Unsafe;
                 }
 
-                var parentSecurity = parent.GetAccessControl();
-                if (IsOwnedByCurrentUser(parentSecurity, currentSid) ||
-                    HasUnsafeAllow(parentSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier)), currentSid, principal, isDirectory: true))
+                var ancestorSecurity = ancestor.GetAccessControl();
+                if (IsOwnedByCurrentUser(ancestorSecurity, currentSid) ||
+                    TestPolicyAncestorSecurity(ancestorSecurity, currentSid, principal))
                 {
-                    return false;
+                    return PolicySecurityDisposition.Unsafe;
                 }
 
-                if (string.Equals(parent.FullName.TrimEnd(Path.DirectorySeparatorChar),
-                        Path.GetPathRoot(parent.FullName)?.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                var root = Path.GetPathRoot(ancestor.FullName);
+                if (string.Equals(Path.GetFullPath(ancestor.FullName), Path.GetFullPath(root ?? string.Empty), StringComparison.OrdinalIgnoreCase))
                 {
                     break;
                 }
-                parent = parent.Parent;
+                ancestor = ancestor.Parent;
             }
 
-            return true;
+            return PolicySecurityDisposition.Safe;
         }
         catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
-            return false;
+            return PolicySecurityDisposition.MissingTool;
         }
     }
 
@@ -625,11 +674,10 @@ internal static class Program
         security.GetOwner(typeof(SecurityIdentifier)) is SecurityIdentifier owner && owner.Value == currentSid.Value;
 
     [SupportedOSPlatform("windows")]
-    private static bool HasUnsafeAllow(
-        AuthorizationRuleCollection rules,
+    private static bool TestPolicyFileSecurity(
+        FileSystemSecurity security,
         SecurityIdentifier currentSid,
-        WindowsPrincipal principal,
-        bool isDirectory)
+        WindowsPrincipal principal)
     {
         var unsafeRights = FileSystemRights.WriteData |
             FileSystemRights.AppendData |
@@ -639,27 +687,49 @@ internal static class Program
             FileSystemRights.DeleteSubdirectoriesAndFiles |
             FileSystemRights.ChangePermissions |
             FileSystemRights.TakeOwnership |
-            FileSystemRights.FullControl |
-            FileSystemRights.CreateFiles |
-            FileSystemRights.CreateDirectories;
+            FileSystemRights.FullControl;
 
-        foreach (FileSystemAccessRule rule in rules)
-        {
-            if (rule.AccessControlType != AccessControlType.Allow ||
-                (rule.FileSystemRights & unsafeRights) == 0)
-            {
-                continue;
-            }
-
-            if (rule.IdentityReference is SecurityIdentifier sid &&
-                (sid.Value == currentSid.Value || principal.IsInRole(sid)))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return PolicyAclEvaluator.HasEffectiveUnsafePermission(
+            security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>(),
+            currentSid,
+            principal,
+            unsafeRights,
+            targetIsDirectory: false);
     }
+
+    [SupportedOSPlatform("windows")]
+    private static bool TestImmediatePolicyDirectorySecurity(
+        FileSystemSecurity security,
+        SecurityIdentifier currentSid,
+        WindowsPrincipal principal) =>
+        PolicyAclEvaluator.HasEffectiveUnsafePermission(
+            security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>(),
+            currentSid,
+            principal,
+            FileSystemRights.CreateFiles |
+            FileSystemRights.CreateDirectories |
+            FileSystemRights.Delete |
+            FileSystemRights.DeleteSubdirectoriesAndFiles |
+            FileSystemRights.ChangePermissions |
+            FileSystemRights.TakeOwnership |
+            FileSystemRights.FullControl,
+            targetIsDirectory: true);
+
+    [SupportedOSPlatform("windows")]
+    private static bool TestPolicyAncestorSecurity(
+        FileSystemSecurity security,
+        SecurityIdentifier currentSid,
+        WindowsPrincipal principal) =>
+        PolicyAclEvaluator.HasEffectiveUnsafePermission(
+            security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>(),
+            currentSid,
+            principal,
+            FileSystemRights.Delete |
+            FileSystemRights.DeleteSubdirectoriesAndFiles |
+            FileSystemRights.ChangePermissions |
+            FileSystemRights.TakeOwnership |
+            FileSystemRights.FullControl,
+            targetIsDirectory: true);
 
     private static bool IsSha256(string? value) =>
         !string.IsNullOrWhiteSpace(value) &&
@@ -674,6 +744,9 @@ internal static class Program
 
     private static VerificationResult Fail(string evidence, bool synthetic = false, int manifestReadCount = 0, int policyReadCount = 0) =>
         new("FAIL", "RUNNABLE_NOW", 1, null, evidence, synthetic, manifestReadCount, policyReadCount);
+
+    private static VerificationResult MissingTool(string evidence, bool synthetic = false, int manifestReadCount = 0, int policyReadCount = 0) =>
+        new("BLOCKED", "BLOCKED_BY_MISSING_TOOL", 20, "BLK-ENV-001", evidence, synthetic, manifestReadCount, policyReadCount);
 
     private sealed record TrustPolicy(
         IReadOnlySet<string> AllowedSignerCertificateSha256,
@@ -690,11 +763,11 @@ internal static class Program
         int ManifestReadCount,
         int PolicyReadCount);
 
-    private enum ChainDisposition
+    private enum PolicySecurityDisposition
     {
-        Valid,
-        Invalid,
-        Blocked
+        Safe,
+        Unsafe,
+        MissingTool
     }
 
     private sealed class CapabilityUnavailableException(string message) : Exception(message);

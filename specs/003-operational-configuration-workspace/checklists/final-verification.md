@@ -178,3 +178,31 @@ The implementation checkpoint is not release-ready: AC-005 and AC-011 remain `PA
 approval remains `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`, and the frontend behavior capability
 remains `BLOCKED_BY_PACKAGE_POLICY`. No secrets, port 5432, substitute database, package install,
 container, Phase 7, or Spec 004 work was used.
+
+## Atomic signed-approval review remediation verification (T151)
+
+Date: 2026-08-04
+Baseline: `37606adde7ac39476e53d9aaf43ded608e45038e`
+Corrective branch: `fix/003-atomic-review-remediation`
+Database target: PostgreSQL `127.0.0.1:5433/iump_dev` only; no port 5432, substitute provider, Docker,
+or package installation was used.
+
+| Command/check | Exit | Classification | Evidence |
+|---|---:|---|---|
+| `dotnet build .\IUMP.slnx --no-restore --configuration Release` | 0 | PASS / RUNNABLE_NOW | 0 warnings, 0 errors |
+| Unit | 0 | PASS / RUNNABLE_NOW | all registered suites, 0 failures |
+| PostgreSQL Integration | 0 | PASS / RUNNABLE_NOW | target `127.0.0.1:5433/iump_dev`, 15 suites, 0 failures |
+| Web `npm run lint` | 0 | PASS / RUNNABLE_NOW | existing Fast Refresh warnings only |
+| Web `npm run build` | 0 | PASS / RUNNABLE_NOW | TypeScript/Vite build succeeded |
+| Focused deployment-signature | 0 | PASS / RUNNABLE_NOW | 65 checks, 0 failures |
+| Focused deployment-target | 0 | PASS / RUNNABLE_NOW | 95 checks, 0 failures |
+| DOC-05 architecture | 0 | PASS / RUNNABLE_NOW | 63 checks, 0 failures; text-level, not visual PASS |
+| Repository policy/architecture/scope/observability/harness | 0 | PASS / RUNNABLE_NOW | all listed checks PASS |
+| Fast Feature 003 | 0 | PASS / RUNNABLE_NOW | `Harness Fast summary: PASS=14` |
+| Full Feature 003 | 20 | BLOCKED | `PASS=17`; `BLK-ENV-003` and `BLK-ENV-005` are company-approval blockers; no mandatory FAIL |
+
+The parser contract additionally covers PASS/FAIL/company/missing-tool, malformed/multiple/no
+protocol result, extra stdout, status/exit/blocker/read-count mismatches, production synthetic
+rejection, evidence redaction, and process-start failure. Chain status scenarios cover fatal,
+mixed, revocation-unavailable-only, and empty failed chains. AC-005 and AC-011 remain PARTIAL;
+Release-ready remains NO. Provider-native Spec Kit analyze/converge remains `NOT_RUN`.
