@@ -12,20 +12,20 @@ deferred by the specification and records evidence-backed decisions for the plan
 - **Decision**: Post-authentication landing resolution order:
   1. Valid permitted deep link (current pathname is a known included route and the user is
      authorized for it).
-  2. First permitted capability in priority order: **Dashboard (Vận hành)**, then
-     **Configuration (Cấu hình)**, then **Simulator (Mô phỏng)**, then
-     **Telemetry (Dữ liệu & tình trạng)**, then **Audit (Nhật ký)**, then
-     **Setup (Thiết lập)**.
-  3. Operational Dashboard as the documented safe fallback when no priority capability is
-     permitted, when the priority route is disabled/unknown/no longer valid, or when no deep link
-     exists and workspace status is inconclusive.
-- **Rationale**: FR-028 requires effective-permission-based landing, deep-link precedence, and
-  Operational Dashboard fallback. The priority order follows the daily operational hierarchy in
-  DOC-08 (Overview is the primary daily entry point, followed by configuration maintenance, then
-  simulation, then data/health inspection, then investigation). Setup must be reachable but is not
-  a working default for an already-configured workspace; the existing Feature 003 workspace-status
-  contract (`workspace.landing !== 'Dashboard' ? 'setup' : 'dashboard'`) already routes a
-  not-configured workspace to Setup, and that behavior is preserved.
+  2. First permitted capability from the existing effective-permission priority matrix: prefer
+     Configuration, Simulator, Telemetry, Audit, or Setup only when its capability is actually
+     permitted and enabled for the current environment/workspace.
+  3. Operational Dashboard as a fallback only when the Dashboard capability is itself permitted
+     and no higher-priority permitted capability is available.
+  4. A safe no-authorized-capability state when no included capability is permitted; it must not
+     route through Dashboard or any forbidden page and must not disclose capability/object metadata.
+
+- **Rationale**: FR-028 requires effective-permission-based landing, deep-link precedence, and a
+  permitted Dashboard fallback. The priority order follows the daily operational hierarchy in
+  DOC-08 while treating Dashboard as an explicit permission-checked fallback rather than an
+  assumed destination. Setup remains reachable only when its existing workspace-status and
+  permission rules authorize it; no unauthorized route is probed or rendered.
+
 - **Alternatives considered**: hard-coded role-name-based landing (rejected — FR-028 forbids it and
   role is not authorization); a landing preference setting (rejected — FR-028 forbids persistence);
   always landing on Operational Dashboard regardless of deep link (rejected — FR-028 requires deep

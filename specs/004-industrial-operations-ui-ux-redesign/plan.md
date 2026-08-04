@@ -32,7 +32,7 @@ Feature 004 redesigns the presentation of the existing IUMP Web application into
 Evidence-First Industrial Operations Console, following DOC-08 (authoritative UI/UX) and the five
 locked clarification decisions (light-only; compact operational tables 40–44px; grouped expanded
 sidebar with tablet rail/drawer and no persistence; permission-based landing with deep-link
-precedence and Operational Dashboard fallback; desktop-primary with first-class tablet and mobile
+precedence, permitted Dashboard fallback, and a safe no-authorized-capability state; desktop-primary with first-class tablet and mobile
 non-regression only). Work is incremental over 6 phases: planning foundation, shell + shared
 components, dashboard + measurement visibility, configuration, simulator + audit, hardening. It is
 presentation-only: no backend, API, database, contract, package, font, icon, chart, or database
@@ -131,7 +131,10 @@ The implementation gate MUST require all of the following:
 The release gate MUST require all of the following:
 
 - required functionality and acceptance evidence exist: NO (no implementation).
-- Fast verification has passed: NOT_RUN for this feature (planning-only; repo-only Fast may run).
+- Fast verification evidence is an attempted `scripts/harness.ps1 -Mode Fast` result of FAIL=1
+  (PASS=10) caused by running API/Worker processes holding module DLL locks; this is unrelated to
+  planning-only documentation, no processes were killed, and the result is not reclassified as
+  PASS or NOT_RUN.
 - mandatory Full and environment-dependent evidence has passed: NOT_RUN / BLOCKED as evidenced
   later.
 - no mandatory blocker remains: unknown until implementation.

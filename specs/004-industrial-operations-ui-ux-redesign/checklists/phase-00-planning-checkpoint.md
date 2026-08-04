@@ -14,13 +14,16 @@
 - `.specify/scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly` — PASS (FEATURE_DIR/SPEC/PLAN/TASKS under `specs/004-industrial-operations-ui-ux-redesign`).
 - `.specify/scripts/powershell/setup-plan.ps1 -Json` — PASS (plan template copied to `specs/004-industrial-operations-ui-ux-redesign/plan.md`; parsed FEATURE_SPEC, IMPL_PLAN, SPECS_DIR, BRANCH).
 - `.specify/extensions.yml` — does not exist; no before/after plan hooks (skipped per skill rules).
-- `scripts/harness.ps1 -Mode Fast -Feature 004-industrial-operations-ui-ux-redesign` — NOT_RUN as
-  valid evidence: attempted, FAIL=1 (PASS=10) because running `IUMP.Api` (PID 22416) and two
+- `scripts/harness.ps1 -Mode Fast -Feature 004-industrial-operations-ui-ux-redesign` — FAIL=1
+  (PASS=10) actual attempted outcome because running `IUMP.Api` (PID 22416) and two
   `IUMP.Worker` instances (PIDs 27560, 31104) hold locks on `src/Modules/*/bin/Debug` DLLs, so the
   harness build cannot copy outputs (MSB3027/MSB3021). Environment condition unrelated to this
-  planning-only change (no production source touched; running processes were not killed). Fast
-  checks are not required for documentation-only planning changes.
-
+  planning-only change (no production source touched; running processes were not killed). This
+  failure remains FAIL evidence and is not reclassified as PASS or NOT_RUN; Fast checks are not
+  required for documentation-only planning changes.
+- Post-planning integration truth: planning commits `df73c2893fa6b936120ff5742000d0b25e180e4c` and
+  `26b7443f7f88cb84dfbaf2fb3ffddaa6c32fcbd3` are integrated into `main`. The historical planning
+  invocation itself did not merge; that integration occurred afterward and is recorded separately.
 ## 2. UI UX Pro Max invocation
 
 - **Skill mechanism**: Native skill tool invocation (`skill(name: "ui-ux-pro-max")`) twice — once at
@@ -33,6 +36,8 @@
 - **Subagent dispatch for mining**: attempted, FAILED — `Model not found:
   opencode/deepseek-v4-flash-free#max` (provider policy). Recorded as limitation; all mining done
   inline.
+- **Tasks-phase supporting validation**: actual bundled-Python invocation
+  `.../ui-ux-pro-max/scripts/search.py "internal industrial utility monitoring operations console compact tables accessibility status" --design-system --variance 2 --motion 2 --density 8 -p "IUMP Feature 004 Tasks" -f markdown` completed. Its accessibility, dense-dashboard, and subtle-motion guidance informed task coverage only; the landing-page, oversized-typography, Google-font, and package recommendations were rejected against DOC-08 and repository policy.
 - **Recommendations reconciled** against DOC-08 (authoritative), Feature 004 spec, repository
   dependency policy, and existing code. Skill output never overrides DOC-08; pairings requiring
   Google Fonts and icon/chart packages rejected (dependency policy). Details in
@@ -68,18 +73,18 @@ checkpoint, and the full existing Web source:
 
 Evidence-First Industrial Light (DOC-08 UX-D01/§6); light-only; compact operational tables
 (40–44px rows; ~14px primary, 12–13px metadata); expanded sidebar ≥1280px with tablet rail/drawer
-(64–72px) below; permission-based landing (deep link → priority capability → dashboard fallback);
-desktop-primary, tablet first-class, mobile non-regression. Rejected: marketing/bento layouts,
-glassmorphism, neon, giant KPI cards, emoji, decorative charts, color-only status, unsupported
-packages/fonts, dark theme (deferred).
+(64–72px) below; permission-based landing (valid permitted deep link → first permitted capability
+→ permitted Dashboard fallback → safe no-authorized-capability state); desktop-primary, tablet first-class,
+mobile non-regression. Rejected: marketing/bento layouts, glassmorphism, neon, giant KPI cards, emoji,
+decorative charts, color-only status, unsupported packages/fonts, dark theme (deferred).
 
 ## 6. Clarified decisions (locked)
 
 1. Light-only MVP-1; dark deferred.
 2. Compact default for operational tables; no density switch.
 3. Expanded sidebar desktop; rail/drawer tablet with focus mgmt; no persisted preference/setting.
-4. Permission-based landing; deep-link precedence; Operational Dashboard fallback; no forbidden
-   routing; no metadata disclosure; no landing preference.
+4. Permission-based landing; deep-link precedence; permitted Dashboard fallback; safe
+   no-authorized-capability state; no forbidden routing; no metadata disclosure; no landing preference.
 5. Desktop primary; tablet first-class; mobile non-regression only.
 
 ## 7. Artifacts created

@@ -36,21 +36,22 @@ flowchart TD
   A[Authenticated] --> B{Deep link valid + permitted?}
   B -->|yes| C[Deep-linked route]
   B -->|no| D{Workspace status Setup?}
-  D -->|not configured| E[setup]
-  D -->|configured / unknown| F[First permitted capability in order]
-  F --> G1[dashboard]
-  F --> G2[configuration]
-  F --> G3[simulator]
-  F --> G4[telemetry]
-  F --> G5[audit]
-  F --> G6[setup]
+  D -->|not configured + setup permitted| E[setup]
+  D -->|not configured + setup not permitted| F[First permitted capability in order]
+  D -->|configured / unknown| F
+  F --> G1[configuration]
+  F --> G2[simulator]
+  F --> G3[telemetry]
+  F --> G4[audit]
+  F --> G5[setup when authorized]
   G1 --> H[Permitted route rendered]
   G2 --> H
   G3 --> H
   G4 --> H
   G5 --> H
-  G6 --> H
-  F -->|none permitted / disabled / unknown| I[dashboard fallback]
+  F -->|none permitted / disabled / unknown| J{Dashboard permitted?}
+  J -->|yes| I[permitted Dashboard fallback]
+  J -->|no| N[safe no-authorized-capability state]
   I --> H
 ```
 
@@ -58,17 +59,22 @@ flowchart TD
 
 | Route | Visible when | Direct-access outcome when not permitted | Notes |
 |---|---|---|---|
-| dashboard | workspace status available or landing fallback | safe forbidden/not-found + next action | also the fallback target |
+| dashboard | Dashboard permission is effective and route is enabled | safe forbidden/not-found + next action | fallback target only when Dashboard is permitted |
 | configuration | user has any configuration entity permission | safe forbidden/not-found | entities filtered by Site/Area scope |
 | simulator | user has simulator run permission | safe forbidden/not-found | run ops reflect server outcomes |
 | telemetry | user has measurement/source-health access | safe forbidden/not-found | zero vs Missing preserved |
 | audit | user has audit-view permission | safe forbidden/not-found | no target metadata leak; redaction kept |
-| setup | workspace not configured or setup permission | hidden unless required; wizard validates server-side | existing behavior preserved |
+| setup | setup permission is effective and workspace status requires setup | safe forbidden/not-found + next action | never shown solely because workspace is not configured |
 
 ## 5. Session-expiry return rule (FR-023)
 
 After expiry, the prior route is restored only when it remains valid and permitted; otherwise the
 landing fallback is used without probing or revealing unauthorized capability/object metadata.
+
+If no included capability is permitted, the UI presents a safe no-authorized-capability state with
+only the permitted next action (for example, contact an administrator). It never routes through
+Dashboard or another forbidden page and never reveals capability names, counts, or object metadata
+outside the user's effective scope.
 
 ## 6. Deep-link rules
 

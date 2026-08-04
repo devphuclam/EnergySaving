@@ -57,17 +57,22 @@ graph TD
   A[Authenticated session] --> B{[Valid permitted deep link?]}
   B -- yes --> C[Restore deep-linked route]
   B -- no --> D{[Workspace status Setup?]}
-  D -- not configured --> E[setup]
-  D -- configured or unknown --> F{[First permitted priority capability]}
-  F --> G[dashboard -> configuration -> simulator -> telemetry -> audit -> setup]
-  G -- none permitted / disabled / unknown --> H[dashboard safe fallback]
+  D -- not configured + setup permitted --> E[setup]
+  D -- not configured + setup not permitted --> F{[First permitted priority capability]}
+  D -- configured or unknown --> F
+  F --> G[configuration -> simulator -> telemetry -> audit -> setup when authorized]
+  G -- none permitted / disabled / unknown --> J{[Dashboard permitted?]}
+  J -- yes --> H[permitted Dashboard fallback]
+  J -- no --> K[safe no-authorized-capability state]
   H --> I[Render permitted route]
+  K --> I
   C --> I
   E --> I
 ```
 
-- Deep link precedence, permission-based priority, Dashboard fallback, no preference persistence,
-  never route through a forbidden page, no unauthorized metadata disclosure (FR-023/028; D-001).
+- Deep link precedence, permission-based priority, permitted Dashboard fallback, safe
+  no-authorized-capability state, no preference persistence, never route through a forbidden page,
+  and no unauthorized metadata disclosure (FR-023/028; D-001).
 - Session expiry: return to prior route only when still valid and permitted; otherwise landing
   fallback (FR-023).
 
