@@ -136,6 +136,95 @@ if (options.TryGetValue("root-path", out var rootPathScenario))
     Environment.Exit(0);
 }
 
+if (options.ContainsKey("handle-contract"))
+{
+    var handleRoot = Path.Combine(Path.GetTempPath(), "iump-handle-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(handleRoot);
+    var handleFile = Path.Combine(handleRoot, "policy.json");
+    var replacementFile = Path.Combine(handleRoot, "replacement.json");
+    File.WriteAllText(handleFile, "{\"policyVersion\":2}");
+    var identityStable = false;
+    var replacementBlocked = false;
+    var fileUnsafe = false;
+    var directoryUnsafe = false;
+    var ancestorUnsafe = false;
+    var capabilityUnavailable = false;
+    try
+    {
+        using var fileHandle = HandleSecurityEvaluator.OpenReadOnly(handleFile, directory: false);
+        var identityBefore = HandleSecurityEvaluator.ReadIdentity(fileHandle);
+        var fileSecurity = HandleSecurityEvaluator.Assess(fileHandle, HandleSecurityTarget.PolicyFile);
+        fileUnsafe = fileSecurity.HasUnsafeEffectiveAccess || fileSecurity.OwnedByCurrentUser;
+        using (var stream = new FileStream(fileHandle, FileAccess.Read, 4096, isAsync: false))
+        {
+            _ = stream.ReadByte();
+            var identityAfter = HandleSecurityEvaluator.ReadIdentity(fileHandle);
+            identityStable = identityBefore == identityAfter;
+            try
+            {
+                File.Move(handleFile, replacementFile, overwrite: true);
+            }
+            catch (IOException)
+            {
+                replacementBlocked = true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                replacementBlocked = true;
+            }
+        }
+
+        using var directoryHandle = HandleSecurityEvaluator.OpenReadOnly(handleRoot, directory: true);
+        var directorySecurity = HandleSecurityEvaluator.Assess(directoryHandle, HandleSecurityTarget.ImmediateDirectory);
+        directoryUnsafe = directorySecurity.HasUnsafeEffectiveAccess || directorySecurity.OwnedByCurrentUser;
+
+        var ancestorPath = Directory.GetParent(handleRoot)?.FullName;
+        if (!string.IsNullOrWhiteSpace(ancestorPath))
+        {
+            using var ancestorHandle = HandleSecurityEvaluator.OpenReadOnly(ancestorPath, directory: true);
+            var ancestorSecurity = HandleSecurityEvaluator.Assess(ancestorHandle, HandleSecurityTarget.AncestorDirectory);
+            ancestorUnsafe = ancestorSecurity.HasUnsafeEffectiveAccess || ancestorSecurity.OwnedByCurrentUser;
+        }
+    }
+    catch (HandleSecurityCapabilityUnavailableException)
+    {
+        capabilityUnavailable = true;
+    }
+    finally
+    {
+        try { Directory.Delete(handleRoot, recursive: true); } catch { }
+    }
+
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        identityStable,
+        replacementBlocked,
+        fileUnsafe,
+        directoryUnsafe,
+        ancestorUnsafe,
+        capabilityUnavailable,
+        policyReadCount = 1,
+        securitySource = "handle"
+    }));
+    Environment.Exit(capabilityUnavailable ? 20 : 0);
+}
+
+if (options.ContainsKey("handle-capability"))
+{
+    try
+    {
+        using var invalidHandle = new Microsoft.Win32.SafeHandles.SafeFileHandle(IntPtr.Zero, ownsHandle: false);
+        _ = HandleSecurityEvaluator.Assess(invalidHandle, HandleSecurityTarget.PolicyFile);
+        Console.WriteLine(JsonSerializer.Serialize(new { capabilityUnavailable = false }));
+        Environment.Exit(1);
+    }
+    catch (HandleSecurityCapabilityUnavailableException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { capabilityUnavailable = true }));
+        Environment.Exit(0);
+    }
+}
+
 var root = Require(options, "root");
 Directory.CreateDirectory(root);
 

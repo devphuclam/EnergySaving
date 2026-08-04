@@ -1,6 +1,6 @@
 # Implementation Plan: Operational Configuration Workspace
 
-**Branch**: `fix/003-final-governance-corrective` (historical implementation branch:
+**Historical branch metadata**: `fix/003-final-governance-corrective` (historical implementation branch:
 `003-operational-configuration-workspace`) | **Date**: 2026-07-30 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from
@@ -20,7 +20,7 @@ and the current Phase 6 continuation is explicitly authorized after accepted T00
 **Release Readiness**: **NO** — remains NO until all Feature 003 phases and mandatory release
 evidence pass with no mandatory blocker.
 
-**Current corrective plan gate**: The active branch is `fix/003-final-governance-corrective` and
+**Historical corrective plan gate**: The historical branch was `fix/003-final-governance-corrective` and
 executes only additive Post-Phase-6 governance/evidence tasks T081–T087. The Phase 6 continuation
 wording above is historical context; no Phase 7, Feature 004, or post-T087 capability is in scope.
 
@@ -328,7 +328,7 @@ and repository-wide harness checks (`deployment-target-contract`, `doc05-archite
 registered for all relevant Features. Release-ready remains NO while mandatory company,
 target-host, and browser evidence is blocked.
 
-## Current atomic review-remediation plan override (2026-08-04)
+## Historical atomic review-remediation plan override (superseded 2026-08-04)
 
 The current plan baseline is merged `main` commit `37606adde7ac39476e53d9aaf43ded608e45038e` on
 `fix/003-atomic-review-remediation`. T141-T156 is one bounded corrective implementation phase after
@@ -337,6 +337,22 @@ and product scope while hardening signed-approval evidence, parser contracts, AC
 chain classification, and missing-tool evidence. Fresh verification is required before the branch
 is pushed; Full remains subject to external company blockers. No merge, release, Phase 7, or Spec 004
 is part of this plan.
+
+## Current post-merge handle-bound trust closure plan override (2026-08-04)
+
+The authoritative baseline is merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`; the
+corrective branch is `fix/003-handle-bound-trust-closure`. T157-T170 is one bounded implementation
+phase. Its seams are the Windows handle-bound policy snapshot, handle file identity, handle security
+descriptor retrieval, Windows `AccessCheck` effective-access evaluation, PowerShell invocation outcome
+classification, and deterministic focused verification. It does not reopen product phases, add a
+business module, change policy/manifest/certificate semantics, merge, release, or create Phase 7 or
+Spec 004.
+
+The required order is red regression tests, exact recorded red evidence, minimal green handle/API
+implementation, refactor, architecture/repository-policy verification, checkpoint, and explicit stop.
+Provider-native Spec Kit commands are `NOT_RUN` when unavailable; direct artifact work is not
+represented as provider PASS. Full/release evidence remains subject to company and package-policy
+blockers, so Release-ready remains `NO`.
 
 ## Complexity Tracking
 

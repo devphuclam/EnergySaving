@@ -178,3 +178,15 @@ passing.
   DOCX rendering is a documented `NOT_RUN` limitation (not a release blocker and not an unenforced
   mandatory gate); see `docs/decision-log.md` for the source-of-truth decision.
 - `verification-results.json` contains no credential values.
+
+## Current Feature 003 handle-bound trust closure guidance
+
+The current Feature 003 corrective phase starts from merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
+on `fix/003-handle-bound-trust-closure`. The deployment policy verifier must read policy bytes,
+file identity, security descriptor, and authorization evidence from the same opened Windows handle;
+pathname-based ACL reads are not production authority. Windows `AccessCheck` (or an approved built-in
+equivalent) is required for effective access, and unavailable capability is `BLOCKED_BY_MISSING_TOOL`,
+never a pathname-only PASS. A started verifier process that exits without one valid structured
+protocol result is `FAIL`; only pre-start command/project/runtime/process-start failures are missing-tool
+blockers. Provider-native Spec Kit commands remain `NOT_RUN` when unavailable, and direct artifact
+comparison is not provider PASS. This guidance does not alter the product boundary or release gate.

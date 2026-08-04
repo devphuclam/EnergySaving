@@ -1,11 +1,11 @@
-# Feature 003 Phase 6 — acceptance traceability (T073)
+# Feature 003 Phase 6 — historical acceptance traceability (T073; current boundary below)
 
 Date: 2026-08-03
 Feature: `003-operational-configuration-workspace`
-Baseline: `f93c2da8bcd71c0436c38d502ddd7a770c35e621`
-Branch: `003-operational-configuration-workspace`
-Corrective baseline: `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`
-Corrective branch: `fix/003-final-governance-corrective`
+Historical baseline: `f93c2da8bcd71c0436c38d502ddd7a770c35e621`
+Historical branch: `003-operational-configuration-workspace`
+Historical corrective baseline: `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`
+Historical corrective branch: `fix/003-final-governance-corrective`
 
 This matrix is an evidence index, not a claim that a source file alone proves acceptance. The
 Phase 1–5 checkpoints remain the historical records for T001–T072; their wording and dates are
@@ -46,7 +46,7 @@ matrix.
 ## Final deployment-gate closure
 
 The deployment-gate closure on `fix/003-doc05-deployment-gate` (baseline `6dbfaf3bcbc95f2d262ddeacf174232d9d746bd7`)
-is historical evidence. The current final corrective branch is `fix/003-trusted-deployment-approval`
+is historical evidence. The historical final corrective branch was `fix/003-trusted-deployment-approval`
 from baseline `6b77256f29775bb2a777ddcb555d868d7e671243`. The Full deployment-target seam is now
 trust-bounded and fail-closed: it requires an approved company CI context
 (`CI=true` plus `IUMP_COMPANY_CI_APPROVED=true`), `IUMP_DEPLOYMENT_TARGET_APPROVED=true`, a trusted
@@ -59,7 +59,7 @@ acceptance evidence is not complete, and Release-ready remains `NO`.
 ## Final signed-approval closure
 
 The signed-approval closure on `fix/003-signed-approval-closure` (baseline `2309cfecdd24538e320dcb70c35fcbd5d42bf9e2`,
-previous corrective integrated to `main` at that SHA) is the current state. The Full deployment-target
+previous corrective integrated to `main` at that SHA) is historical state. The Full deployment-target
 seam now additionally requires a detached CMS/PKCS#7 signature over the exact manifest bytes
 verified against a company-managed machine trust policy with LocalMachine certificate-chain
 validation; the manifest is read exactly once and the same byte buffer is hashed, signature-verified,
@@ -80,7 +80,7 @@ Phase 5 corrective task registration is `RETROSPECTIVE`, and historical accessib
 is `NOT_AVAILABLE`; the new post-merge AppShell regression is a static source-contract check, not
 historical TDD evidence.
 
-## Atomic signed-approval corrective evidence boundary
+## Historical atomic signed-approval corrective evidence boundary (superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: `90bafced98f80b3bbbe80bf86f81ef1c28b694ef`
@@ -96,7 +96,7 @@ evidence remains `NO`, and release readiness remains `NO` pending the approved b
 runner and company-managed deployment trust target. Standards/Specification review, Converge, and
 fresh Fast/Full evidence are `NOT_RUN` at the Constitution-required implementation checkpoint.
 
-## Atomic signed-approval review remediation boundary
+## Historical atomic signed-approval review remediation boundary (superseded 2026-08-04)
 
 The current remediation branch is `fix/003-atomic-review-remediation` from merged-main baseline
 `37606adde7ac39476e53d9aaf43ded608e45038e`. T141-T156 remediate the deployment-approval review
@@ -105,3 +105,21 @@ remain `PARTIAL` because the approved authenticated browser/process-control trac
 The fresh Full harness remains `BLOCKED` by `BLK-ENV-003` and `BLK-ENV-005`; frontend behavior is
 `BLOCKED_BY_PACKAGE_POLICY`. Provider-native Spec Kit commands are `NOT_RUN`; direct convergence
 is recorded separately. No evidence in this remediation promotes Release-ready above `NO`.
+
+## Current post-merge handle-bound trust closure boundary
+
+Date: 2026-08-04
+Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
+Corrective branch: `fix/003-handle-bound-trust-closure`
+
+T157-T170 are limited to the deployment-approval trust seam. Policy bytes, identity, security
+descriptor, and authorization decision are required to come from opened handles; Windows
+`AccessCheck` is the production effective-access authority. A missing Windows security capability
+is `BLOCKED_BY_MISSING_TOOL`; a started verifier without a valid protocol result is `FAIL`.
+No Feature 003 product acceptance semantics are changed. T138-T140 are reconciled with later
+evidence, while historical T034 remains classified by its existing package/company blocker.
+
+AC-005 and AC-011 remain `PARTIAL`; acceptance evidence is `NO`; Release-ready is `NO` pending the
+existing approved browser/process-control and company deployment/CI evidence. Independent human
+review is `NO`, GitHub CI/status evidence is `NO`, and provider-native Spec Kit commands are
+`NOT_RUN` when unavailable.

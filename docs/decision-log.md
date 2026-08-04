@@ -389,3 +389,24 @@ recorded in the feature checklist without claiming provider PASS.
 **Scope**: corrective verification-contract implementation and evidence synchronization only; no
 merge, release, Phase 7, Spec 004, package installation, container, port 5432, secret, or
 credential change is implied.
+
+### Current post-merge handle-bound trust closure
+
+**Date**: 2026-08-04
+**Baseline**: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
+**Branch**: `fix/003-handle-bound-trust-closure`
+
+The current corrective phase binds policy bytes, file identity, owner/DACL, and the trust decision
+to the same opened Windows `SafeFileHandle`. Immediate and higher-ancestor directories are opened
+with no write/delete sharing and evaluated with built-in effective-access APIs (`GetSecurityInfo`
+and `AccessCheck`). If those capabilities are unavailable, the verifier fails closed as
+`BLOCKED_BY_MISSING_TOOL`/`BLK-ENV-001`; a process that already started but crashes or emits no
+protocol result is `FAIL`. This does not alter policy v2, CMS/PKCS#7, certificate, revocation,
+manifest, or product semantics.
+
+Provider-native Spec Kit commands are `NOT_RUN` when unavailable. Current review evidence is an
+internal two-axis Standards/Specification self-review only; independent human review is `NO` and
+GitHub CI/status evidence is `NO`. AC-005/AC-011 remain `PARTIAL` and Release-ready remains `NO`.
+
+**Scope**: one bounded implementation phase only; no merge, push, PR, deployment, release, Phase 7,
+Spec 004, package installation, Docker, port 5432, secret, or credential change is implied.

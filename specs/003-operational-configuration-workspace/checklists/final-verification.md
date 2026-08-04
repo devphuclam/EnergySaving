@@ -1,8 +1,8 @@
-# Feature 003 Phase 6 — final verification (T076, T077, T079)
+# Feature 003 Phase 6 — historical final verification (T076, T077, T079; current state below)
 
 Date: 2026-08-03
-Baseline: `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`
-Corrective branch: `fix/003-final-governance-corrective` (historical implementation branch:
+Historical baseline: `045f3981f3ba6bb87425009ee8f8cf0e6cf4e56a`
+Historical corrective branch: `fix/003-final-governance-corrective` (historical implementation branch:
 `003-operational-configuration-workspace`)
 Database target: PostgreSQL `127.0.0.1:5433/iump_dev` only; password was read from the approved
 local environment/configuration path and never printed or persisted.
@@ -157,7 +157,7 @@ protected policy were written; fixtures are temporary sanitized synthetic materi
 QA remains a documented non-mandatory `NOT_RUN` limitation. AC-005 and AC-011 remain PARTIAL,
 acceptance evidence is incomplete, and Release-ready remains NO.
 
-## Atomic signed-approval implementation checkpoint (T124-T137)
+## Historical atomic signed-approval implementation checkpoint (T124-T137; superseded 2026-08-04)
 
 This is a bounded corrective implementation record on `fix/003-atomic-signed-approval` from
 baseline `90bafced98f80b3bbbe80bf86f81ef1c28b694ef` (merged `main`, PR #7). It must not be read as a
@@ -179,7 +179,7 @@ approval remains `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`, and the frontend b
 remains `BLOCKED_BY_PACKAGE_POLICY`. No secrets, port 5432, substitute database, package install,
 container, Phase 7, or Spec 004 work was used.
 
-## Atomic signed-approval review remediation verification (T151)
+## Historical atomic signed-approval review remediation verification (T151; superseded 2026-08-04)
 
 Date: 2026-08-04
 Baseline: `37606adde7ac39476e53d9aaf43ded608e45038e`
@@ -206,3 +206,23 @@ protocol result, extra stdout, status/exit/blocker/read-count mismatches, produc
 rejection, evidence redaction, and process-start failure. Chain status scenarios cover fatal,
 mixed, revocation-unavailable-only, and empty failed chains. AC-005 and AC-011 remain PARTIAL;
 Release-ready remains NO. Provider-native Spec Kit analyze/converge remains `NOT_RUN`.
+
+## Current post-merge handle-bound trust closure verification
+
+Date: 2026-08-04
+Baseline: merged `main` `4b4713cb42b1a03270a2688b344988d2945bab2c`
+Corrective branch: `fix/003-handle-bound-trust-closure`
+
+The current implementation checkpoint is recorded in
+`checklists/handle-bound-trust-implementation-checkpoint.md`. The focused handle and process seams
+are green: deployment-signature `79/0` and deployment-target `99/0`. Release build, Unit,
+PostgreSQL Integration against `127.0.0.1:5433/iump_dev`, Web lint/build, repository policy,
+architecture, repository harness, and Fast are PASS. Fresh Full exits `20` with `PASS=17` and only
+`BLK-ENV-003`/`BLK-ENV-005` company-approval blockers; it has no mandatory FAIL. Frontend behavior
+remains separately package-policy blocked where applicable. AC-005 and AC-011 remain PARTIAL,
+acceptance evidence is NO, and Release-ready is NO.
+
+Current review terminology: Internal two-axis Standards/Specification self-review is the available
+agent evidence; independent human review is `NO`; GitHub CI/status evidence is `NO`. Provider-native
+Spec Kit commands are `NOT_RUN` when unavailable. No port 5432, Docker, package installation,
+substitute database, secret, private key, real policy, or production manifest was used.

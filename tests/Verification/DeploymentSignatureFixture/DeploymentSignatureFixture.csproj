@@ -8,6 +8,7 @@
     <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\ChainStatusClassifier.cs" Link="ChainStatusClassifier.cs" />
     <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\PolicyAclEvaluator.cs" Link="PolicyAclEvaluator.cs" />
     <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\CanonicalPathPolicy.cs" Link="CanonicalPathPolicy.cs" />
+    <Compile Include="..\..\..\src\Infrastructure\DeploymentApproval\HandleSecurityEvaluator.cs" Link="HandleSecurityEvaluator.cs" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
   </ItemGroup>
 </Project>
