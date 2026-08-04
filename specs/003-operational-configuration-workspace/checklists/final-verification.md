@@ -156,3 +156,25 @@ not implemented` when absent. No secrets, certificate private keys, signed produ
 protected policy were written; fixtures are temporary sanitized synthetic material only. Visual DOCX
 QA remains a documented non-mandatory `NOT_RUN` limitation. AC-005 and AC-011 remain PARTIAL,
 acceptance evidence is incomplete, and Release-ready remains NO.
+
+## Atomic signed-approval implementation checkpoint (T124-T137)
+
+This is a bounded corrective implementation record on `fix/003-atomic-signed-approval` from
+baseline `90bafced98f80b3bbbe80bf86f81ef1c28b694ef` (merged `main`, PR #7). It must not be read as a
+fresh release verification or as a replacement for the preceding historical closure records.
+
+| Command / artifact | Result | Evidence |
+|---|---|---|
+| `tests/Verification/deployment-signature.tests.ps1` | PASS | `checks=30; failures=0`; policy-v2, fingerprint, EKU, revocation, digest/key, path, read-count, and synthetic-boundary cases. |
+| `tests/Verification/deployment-target.tests.ps1` | PASS | `checks=58; failures=0`; verifier delegation, expected SHA, exact JSON cardinality, exit/classification propagation, path and blocker cases. |
+| `tests/Verification/doc05-architecture.tests.ps1` | PASS | `checks=63; failures=0`. |
+| Repository/architecture/observability checks | PASS | Harness, policy, architecture, and observability checks passed. |
+| `dotnet build .\IUMP.slnx --no-restore --configuration Release` | PASS | 0 warnings, 0 errors. |
+| Unit suite | PASS | All registered tests passed. |
+| PostgreSQL Integration | PASS | Sequential run against `127.0.0.1:5433/iump_dev`; 15 suites, 0 failures. |
+| Fast / Full / Standards review / Specification review / Converge | NOT_RUN | Constitution 1.1.0 requires an explicit stop at the implementation checkpoint; no result is promoted to PASS. |
+
+The implementation checkpoint is not release-ready: AC-005 and AC-011 remain `PARTIAL`, company
+approval remains `BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`, and the frontend behavior capability
+remains `BLOCKED_BY_PACKAGE_POLICY`. No secrets, port 5432, substitute database, package install,
+container, Phase 7, or Spec 004 work was used.

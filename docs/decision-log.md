@@ -340,3 +340,27 @@ a release blocker and an unenforced check.
 
 **Scope**: evidence-classification decision only. No renderer installation, repository write,
 document conversion, or release approval is implied.
+
+### Atomic signed-approval implementation checkpoint after PR #7 merge
+
+**Date**: 2026-08-04
+**Baseline**: `90bafced98f80b3bbbe80bf86f81ef1c28b694ef` (authoritative merged `main`, PR #7)
+**Branch**: `fix/003-atomic-signed-approval`
+
+The bounded T124-T137 implementation corrects the signed-approval trust boundary without widening
+Feature 003. Manifest and detached-signature bytes are read once by the .NET verifier; the expected
+SHA-256 is passed into that verifier; PowerShell only invokes and propagates one structured JSON
+result; policy v2 uses raw-certificate SHA-256 identity, required EKUs, strong algorithms, explicit
+Online/Offline revocation, and fail-closed classifications. Evidence paths are contained under one
+trusted root and reject traversal/reparse/repository escapes. The existing WPF framework reference
+is retained only as a no-download compile-time compatibility debt because the installed non-UI
+reference pack does not expose the PKCS types.
+
+The current policy remains intentionally non-release-ready: AC-005 and AC-011 are PARTIAL, the
+company-managed trust policy/target is unavailable (`BLK-ENV-005`), the approved frontend runner is
+package-policy blocked, and no fresh Full/review/convergence evidence was run. Constitution 1.1.0
+requires an explicit implementation checkpoint stop; review, converge, push, and merge remain
+subsequent authorized steps. No Phase 7, Spec 004, control, savings, or AI behavior is implied.
+
+**Scope**: corrective implementation and evidence classification only; no release approval,
+deployment, merge, or credential change.

@@ -4,13 +4,13 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
-using System.Runtime.Versioning;
 
 internal static class Program
 {
-    private static readonly string[] RequiredFields =
+    private static readonly string[] RequiredManifestFields =
     [
         "deploymentModel", "webHosting", "apiHosting", "workerServiceManager",
         "databaseHosting", "lifecycleRunbookReference", "rollbackRunbookReference",
@@ -26,6 +26,13 @@ internal static class Program
     private static readonly string SecretKeyPattern =
         "password|secret|token|credential|connectionstring|privatekey|apikey|accesskey";
 
+    private static readonly HashSet<string> AcceptedDigestOids =
+    [
+        "2.16.840.1.101.3.4.2.1", // SHA-256
+        "2.16.840.1.101.3.4.2.2", // SHA-384
+        "2.16.840.1.101.3.4.2.3"  // SHA-512
+    ];
+
     public static int Main(string[] args)
     {
         try
@@ -39,14 +46,15 @@ internal static class Program
         catch (CapabilityUnavailableException ex)
         {
             var result = new VerificationResult(
-                "BLOCKED", "BLOCKED_BY_MISSING_TOOL", 20, "BLK-ENV-001", ex.Message, false, 0);
+                "BLOCKED", "BLOCKED_BY_MISSING_TOOL", 20, "BLK-ENV-001", ex.Message, false, 0, 0);
             Console.WriteLine(JsonSerializer.Serialize(result));
             return result.ExitCode;
         }
         catch (Exception)
         {
             var result = new VerificationResult(
-                "FAIL", "RUNNABLE_NOW", 1, null, "deployment approval evidence could not be verified", false, 0);
+                "FAIL", "RUNNABLE_NOW", 1, null,
+                "deployment approval evidence could not be verified", false, 0, 0);
             Console.WriteLine(JsonSerializer.Serialize(result));
             return result.ExitCode;
         }
@@ -56,100 +64,270 @@ internal static class Program
     {
         var manifestPath = GetRequired(options, "manifest");
         var signaturePath = GetRequired(options, "signature");
+        var trustedRoot = GetRequired(options, "trusted-root");
         var expectedSha = options.GetValueOrDefault("expected-sha256");
+        var repositoryRoot = options.GetValueOrDefault("repository-root");
         var policyPath = synthetic ? GetRequired(options, "policy") : ProductionPolicyPath;
 
-        if (!File.Exists(manifestPath) || !File.Exists(signaturePath))
+        var pathResult = ValidateEvidencePair(manifestPath, signaturePath, trustedRoot, repositoryRoot, synthetic);
+        if (pathResult is not null)
         {
-            return Fail("approved manifest or detached signature is unavailable");
+            return pathResult;
         }
 
-        if (!synthetic && !IsCompanyManagedPolicyPath(policyPath))
+        if (!IsSha256(expectedSha))
         {
-            return Blocked("company-managed deployment trust policy is unavailable");
+            return Blocked("approved manifest attestation is unavailable or malformed", synthetic);
         }
 
-        if (!File.Exists(policyPath))
-        {
-            return synthetic
-                ? Blocked("synthetic trust policy is unavailable")
-                : Blocked("company-managed deployment trust policy is unavailable");
-        }
-
-        var manifestBytes = ReadBytesOnce(manifestPath, out var manifestReadCount);
-        var signatureBytes = ReadBytesOnce(signaturePath, out _);
-        var actualSha = Convert.ToHexString(SHA256.HashData(manifestBytes));
-        if (!string.IsNullOrWhiteSpace(expectedSha) &&
-            !string.Equals(actualSha, expectedSha, StringComparison.OrdinalIgnoreCase))
-        {
-            return Fail("approved manifest attestation does not match", manifestReadCount);
-        }
-
-        var policy = ReadPolicy(policyPath);
-        var manifestFailure = ValidateManifest(manifestBytes);
-        if (manifestFailure is not null)
-        {
-            return Fail(manifestFailure, manifestReadCount);
-        }
-
-        SignedCms cms;
+        byte[] manifestBytes;
+        byte[] signatureBytes;
         try
         {
-            cms = new SignedCms(new ContentInfo(manifestBytes), detached: true);
-            cms.Decode(signatureBytes);
-            cms.CheckSignature(verifySignatureOnly: true);
+            manifestBytes = ReadBytesOnce(manifestPath, out var manifestReadCount);
+            signatureBytes = ReadBytesOnce(signaturePath, out _);
+
+            var actualSha = Convert.ToHexString(SHA256.HashData(manifestBytes));
+            if (!string.Equals(actualSha, expectedSha, StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail("approved manifest attestation does not match", synthetic, manifestReadCount, 0);
+            }
+
+            var manifestFailure = ValidateManifest(manifestBytes);
+            if (manifestFailure is not null)
+            {
+                return Fail(manifestFailure, synthetic, manifestReadCount, 0);
+            }
+
+            SignedCms cms;
+            try
+            {
+                cms = new SignedCms(new ContentInfo(manifestBytes), detached: true);
+                cms.Decode(signatureBytes);
+                cms.CheckSignature(verifySignatureOnly: true);
+            }
+            catch (CryptographicException)
+            {
+                return Fail("detached CMS signature is malformed or does not match the manifest", synthetic, manifestReadCount, 0);
+            }
+
+            if (cms.SignerInfos.Count != 1 || cms.SignerInfos[0].Certificate is null)
+            {
+                return Fail("detached CMS signature must contain exactly one signer certificate", synthetic, manifestReadCount, 0);
+            }
+
+            var signerInfo = cms.SignerInfos[0];
+            var signerCertificate = signerInfo.Certificate!;
+            using var signer = new X509Certificate2(signerCertificate);
+            if (!AcceptedDigestOids.Contains(signerInfo.DigestAlgorithm.Value ?? string.Empty))
+            {
+                return Fail("detached CMS signature uses a disallowed digest algorithm", synthetic, manifestReadCount, 0);
+            }
+
+            if (!HasStrongPublicKey(signer))
+            {
+                return Fail("signer certificate public key is below the deployment policy strength", synthetic, manifestReadCount, 0);
+            }
+
+            if (signer.NotBefore.ToUniversalTime() > DateTime.UtcNow ||
+                signer.NotAfter.ToUniversalTime() < DateTime.UtcNow)
+            {
+                return Fail("signer certificate is expired or not yet valid", synthetic, manifestReadCount, 0);
+            }
+
+            TrustPolicy policy;
+            int policyReadCount;
+            try
+            {
+                policy = ReadPolicySnapshot(policyPath, enforceCompanySecurity: !synthetic, out policyReadCount);
+            }
+            catch (CompanyPolicyUnavailableException)
+            {
+                return Blocked("company-managed deployment trust policy is unavailable", synthetic, manifestReadCount, 0);
+            }
+            catch (FileNotFoundException)
+            {
+                return Blocked("deployment trust policy is unavailable", synthetic, manifestReadCount, 0);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return Blocked("deployment trust policy is unavailable", synthetic, manifestReadCount, 0);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Blocked("deployment trust policy security could not be verified", synthetic, manifestReadCount, 0);
+            }
+            catch (InvalidDataException ex)
+            {
+                return Fail(ex.Message, synthetic, manifestReadCount, 1);
+            }
+
+            var signerFingerprint = Convert.ToHexString(SHA256.HashData(signer.RawData));
+            if (!policy.AllowedSignerCertificateSha256.Contains(signerFingerprint))
+            {
+                return Fail("signer certificate SHA-256 fingerprint is not allowed by the deployment trust policy", synthetic, manifestReadCount, policyReadCount);
+            }
+
+            if (!HasRequiredEkus(signer, policy.RequiredEkuOids))
+            {
+                return Fail("signer certificate does not satisfy the deployment trust policy EKU/OID requirement", synthetic, manifestReadCount, policyReadCount);
+            }
+
+            if (!synthetic)
+            {
+                var chain = BuildCompanyChain(signer, policy.RevocationMode);
+                if (chain == ChainDisposition.Blocked)
+                {
+                    return Blocked("certificate revocation or trust-chain evidence is unavailable", false, manifestReadCount, policyReadCount);
+                }
+
+                if (chain == ChainDisposition.Invalid)
+                {
+                    return Fail("signer certificate chain is not trusted by the company certificate policy", false, manifestReadCount, policyReadCount);
+                }
+            }
+
+            var evidence = synthetic
+                ? "synthetic cryptographic contract evidence only; policy v2 matched; manifest and policy snapshots verified once"
+                : "company-managed policy v2 verified; signer chain and revocation policy verified; manifest and policy snapshots verified once";
+            return new VerificationResult("PASS", "RUNNABLE_NOW", 0, null, evidence, synthetic, manifestReadCount, policyReadCount);
         }
-        catch (CryptographicException)
+        catch (DecoderFallbackException)
         {
-            return Fail("detached CMS signature is malformed or does not match the manifest", manifestReadCount);
+            return Fail("manifest or policy is not strict UTF-8", synthetic);
+        }
+        catch (FileNotFoundException)
+        {
+            return Fail("approved manifest or detached signature is unavailable", synthetic);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Fail("approved manifest or detached signature could not be read", synthetic);
+        }
+    }
+
+    private static VerificationResult? ValidateEvidencePair(
+        string manifestPath,
+        string signaturePath,
+        string trustedRoot,
+        string? repositoryRoot,
+        bool synthetic)
+    {
+        string rootFull;
+        string manifestFull;
+        string signatureFull;
+        try
+        {
+            rootFull = Path.GetFullPath(trustedRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            manifestFull = Path.GetFullPath(manifestPath);
+            signatureFull = Path.GetFullPath(signaturePath);
+        }
+        catch (Exception)
+        {
+            return Fail("trusted evidence path syntax is invalid", synthetic);
         }
 
-        var signerCertificate = cms.SignerInfos.Count == 1 ? cms.SignerInfos[0].Certificate : null;
-        if (signerCertificate is null)
+        if (!Directory.Exists(rootFull))
         {
-            return Fail("detached CMS signature must contain exactly one signer certificate", manifestReadCount);
+            return Blocked("trusted evidence root is unavailable", synthetic);
         }
 
-        using var signer = new X509Certificate2(signerCertificate);
-        if (signer.NotBefore.ToUniversalTime() > DateTime.UtcNow || signer.NotAfter.ToUniversalTime() < DateTime.UtcNow)
+        if (HasTraversalSegment(manifestPath) || HasTraversalSegment(signaturePath))
         {
-            return Fail("signer certificate is expired or not yet valid", manifestReadCount);
+            return Fail("trusted evidence path contains traversal", synthetic);
         }
 
-        if (!policy.AllowedSignerThumbprints.Contains(NormalizeThumbprint(signer.Thumbprint)))
+        if (ContainsReparsePoint(rootFull))
         {
-            return Fail("signer certificate is not allowed by the deployment trust policy", manifestReadCount);
+            return Blocked("trusted evidence root is a reparse point and cannot establish trust", synthetic);
         }
 
-        if (!HasRequiredEkus(signer, policy.RequiredEkuOids))
+        foreach (var candidate in new[] { manifestFull, signatureFull })
         {
-            return Fail("signer certificate does not satisfy the deployment trust policy EKU/OID requirement", manifestReadCount);
+            if (!IsContainedPath(candidate, rootFull) || ContainsReparsePoint(candidate))
+            {
+                return Fail("manifest and signature must remain inside the trusted evidence root", synthetic);
+            }
+
+            if (!string.IsNullOrWhiteSpace(repositoryRoot))
+            {
+                try
+                {
+                    var repositoryFull = Path.GetFullPath(repositoryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (IsContainedPath(candidate, repositoryFull))
+                    {
+                        return Fail("signed evidence must not be loaded from the repository", synthetic);
+                    }
+                }
+                catch (Exception)
+                {
+                    return Fail("repository path syntax is invalid", synthetic);
+                }
+            }
+
+            if (!File.Exists(candidate) || (File.GetAttributes(candidate) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+            {
+                return Fail("manifest and signature must be existing regular files", synthetic);
+            }
         }
 
-        if (!synthetic && !BuildCompanyChain(signer))
-        {
-            return Fail("signer certificate chain is not trusted by the LocalMachine certificate policy", manifestReadCount);
-        }
+        return null;
+    }
 
-        var evidence = synthetic
-            ? "synthetic cryptographic contract evidence only; signer policy matched; manifest bytes verified once"
-            : "company-managed trust policy verified; signer chain verified; manifest bytes verified once";
-        return new VerificationResult("PASS", "RUNNABLE_NOW", 0, null, evidence, synthetic, manifestReadCount);
+    private static bool IsContainedPath(string candidate, string root)
+    {
+        var separator = Path.DirectorySeparatorChar.ToString();
+        return candidate.StartsWith(root + separator, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasTraversalSegment(string path) => path
+        .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+        .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+        .Any(segment => segment == "..");
+
+    private static bool ContainsReparsePoint(string path)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(fullPath) ?? string.Empty;
+            var current = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var remainder = fullPath[root.Length..];
+            foreach (var segment in remainder.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = Path.Combine(current, segment);
+                if (File.Exists(current) || Directory.Exists(current))
+                {
+                    if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     private static Dictionary<string, string> ParseArguments(IReadOnlyList<string> args)
     {
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
-        for (var i = 0; i < args.Count; i++)
+        for (var index = 0; index < args.Count; index++)
         {
-            if (!args[i].StartsWith("--", StringComparison.Ordinal) || i + 1 >= args.Count)
+            if (!args[index].StartsWith("--", StringComparison.Ordinal) || index + 1 >= args.Count)
             {
                 throw new ArgumentException("invalid verifier arguments");
             }
 
-            options[args[i][2..]] = args[++i];
+            var name = args[index][2..];
+            if (!options.TryAdd(name, args[++index]))
+            {
+                throw new ArgumentException("duplicate verifier argument");
+            }
         }
-
         return options;
     }
 
@@ -162,29 +340,66 @@ internal static class Program
     {
         readCount = 1;
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return ReadAll(stream);
+    }
+
+    private static byte[] ReadAll(Stream stream)
+    {
         using var buffer = new MemoryStream();
         stream.CopyTo(buffer);
         return buffer.ToArray();
     }
 
-    private static TrustPolicy ReadPolicy(string path)
+    [SupportedOSPlatform("windows")]
+    private static TrustPolicy ReadPolicySnapshot(string path, bool enforceCompanySecurity, out int readCount)
     {
+        readCount = 0;
+        if (enforceCompanySecurity && !string.Equals(Path.GetFullPath(path), Path.GetFullPath(ProductionPolicyPath), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CompanyPolicyUnavailableException("company-managed policy path is not canonical");
+        }
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        readCount = 1;
+        if (enforceCompanySecurity && !ValidateCompanyPolicySecurity(path))
+        {
+            throw new CompanyPolicyUnavailableException("company-managed policy ACL is not trust-bounded");
+        }
+
+        var bytes = ReadAll(stream);
         try
         {
-            var bytes = ReadBytesOnce(path, out _);
-            using var document = JsonDocument.Parse(bytes);
+            using var document = JsonDocument.Parse(
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes));
             var root = document.RootElement;
-            var thumbprints = ReadStringArray(root, "allowedSignerThumbprints")
-                .Select(NormalizeThumbprint)
-                .Where(value => value.Length == 40)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var ekus = ReadStringArray(root, "requiredEkuOids").ToHashSet(StringComparer.Ordinal);
-            if (thumbprints.Count == 0)
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("policyVersion", out var version) ||
+                version.ValueKind != JsonValueKind.Number || version.GetInt32() != 2)
             {
-                throw new InvalidDataException("deployment trust policy has no allowed signer");
+                throw new InvalidDataException("deployment trust policy version is unsupported");
             }
 
-            return new TrustPolicy(thumbprints, ekus);
+            var fingerprints = ReadStringArray(root, "allowedSignerCertificateSha256")
+                .Select(NormalizeFingerprint)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (fingerprints.Count == 0 || fingerprints.Any(value => !IsSha256(value)))
+            {
+                throw new InvalidDataException("deployment trust policy requires 64-character SHA-256 certificate fingerprints");
+            }
+
+            var ekuOids = ReadStringArray(root, "requiredEkuOids").ToHashSet(StringComparer.Ordinal);
+            var revocationText = root.TryGetProperty("revocationMode", out var revocation) &&
+                revocation.ValueKind == JsonValueKind.String
+                ? revocation.GetString()
+                : null;
+            var revocationMode = revocationText switch
+            {
+                "Online" => X509RevocationMode.Online,
+                "Offline" => X509RevocationMode.Offline,
+                _ => throw new InvalidDataException("deployment trust policy requires revocationMode Online or Offline")
+            };
+
+            return new TrustPolicy(fingerprints, ekuOids, revocationMode);
         }
         catch (JsonException)
         {
@@ -218,7 +433,7 @@ internal static class Program
                 return "manifest schema is invalid";
             }
 
-            foreach (var field in RequiredFields)
+            foreach (var field in RequiredManifestFields)
             {
                 if (!root.TryGetProperty(field, out var value) ||
                     value.ValueKind != JsonValueKind.String ||
@@ -298,88 +513,172 @@ internal static class Program
         return requiredEkus.All(actual.Contains);
     }
 
-    private static bool BuildCompanyChain(X509Certificate2 signer)
+    private static bool HasStrongPublicKey(X509Certificate2 certificate)
     {
-        using var chain = new X509Chain();
-        chain.ChainPolicy.TrustMode = X509ChainTrustMode.System;
-        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-        chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
-        return chain.Build(signer);
+        using var rsa = certificate.GetRSAPublicKey();
+        if (rsa is not null)
+        {
+            return rsa.KeySize >= 2048;
+        }
+
+        using var ecdsa = certificate.GetECDsaPublicKey();
+        if (ecdsa is not null)
+        {
+            var oid = ecdsa.ExportParameters(false).Curve.Oid.Value;
+            return oid == "1.2.840.10045.3.1.7"; // NIST P-256
+        }
+
+        return false;
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool IsCompanyManagedPolicyPath(string path)
+    private static ChainDisposition BuildCompanyChain(X509Certificate2 signer, X509RevocationMode revocationMode)
     {
-        var fullPath = Path.GetFullPath(path);
-        var expectedPath = Path.GetFullPath(ProductionPolicyPath);
-        if (!string.Equals(fullPath, expectedPath, StringComparison.OrdinalIgnoreCase) ||
-            !File.Exists(fullPath) ||
-            (File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0)
-        {
-            return false;
-        }
-
         try
         {
-            var security = new FileInfo(fullPath).GetAccessControl();
+            using var chain = new X509Chain();
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.System;
+            chain.ChainPolicy.RevocationMode = revocationMode;
+            chain.ChainPolicy.RevocationFlag = X509RevocationFlag.ExcludeRoot;
+            chain.ChainPolicy.UrlRetrievalTimeout = TimeSpan.FromSeconds(5);
+            chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
+            if (chain.Build(signer))
+            {
+                return ChainDisposition.Valid;
+            }
+
+            var statuses = chain.ChainStatus.Select(status => status.Status).ToArray();
+            return statuses.Any(status =>
+                (status & (X509ChainStatusFlags.RevocationStatusUnknown |
+                           X509ChainStatusFlags.OfflineRevocation)) != 0)
+                ? ChainDisposition.Blocked
+                : ChainDisposition.Invalid;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return ChainDisposition.Blocked;
+        }
+        catch (CryptographicException)
+        {
+            return ChainDisposition.Blocked;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool ValidateCompanyPolicySecurity(string path)
+    {
+        try
+        {
+            if (ContainsReparsePoint(path))
+            {
+                return false;
+            }
+
             var current = WindowsIdentity.GetCurrent();
             var currentSid = current.User;
-            var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-            if (currentSid is null || owner is null || owner.Value == currentSid.Value)
+            if (currentSid is null)
             {
                 return false;
             }
 
             var principal = new WindowsPrincipal(current);
-            foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+            var policySecurity = new FileInfo(path).GetAccessControl();
+            if (IsOwnedByCurrentUser(policySecurity, currentSid) ||
+                HasUnsafeAllow(policySecurity.GetAccessRules(true, true, typeof(SecurityIdentifier)), currentSid, principal, isDirectory: false))
             {
-                if (rule.AccessControlType != AccessControlType.Allow || !HasWritePermission(rule.FileSystemRights))
-                {
-                    continue;
-                }
+                return false;
+            }
 
-                var sid = (SecurityIdentifier)rule.IdentityReference;
-                if (sid.Value == currentSid.Value ||
-                    (principal.IsInRole(sid) && !IsSystemIdentity(sid)))
+            var parent = Directory.GetParent(path);
+            while (parent is not null)
+            {
+                if (ContainsReparsePoint(parent.FullName))
                 {
                     return false;
                 }
+
+                var parentSecurity = parent.GetAccessControl();
+                if (IsOwnedByCurrentUser(parentSecurity, currentSid) ||
+                    HasUnsafeAllow(parentSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier)), currentSid, principal, isDirectory: true))
+                {
+                    return false;
+                }
+
+                if (string.Equals(parent.FullName.TrimEnd(Path.DirectorySeparatorChar),
+                        Path.GetPathRoot(parent.FullName)?.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                parent = parent.Parent;
             }
 
             return true;
         }
-        catch (SecurityException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
             return false;
         }
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool HasWritePermission(FileSystemRights rights) =>
-        (rights & (FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.WriteAttributes |
-                   FileSystemRights.WriteExtendedAttributes | FileSystemRights.Delete |
-                   FileSystemRights.DeleteSubdirectoriesAndFiles | FileSystemRights.ChangePermissions |
-                   FileSystemRights.TakeOwnership | FileSystemRights.FullControl)) != 0;
+    private static bool IsOwnedByCurrentUser(FileSystemSecurity security, SecurityIdentifier currentSid) =>
+        security.GetOwner(typeof(SecurityIdentifier)) is SecurityIdentifier owner && owner.Value == currentSid.Value;
 
     [SupportedOSPlatform("windows")]
-    private static bool IsSystemIdentity(SecurityIdentifier sid) =>
-        sid.IsWellKnown(WellKnownSidType.LocalSystemSid) ||
-        sid.Value.Equals("S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", StringComparison.OrdinalIgnoreCase);
+    private static bool HasUnsafeAllow(
+        AuthorizationRuleCollection rules,
+        SecurityIdentifier currentSid,
+        WindowsPrincipal principal,
+        bool isDirectory)
+    {
+        var unsafeRights = FileSystemRights.WriteData |
+            FileSystemRights.AppendData |
+            FileSystemRights.WriteAttributes |
+            FileSystemRights.WriteExtendedAttributes |
+            FileSystemRights.Delete |
+            FileSystemRights.DeleteSubdirectoriesAndFiles |
+            FileSystemRights.ChangePermissions |
+            FileSystemRights.TakeOwnership |
+            FileSystemRights.FullControl |
+            FileSystemRights.CreateFiles |
+            FileSystemRights.CreateDirectories;
 
-    private static string NormalizeThumbprint(string? value) =>
-        (value ?? string.Empty).Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+        foreach (FileSystemAccessRule rule in rules)
+        {
+            if (rule.AccessControlType != AccessControlType.Allow ||
+                (rule.FileSystemRights & unsafeRights) == 0)
+            {
+                continue;
+            }
 
-    private static VerificationResult Blocked(string evidence) =>
-        new("BLOCKED", "BLOCKED_BY_COMPANY_APPROVAL", 20, "BLK-ENV-005", evidence, false, 0);
+            if (rule.IdentityReference is SecurityIdentifier sid &&
+                (sid.Value == currentSid.Value || principal.IsInRole(sid)))
+            {
+                return true;
+            }
+        }
 
-    private static VerificationResult Fail(string evidence, int readCount = 0) =>
-        new("FAIL", "RUNNABLE_NOW", 1, null, evidence, false, readCount);
+        return false;
+    }
 
-    private sealed record TrustPolicy(IReadOnlySet<string> AllowedSignerThumbprints, IReadOnlySet<string> RequiredEkuOids);
+    private static bool IsSha256(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Length == 64 &&
+        value.All(character => Uri.IsHexDigit(character));
+
+    private static string NormalizeFingerprint(string value) =>
+        value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+
+    private static VerificationResult Blocked(string evidence, bool synthetic, int manifestReadCount = 0, int policyReadCount = 0) =>
+        new("BLOCKED", "BLOCKED_BY_COMPANY_APPROVAL", 20, "BLK-ENV-005", evidence, synthetic, manifestReadCount, policyReadCount);
+
+    private static VerificationResult Fail(string evidence, bool synthetic = false, int manifestReadCount = 0, int policyReadCount = 0) =>
+        new("FAIL", "RUNNABLE_NOW", 1, null, evidence, synthetic, manifestReadCount, policyReadCount);
+
+    private sealed record TrustPolicy(
+        IReadOnlySet<string> AllowedSignerCertificateSha256,
+        IReadOnlySet<string> RequiredEkuOids,
+        X509RevocationMode RevocationMode);
 
     private sealed record VerificationResult(
         string Status,
@@ -388,7 +687,17 @@ internal static class Program
         string? BlockerId,
         string Evidence,
         bool Synthetic,
-        int ManifestReadCount);
+        int ManifestReadCount,
+        int PolicyReadCount);
+
+    private enum ChainDisposition
+    {
+        Valid,
+        Invalid,
+        Blocked
+    }
 
     private sealed class CapabilityUnavailableException(string message) : Exception(message);
+
+    private sealed class CompanyPolicyUnavailableException(string message) : Exception(message);
 }

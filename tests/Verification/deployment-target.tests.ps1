@@ -12,6 +12,7 @@ if (-not (Test-Path -LiteralPath $deploymentScript -PathType Leaf)) {
 
 $failures = [System.Collections.Generic.List[string]]::new()
 $checks = 0
+$deploymentSource = Get-Content -Raw $deploymentScript
 
 function Assert-Equal {
     param([object]$Actual, [object]$Expected, [string]$Label)
@@ -45,6 +46,16 @@ function Assert-Blank {
     }
 }
 
+Assert-NotContains $deploymentSource 'Get-FileHash' 'PowerShell must not hash the manifest'
+Assert-NotContains $deploymentSource 'Get-Content' 'PowerShell must not read the manifest'
+Assert-NotContains $deploymentSource '$manifestText' 'PowerShell must not parse manifest text'
+Assert-Contains $deploymentSource '--expected-sha256' 'expected SHA-256 must reach verifier'
+Assert-Contains $deploymentSource 'ConvertFrom-Json -InputObject $jsonLine' 'PowerShell must parse verifier JSON'
+Assert-Contains $deploymentSource 'manifestReadCount' 'PowerShell must validate manifest read count'
+Assert-Contains $deploymentSource 'jsonLines.Count -ne 1' 'PowerShell must reject malformed or multiple verifier JSON results'
+Assert-Contains $deploymentSource 'BLOCKED_BY_MISSING_TOOL' 'PowerShell must preserve missing-tool classification'
+Assert-Contains $deploymentSource 'BLOCKED_BY_COMPANY_APPROVAL' 'PowerShell must preserve company-approval classification'
+
 function New-ValidManifest {
     [ordered]@{
         deploymentModel = 'restricted-non-containerized'
@@ -72,6 +83,21 @@ try {
     $validPath = Join-Path $tempRoot 'valid.json'
     (New-ValidManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $validPath -Encoding UTF8
     $validSha = Get-ManifestSha256 -Path $validPath
+
+    $signedRoot = Join-Path $tempRoot 'signed-fixture'
+    $fixtureProject = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $fixtureOutput = & dotnet run --project $fixtureProject --no-restore -- --root $signedRoot 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'signed fixture generation failed' }
+    $fixtureJson = @($fixtureOutput | Where-Object { $_ -match '^\s*\{' })
+    if ($fixtureJson.Count -ne 1) { throw 'signed fixture JSON result unavailable' }
+    $signedFixture = ConvertFrom-Json -InputObject $fixtureJson[0]
+    $signedSha = Get-ManifestSha256 -Path $signedFixture.manifestPath
+
+    $productionBlocked = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $signedFixture.manifestPath `
+        -SignaturePath $signedFixture.signaturePath -Ci 'true' -CompanyCiApproved 'true' `
+        -TrustedEvidenceRoot $signedRoot -ExpectedSha256 $signedSha
+    Assert-Equal $productionBlocked.classification 'BLOCKED_BY_COMPANY_APPROVAL' 'signed production policy blocker'
+    Assert-Equal $productionBlocked.blockerId 'BLK-ENV-005' 'signed production policy blocker id'
 
     $blocked = Test-DeploymentTargetApproval -ApprovalFlag '' -EvidencePath ''
     Assert-Equal $blocked.classification 'BLOCKED_BY_COMPANY_APPROVAL' 'missing approval classification'
@@ -104,7 +130,8 @@ try {
     (New-ValidManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $outsidePath -Encoding UTF8
     try {
         $outsideResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $outsidePath `
-            -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $validSha
+            -SignaturePath $signedFixture.signaturePath -Ci 'true' -CompanyCiApproved 'true' `
+            -TrustedEvidenceRoot $signedRoot -ExpectedSha256 (Get-ManifestSha256 -Path $outsidePath)
         Assert-Equal $outsideResult.classification 'FAIL' 'outside root classification'
         Assert-Blank $outsideResult.blockerId 'outside root blocker'
         Assert-Equal $outsideResult.exitCode 1 'outside root exit'
@@ -117,7 +144,8 @@ try {
     (New-ValidManifest | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $traversalPath -Encoding UTF8
     try {
         $traversalResult = Test-DeploymentTargetApproval -ApprovalFlag 'true' -EvidencePath $traversalPath `
-            -Ci 'true' -CompanyCiApproved 'true' -TrustedEvidenceRoot $tempRoot -ExpectedSha256 $validSha
+            -SignaturePath $signedFixture.signaturePath -Ci 'true' -CompanyCiApproved 'true' `
+            -TrustedEvidenceRoot $signedRoot -ExpectedSha256 (Get-ManifestSha256 -Path $traversalPath)
         Assert-Equal $traversalResult.classification 'FAIL' 'path traversal classification'
         Assert-Blank $traversalResult.blockerId 'path traversal blocker'
         Assert-Equal $traversalResult.exitCode 1 'path traversal exit'

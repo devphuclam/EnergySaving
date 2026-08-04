@@ -36,7 +36,7 @@ File.WriteAllBytes(manifestPath, manifestBytes);
 var now = DateTimeOffset.UtcNow;
 var notBefore = variant == "expired" ? now.AddYears(-2) : now.AddMinutes(-5);
 var notAfter = variant == "expired" ? now.AddYears(-1) : now.AddYears(1);
-using var rsa = RSA.Create(2048);
+using var rsa = RSA.Create(variant == "weak-rsa" ? 1024 : 2048);
 var request = new CertificateRequest(
     "CN=IUMP Synthetic Deployment Signer",
     rsa,
@@ -44,18 +44,29 @@ var request = new CertificateRequest(
     RSASignaturePadding.Pkcs1);
 using var certificate = request.CreateSelfSigned(notBefore, notAfter);
 var cms = new SignedCms(new ContentInfo(manifestBytes), detached: true);
-cms.ComputeSignature(new CmsSigner(SubjectIdentifierType.IssuerAndSerialNumber, certificate));
+var cmsSigner = new CmsSigner(SubjectIdentifierType.IssuerAndSerialNumber, certificate);
+if (variant == "sha1")
+{
+    cmsSigner.DigestAlgorithm = new Oid("1.3.14.3.2.26");
+}
+else if (variant == "md5")
+{
+    cmsSigner.DigestAlgorithm = new Oid("1.2.840.113549.2.5");
+}
+cms.ComputeSignature(cmsSigner);
 File.WriteAllBytes(signaturePath, cms.Encode());
 
-var allowedThumbprint = variant == "wrong-signer"
-    ? new string('0', 40)
-    : certificate.Thumbprint ?? string.Empty;
+var certificateSha256 = Convert.ToHexString(SHA256.HashData(certificate.RawData));
+var allowedCertificateSha256 = variant == "wrong-signer"
+    ? new string('0', 64)
+    : certificateSha256;
 var requiredEkus = variant == "eku-mismatch" ? ["1.2.3.4.5.6.7"] : Array.Empty<string>();
 var policy = new
 {
-    policyVersion = "test-only",
-    allowedSignerThumbprints = new[] { allowedThumbprint },
-    requiredEkuOids = requiredEkus
+    policyVersion = variant == "policy-v1" ? 1 : 2,
+    allowedSignerCertificateSha256 = new[] { allowedCertificateSha256 },
+    requiredEkuOids = requiredEkus,
+    revocationMode = "Offline"
 };
 File.WriteAllText(policyPath, JsonSerializer.Serialize(policy));
 

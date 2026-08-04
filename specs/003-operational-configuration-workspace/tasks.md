@@ -359,7 +359,8 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Final Documentation and Deployment-Gate Corrective Closure | 10 | T088-T097 |
 | Final Trusted-Approval and Checkpoint Corrective Closure | 12 | T098-T109 |
 | Final Signed-Approval and Release-Evidence Corrective Closure | 14 | T110-T123 |
-| **Total** | **123** | **T001-T123** |
+| Atomic Signed-Approval and Post-Merge Corrective Closure | 17 | T124-T140 |
+| **Total** | **140** | **T001-T140** |
 
 **Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
@@ -368,3 +369,29 @@ T024 Web types       ┘           └─> T025-T032 Web green
 and traceability closure only (T081-T087). The preceding corrective run was the additive T098-T109
 trusted-approval and checkpoint closure and stopped after T109. The current run is the additive
 T110-T123 signed-approval and release-evidence closure and stops after T123.
+
+The current atomic signed-approval run is the additive T124-T140 corrective closure. This invocation
+stops at the Constitution-required implementation checkpoint after T137; T138-T140 remain pending
+for an explicitly authorized continuation.
+
+---
+
+## Atomic Signed-Approval and Post-Merge Corrective Closure
+
+- [x] T124 [RUNNABLE_NOW] Record read-only direct analysis of the end-to-end atomic manifest flow, atomic trust-policy snapshot, structured result contract, certificate policy v2, revocation, signature-path trust, framework dependency, and post-merge Git truth in `specs/003-operational-configuration-workspace/checklists/atomic-signed-approval-analyze.md`.
+- [x] T125 [P] [RUNNABLE_NOW] Add red regression assertions proving PowerShell delegates manifest hash/schema/signature decisions to the .NET verifier, passes `--expected-sha256`, and preserves verifier JSON classification in `tests/Verification/deployment-target.tests.ps1`.
+- [x] T126 [P] [RUNNABLE_NOW] Add red regression assertions for one-read trust-policy loading, file/parent ACL hardening, policy replacement/delete-child protection, and fail-closed capability handling in `tests/Verification/deployment-signature.tests.ps1`.
+- [x] T127 [P] [RUNNABLE_NOW] Add red structured-result tests for PASS, FAIL, `BLOCKED_BY_MISSING_TOOL`, `BLOCKED_BY_COMPANY_APPROVAL`, malformed JSON, multiple JSON results, exit-code mismatch, blocker IDs, redaction, and read counts in `tests/Verification/deployment-target.tests.ps1`.
+- [x] T128 [P] [RUNNABLE_NOW] Add red certificate policy tests for policy version 2, certificate SHA-256 raw-byte identity, SHA-1/MD5 digest rejection, weak keys, EKU mismatch, revocation modes, and synthetic-only boundaries in `tests/Verification/deployment-signature.tests.ps1`.
+- [x] T129 [RUNNABLE_NOW] Refactor `scripts/common/DeploymentTarget.ps1` to perform only invocation prerequisites, fixed policy/root argument resolution, verifier invocation, and structured result mapping; remove PowerShell manifest hashing, parsing, schema, and signature conclusions.
+- [x] T130 [RUNNABLE_NOW] Refactor `src/Infrastructure/DeploymentApproval/Program.cs` so manifest and detached signature evidence are verified from immutable single-read byte snapshots with expected SHA-256 attestation, strict UTF-8 parsing, and `manifestReadCount=1`.
+- [x] T131 [RUNNABLE_NOW] Implement one-read company trust-policy loading from the fixed machine path, reparse rejection, file/parent owner and ACL checks while the handle is open, policy `policyReadCount=1`, and fail-closed company/missing-tool classifications.
+- [x] T132 [RUNNABLE_NOW] Implement and validate the structured verifier-result contract, including status/classification/exitCode/blockerId/synthetic/read counts, exact JSON cardinality, and redacted evidence propagation through PowerShell.
+- [x] T133 [RUNNABLE_NOW] Implement certificate trust-policy v2 with SHA-256 certificate raw-byte fingerprints, required EKUs, strong digest/public-key algorithms, and explicit Online/Offline revocation handling without `X509RevocationMode.NoCheck`.
+- [x] T134 [RUNNABLE_NOW] Harden manifest/signature evidence-pair trust to the same root, reject traversal/absolute escape/reparse/repository paths, require regular files, and never emit sensitive path details.
+- [x] T135 [RUNNABLE_NOW] Replace the unnecessary WPF framework reference with the preinstalled non-UI framework that provides `System.Security.Cryptography.Pkcs`, or record the remaining architecture debt without installing packages.
+- [x] T136 [RUNNABLE_NOW] Update the temporary synthetic fixture and focused regression suites for policy v2, certificate SHA-256 identity, revocation/algorithm/path cases, cleanup, and no private-key or real-policy artifacts.
+- [x] T137 [RUNNABLE_NOW] Synchronize the current post-merge checkpoint, decision log, acceptance traceability, release checkpoint, and atomic corrective report with PR #7 merge truth and current blockers.
+- [ ] T138 [RUNNABLE_NOW] Run focused verification, unit/integration, Web lint/build, repository checks, Fast, and fresh Full harness; record PostgreSQL target and every PASS/FAIL/BLOCKED result without using port 5432 or substitutes.
+- [ ] T139 [RUNNABLE_NOW] Perform separate Standards and Specification reviews against the constitution, DOC-05, DOC-07, Feature 003 artifacts, and T124-T140; resolve all Critical/High/actionable Medium findings and record the review axes.
+- [ ] T140 [RUNNABLE_NOW] Run direct artifact Converge/final Analyze when provider commands are unavailable, verify unique task IDs and no scope creep, run `git diff --check`, prepare the PR, push only `fix/003-atomic-signed-approval`, and stop without merging or releasing.

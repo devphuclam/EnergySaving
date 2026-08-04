@@ -82,3 +82,31 @@ This checkpoint permits the bounded Feature 003 implementation to remain impleme
 but explicitly withholds Release-ready approval until the listed external capabilities are available
 and rerun. Stop here; do not merge, create Spec 004, or start Rule, Alert, CSV, Reporting, or any
 other Phase 7 work.
+
+## Atomic signed-approval implementation checkpoint (current phase)
+
+Date: 2026-08-04
+Baseline: `90bafced98f80b3bbbe80bf86f81ef1c28b694ef` (authoritative merged `main`, PR #7)
+Branch: `fix/003-atomic-signed-approval`
+Scope: T124-T137 implementation checkpoint only; no merge, Phase 7, or Spec 004.
+
+| State | Result | Evidence / rationale |
+|---|---|---|
+| Planning-ready | YES | Existing Feature 003 artifacts remain the governing scope; direct atomic analysis is recorded and appended T124-T140 without rewriting prior history. |
+| Implementation-ready | YES | Constitution 1.1.0 checkpoint gate is satisfied for the bounded implementation; T124-T137 are complete and T138-T140 remain subsequent work. |
+| Code implementation complete | YES (bounded) | Single-read verifier, expected-SHA attestation, policy-v2 trust checks, structured result propagation, path hardening, fixtures, and focused regression suites are implemented. |
+| Acceptance evidence complete | NO | AC-005 and AC-011 remain PARTIAL; no fresh approved browser/process-control trace exists. |
+| Release-ready | NO | Company-managed trust policy/target and approved CI remain unavailable; Full/review/convergence evidence was not run in this checkpoint. |
+
+Focused green evidence is recorded in `atomic-signed-approval-implementation-checkpoint.md`:
+deployment-signature 30/0, deployment-target 58/0, DOC-05 63/0, repository/architecture/
+observability checks PASS, Release build 0 warnings/0 errors, Unit PASS, and sequential PostgreSQL
+Integration PASS against `127.0.0.1:5433/iump_dev` (15 suites, 0 failures). A fresh Fast/Full run,
+Standards/Specification review, Converge, push, and merge are intentionally NOT_RUN because the
+Constitution requires stopping at this implementation checkpoint.
+
+The signed-approval contract remains fail-closed: missing company policy is
+`BLOCKED_BY_COMPANY_APPROVAL`/`BLK-ENV-005`; missing cryptographic capability is
+`BLOCKED_BY_MISSING_TOOL`; synthetic fixtures are contract-only and never establish production
+approval. No port 5432, substitute database, package install, container, secret, Phase 7, or Spec
+004 work was used.

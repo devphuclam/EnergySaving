@@ -79,3 +79,19 @@ resume journey; no database cleanup, seed, or alternate database was substituted
 Phase 5 corrective task registration is `RETROSPECTIVE`, and historical accessibility RED evidence
 is `NOT_AVAILABLE`; the new post-merge AppShell regression is a static source-contract check, not
 historical TDD evidence.
+
+## Atomic signed-approval corrective evidence boundary
+
+Date: 2026-08-04
+Baseline: `90bafced98f80b3bbbe80bf86f81ef1c28b694ef`
+Branch: `fix/003-atomic-signed-approval`
+
+The current bounded corrective implementation strengthens the deployment-approval evidence seam
+only. It does not change the product acceptance matrix or promote any historical evidence. The
+.NET verifier now owns the single-read manifest/signature/policy snapshots, expected-SHA attestation,
+strict schema parsing, certificate policy-v2 decisions, revocation policy, and evidence-path trust;
+PowerShell propagates one structured result. Focused suites and the sequential PostgreSQL suite are
+green as recorded in the implementation checkpoint. AC-005 and AC-011 remain `PARTIAL`, acceptance
+evidence remains `NO`, and release readiness remains `NO` pending the approved browser/process-control
+runner and company-managed deployment trust target. Standards/Specification review, Converge, and
+fresh Fast/Full evidence are `NOT_RUN` at the Constitution-required implementation checkpoint.

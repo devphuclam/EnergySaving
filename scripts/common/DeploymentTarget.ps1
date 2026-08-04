@@ -4,20 +4,6 @@ if (-not (Get-Command New-VerificationResult -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot 'Verification.ps1')
 }
 
-$script:DeploymentTargetRequiredFields = @(
-    'deploymentModel',
-    'webHosting',
-    'apiHosting',
-    'workerServiceManager',
-    'databaseHosting',
-    'lifecycleRunbookReference',
-    'rollbackRunbookReference',
-    'approvalReference',
-    'approvedBy',
-    'approvedAtUtc'
-)
-$script:DeploymentTargetSecretKeyPattern = '(?i)(password|secret|token|credential|connectionstring|privatekey|apikey|accesskey)'
-
 function New-DeploymentTargetResult {
     [CmdletBinding()]
     param(
@@ -29,67 +15,21 @@ function New-DeploymentTargetResult {
 
     New-VerificationResult -CheckId 'deployment-target' `
         -Classification $Classification `
-        -Command 'deployment approval manifest contract (secret redacted)' `
+        -Command 'atomic signed deployment approval verifier (secret redacted)' `
         -Mandatory $true `
         -Evidence $Evidence `
         -ExitCode $ExitCode `
         -BlockerId $BlockerId
 }
 
-function Get-DeploymentManifestPropertyValue {
-    [CmdletBinding()]
-    param(
-        [AllowNull()][object]$Manifest,
-        [Parameter(Mandatory)][string]$Name
-    )
-
-    if ($null -eq $Manifest) {
-        return $null
-    }
-    $property = $Manifest.PSObject.Properties[$Name]
-    if ($null -eq $property) {
-        return $null
-    }
-    return $property.Value
-}
-
-function Find-DeploymentManifestSecretKey {
-    [CmdletBinding()]
-    param([AllowNull()][object]$Value)
-
-    if ($null -eq $Value) {
-        return $null
-    }
-
-    if ($Value -is [System.Collections.IEnumerable] -and
-        -not ($Value -is [string]) -and
-        -not ($Value -is [System.Collections.IDictionary])) {
-        foreach ($item in $Value) {
-            $nested = Find-DeploymentManifestSecretKey -Value $item
-            if (-not [string]::IsNullOrWhiteSpace([string]$nested)) {
-                return $nested
-            }
-        }
-        return $null
-    }
-
-    foreach ($property in $Value.PSObject.Properties) {
-        if ($property.Name -match $script:DeploymentTargetSecretKeyPattern) {
-            return [string]$property.Name
-        }
-        $nested = Find-DeploymentManifestSecretKey -Value $property.Value
-        if (-not [string]::IsNullOrWhiteSpace([string]$nested)) {
-            return $nested
-        }
-    }
-    return $null
-}
-
 function Invoke-DeploymentSignatureVerifier {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ManifestPath,
-        [Parameter(Mandatory)][string]$SignaturePath
+        [Parameter(Mandatory)][string]$SignaturePath,
+        [Parameter(Mandatory)][string]$TrustedEvidenceRoot,
+        [Parameter(Mandatory)][string]$ExpectedSha256,
+        [Parameter(Mandatory)][string]$RepositoryRoot
     )
 
     if (-not (Test-CommandAvailable -Name 'dotnet')) {
@@ -97,7 +37,7 @@ function Invoke-DeploymentSignatureVerifier {
             Classification = 'BLOCKED_BY_MISSING_TOOL'
             ExitCode = 20
             BlockerId = 'BLK-ENV-001'
-            Evidence = 'approved company CI context=yes; signed approval verification requires the preinstalled .NET verifier; dotnet is unavailable'
+            Evidence = 'signed approval verifier requires the preinstalled .NET runtime; dotnet is unavailable'
         }
     }
 
@@ -108,49 +48,99 @@ function Invoke-DeploymentSignatureVerifier {
             Classification = 'BLOCKED_BY_MISSING_TOOL'
             ExitCode = 20
             BlockerId = 'BLK-ENV-001'
-            Evidence = 'approved company CI context=yes; signed approval verifier utility is unavailable'
+            Evidence = 'atomic signed approval verifier utility is unavailable'
         }
     }
 
+    $stderrPath = Join-Path ([IO.Path]::GetTempPath()) ('iump-verifier-' + [Guid]::NewGuid().ToString('N') + '.log')
     try {
-        $null = & dotnet run --project $verifierProject --no-restore -- `
-            --manifest $ManifestPath --signature $SignaturePath 2>$null | Out-Null
-        $exit = [int]$LASTEXITCODE
-    }
-    catch {
-        return [pscustomobject]@{
-            Classification = 'BLOCKED_BY_MISSING_TOOL'
-            ExitCode = 20
-            BlockerId = 'BLK-ENV-001'
-            Evidence = 'approved company CI context=yes; signed approval verifier could not be invoked'
-        }
-    }
+        $arguments = @(
+            'run', '--project', $verifierProject, '--no-restore', '--',
+            '--manifest', $ManifestPath,
+            '--signature', $SignaturePath,
+            '--trusted-root', $TrustedEvidenceRoot,
+            '--expected-sha256', $ExpectedSha256,
+            '--repository-root', $RepositoryRoot
+        )
 
-    switch ($exit) {
-        0 {
-            return [pscustomobject]@{
-                Classification = 'PASS'
-                ExitCode = 0
-                BlockerId = $null
-                Evidence = 'approved company CI context=yes; approval flag=true; trusted evidence root=inside; attestation=verified; detached signature=verified; company-managed trust policy=verified; manifest schema=valid; secret-like keys=none'
-            }
+        try {
+            $output = @(& dotnet @arguments 2> $stderrPath)
+            $processExitCode = [int]$LASTEXITCODE
         }
-        20 {
+        catch {
             return [pscustomobject]@{
-                Classification = 'BLOCKED_BY_COMPANY_APPROVAL'
+                Classification = 'BLOCKED_BY_MISSING_TOOL'
                 ExitCode = 20
-                BlockerId = 'BLK-ENV-005'
-                Evidence = 'approved company CI context=yes; approval flag=true; company-managed deployment trust policy or certificate chain is unavailable'
+                BlockerId = 'BLK-ENV-001'
+                Evidence = 'atomic signed approval verifier could not be invoked'
             }
         }
-        default {
+
+        $jsonLines = @($output | ForEach-Object {
+                $jsonLine = ([string]$_).Trim()
+                if ($jsonLine.StartsWith('{', [StringComparison]::Ordinal) -and
+                    $jsonLine.EndsWith('}', [StringComparison]::Ordinal)) {
+                    $jsonLine
+                }
+            })
+        if ($jsonLines.Count -ne 1) {
             return [pscustomobject]@{
                 Classification = 'FAIL'
                 ExitCode = 1
                 BlockerId = $null
-                Evidence = 'approved company CI context=yes; approval flag=true; detached signature evidence did not verify'
+                Evidence = 'atomic signed approval verifier returned malformed or multiple machine-readable results'
             }
         }
+
+        try {
+            $jsonLine = $jsonLines[0]
+            $verifierResult = ConvertFrom-Json -InputObject $jsonLine -ErrorAction Stop
+            $status = [string]$verifierResult.status
+            $classification = [string]$verifierResult.classification
+            $exitCode = [int]$verifierResult.exitCode
+            $blockerId = if ($null -eq $verifierResult.blockerId) { $null } else { [string]$verifierResult.blockerId }
+            $synthetic = [bool]$verifierResult.synthetic
+            $manifestReadCount = [int]$verifierResult.manifestReadCount
+            $policyReadCount = [int]$verifierResult.policyReadCount
+            $evidence = [string]$verifierResult.evidence
+        }
+        catch {
+            return [pscustomobject]@{
+                Classification = 'FAIL'
+                ExitCode = 1
+                BlockerId = $null
+                Evidence = 'atomic signed approval verifier returned malformed JSON'
+            }
+        }
+
+        $validStatus = $status -in @('PASS', 'FAIL', 'BLOCKED')
+        $validClassification = $classification -in @('RUNNABLE_NOW', 'BLOCKED_BY_MISSING_TOOL', 'BLOCKED_BY_COMPANY_APPROVAL')
+        $validExit = ($status -eq 'PASS' -and $classification -eq 'RUNNABLE_NOW' -and $exitCode -eq 0 -and $null -eq $blockerId) -or
+            ($status -eq 'FAIL' -and $classification -eq 'RUNNABLE_NOW' -and $exitCode -eq 1 -and $null -eq $blockerId) -or
+            ($status -eq 'BLOCKED' -and $classification -in @('BLOCKED_BY_MISSING_TOOL', 'BLOCKED_BY_COMPANY_APPROVAL') -and $exitCode -eq 20 -and -not [string]::IsNullOrWhiteSpace($blockerId))
+        $validReads = $status -eq 'BLOCKED' -or
+            ($status -eq 'FAIL' -and $manifestReadCount -in @(0, 1) -and $policyReadCount -in @(0, 1)) -or
+            ($status -eq 'PASS' -and $manifestReadCount -eq 1 -and $policyReadCount -eq 1)
+        if (-not $validStatus -or -not $validClassification -or -not $validExit -or $synthetic -or -not $validReads -or $processExitCode -ne $exitCode) {
+            return [pscustomobject]@{
+                Classification = 'FAIL'
+                ExitCode = 1
+                BlockerId = $null
+                Evidence = 'atomic signed approval verifier returned an invalid structured result contract'
+            }
+        }
+
+        return [pscustomobject]@{
+            Classification = if ($status -eq 'PASS') { 'PASS' } elseif ($status -eq 'FAIL') { 'FAIL' } else { $classification }
+            ExitCode = $exitCode
+            BlockerId = $blockerId
+            Evidence = $evidence
+            ManifestReadCount = $manifestReadCount
+            PolicyReadCount = $policyReadCount
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -175,152 +165,28 @@ function Test-DeploymentTargetApproval {
     }
 
     $flagIsTrue = [string]::Equals($ApprovalFlag, 'true', [StringComparison]::OrdinalIgnoreCase)
-    $pathProvided = -not [string]::IsNullOrWhiteSpace($EvidencePath)
-    $rootProvided = -not [string]::IsNullOrWhiteSpace($TrustedEvidenceRoot)
-    if (-not $flagIsTrue -or -not $pathProvided -or -not $rootProvided) {
+    if (-not $flagIsTrue -or [string]::IsNullOrWhiteSpace($TrustedEvidenceRoot) -or
+        [string]::IsNullOrWhiteSpace($EvidencePath) -or [string]::IsNullOrWhiteSpace($ExpectedSha256)) {
         return New-DeploymentTargetResult -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
             -ExitCode 20 -BlockerId 'BLK-ENV-005' `
-            -Evidence (("approval flag=true? {0}; evidence path provided? {1}; " +
-                'trusted evidence root provided? {2}; company approval evidence is unavailable') -f `
-                $flagIsTrue, $pathProvided, $rootProvided)
+            -Evidence 'approval flag, trusted evidence root, manifest path, and SHA-256 attestation are all required company evidence'
     }
 
-    if (-not (Test-Path -LiteralPath $TrustedEvidenceRoot -PathType Container)) {
+    if (-not [IO.File]::Exists($EvidencePath)) {
         return New-DeploymentTargetResult -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
             -ExitCode 20 -BlockerId 'BLK-ENV-005' `
-            -Evidence 'approval flag=true; evidence path provided=yes; trusted evidence root is unavailable'
-    }
-
-    try {
-        $rootFull = [IO.Path]::GetFullPath($TrustedEvidenceRoot)
-        $rootFull = $rootFull.TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar))
-        $evidenceFull = [IO.Path]::GetFullPath($EvidencePath)
-    }
-    catch {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; trusted path syntax is invalid'
-    }
-    $separator = [IO.Path]::DirectorySeparatorChar
-    $rootItem = Get-Item -LiteralPath $TrustedEvidenceRoot -Force
-    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        return New-DeploymentTargetResult -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
-            -ExitCode 20 -BlockerId 'BLK-ENV-005' `
-            -Evidence 'approved company CI context=yes; trusted evidence root is a reparse point and cannot establish trust'
-    }
-    if (-not $evidenceFull.StartsWith($rootFull + $separator, [StringComparison]::OrdinalIgnoreCase)) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; approved evidence is outside the trusted evidence root'
-    }
-
-    $current = $rootFull
-    foreach ($segment in ($evidenceFull.Substring($rootFull.Length + 1) -split [regex]::Escape($separator))) {
-        if ([string]::IsNullOrWhiteSpace($segment)) {
-            continue
-        }
-        $current = Join-Path $current $segment
-        if (-not (Test-Path -LiteralPath $current)) {
-            break
-        }
-        $item = Get-Item -LiteralPath $current -Force
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-                -Evidence 'approval flag=true; evidence path provided=yes; approved evidence path contains a reparse point escape'
-        }
-    }
-
-    if (-not (Test-Path -LiteralPath $EvidencePath -PathType Leaf)) {
-        return New-DeploymentTargetResult -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
-            -ExitCode 20 -BlockerId 'BLK-ENV-005' `
-            -Evidence 'approval flag=true; evidence path provided=yes; approved manifest file is unavailable'
-    }
-
-    $expectedSha = [string]$ExpectedSha256
-    if ([string]::IsNullOrWhiteSpace($expectedSha)) {
-        return New-DeploymentTargetResult -Classification 'BLOCKED_BY_COMPANY_APPROVAL' `
-            -ExitCode 20 -BlockerId 'BLK-ENV-005' `
-            -Evidence 'approval flag=true; evidence path provided=yes; approved manifest attestation is unavailable'
-    }
-
-    try {
-        $actualSha = (Get-FileHash -LiteralPath $EvidencePath -Algorithm SHA256 -ErrorAction Stop).Hash
-    }
-    catch {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; approved manifest attestation could not be computed'
-    }
-    if (-not [string]::Equals($actualSha, $expectedSha, [StringComparison]::OrdinalIgnoreCase)) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; approved manifest attestation does not match'
-    }
-
-    $manifest = $null
-    try {
-        $manifestText = Get-Content -LiteralPath $EvidencePath -Raw -ErrorAction Stop
-        $manifest = $manifestText | ConvertFrom-Json -ErrorAction Stop
-    }
-    catch {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; manifest JSON is malformed or unreadable'
-    }
-
-    if ($null -eq $manifest) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; manifest schema is invalid'
-    }
-
-    $secretKey = Find-DeploymentManifestSecretKey -Value $manifest
-    if (-not [string]::IsNullOrWhiteSpace([string]$secretKey)) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; manifest contains a prohibited secret-like field name'
-    }
-
-    foreach ($requiredField in $script:DeploymentTargetRequiredFields) {
-        $value = Get-DeploymentManifestPropertyValue -Manifest $manifest -Name $requiredField
-        if ($null -eq $value -or $value -isnot [string] -or [string]::IsNullOrWhiteSpace($value)) {
-            return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-                -Evidence 'approval flag=true; evidence path provided=yes; manifest schema requires non-empty scalar string fields'
-        }
-    }
-
-    $deploymentModel = [string](Get-DeploymentManifestPropertyValue -Manifest $manifest -Name 'deploymentModel')
-    if (-not [string]::Equals($deploymentModel, 'restricted-non-containerized', [StringComparison]::Ordinal)) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; deployment model is not the canonical restricted non-containerized value'
-    }
-
-    $approvedAtText = [string](Get-DeploymentManifestPropertyValue -Manifest $manifest -Name 'approvedAtUtc')
-    if ($approvedAtText -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$') {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; approvedAtUtc must be ISO-8601 UTC with Z or +00:00'
-    }
-
-    $approvedAtUtc = [DateTimeOffset]::MinValue
-    $dateValid = [DateTimeOffset]::TryParse(
-        $approvedAtText,
-        [Globalization.CultureInfo]::InvariantCulture,
-        [Globalization.DateTimeStyles]::RoundtripKind,
-        [ref]$approvedAtUtc
-    )
-    if (-not $dateValid) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; approvedAtUtc is invalid'
-    }
-    if ($approvedAtUtc -gt [DateTimeOffset]::UtcNow.AddMinutes(5)) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approval flag=true; evidence path provided=yes; approvedAtUtc is unreasonably in the future'
+            -Evidence 'approved manifest evidence is unavailable'
     }
 
     if ([string]::IsNullOrWhiteSpace($SignaturePath)) {
         return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approved company CI context=yes; approval flag=true; evidence path inside; attestation=verified; manifest schema=valid; deployment model=canonical; detached signature evidence is unavailable and production PASS requires it'
+            -Evidence 'detached signature evidence is unavailable; production approval cannot pass without it'
     }
 
-    if (-not (Test-Path -LiteralPath $SignaturePath -PathType Leaf)) {
-        return New-DeploymentTargetResult -Classification 'FAIL' -ExitCode 1 `
-            -Evidence 'approved company CI context=yes; approval flag=true; evidence path inside; attestation=verified; manifest schema=valid; detached signature file is unavailable'
-    }
-
-    $signed = Invoke-DeploymentSignatureVerifier -ManifestPath $EvidencePath -SignaturePath $SignaturePath
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $signed = Invoke-DeploymentSignatureVerifier -ManifestPath $EvidencePath `
+        -SignaturePath $SignaturePath -TrustedEvidenceRoot $TrustedEvidenceRoot `
+        -ExpectedSha256 $ExpectedSha256 -RepositoryRoot $repoRoot
     New-DeploymentTargetResult -Classification $signed.Classification -ExitCode $signed.ExitCode `
         -BlockerId $signed.BlockerId -Evidence $signed.Evidence
 }
