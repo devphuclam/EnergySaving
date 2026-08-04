@@ -95,3 +95,13 @@ green as recorded in the implementation checkpoint. AC-005 and AC-011 remain `PA
 evidence remains `NO`, and release readiness remains `NO` pending the approved browser/process-control
 runner and company-managed deployment trust target. Standards/Specification review, Converge, and
 fresh Fast/Full evidence are `NOT_RUN` at the Constitution-required implementation checkpoint.
+
+## Atomic signed-approval review remediation boundary
+
+The current remediation branch is `fix/003-atomic-review-remediation` from merged-main baseline
+`37606adde7ac39476e53d9aaf43ded608e45038e`. T141-T156 remediate the deployment-approval review
+findings only; they do not alter product requirements or acceptance semantics. AC-005 and AC-011
+remain `PARTIAL` because the approved authenticated browser/process-control trace is unavailable.
+The fresh Full harness remains `BLOCKED` by `BLK-ENV-003` and `BLK-ENV-005`; frontend behavior is
+`BLOCKED_BY_PACKAGE_POLICY`. Provider-native Spec Kit commands are `NOT_RUN`; direct convergence
+is recorded separately. No evidence in this remediation promotes Release-ready above `NO`.

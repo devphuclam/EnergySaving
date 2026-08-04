@@ -8,6 +8,9 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $checks = 0
 $failures = 0
 $verifierSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\Program.cs')
+$classifierSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\ChainStatusClassifier.cs')
+$aclSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\PolicyAclEvaluator.cs')
+$pathSource = Get-Content -Raw (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\CanonicalPathPolicy.cs')
 
 function Assert-SourceContains {
     param([string]$Text, [string]$Expected, [string]$Name)
@@ -35,6 +38,23 @@ Assert-SourceContains $verifierSource 'FileShare.Read' 'policy snapshot denies w
 Assert-SourceContains $verifierSource 'GetAccessControl' 'policy ACL verification'
 Assert-SourceContains $verifierSource 'DeleteSubdirectoriesAndFiles' 'parent delete-child ACL verification'
 Assert-SourceContains $verifierSource 'ReadPolicySnapshot' 'policy single-read implementation'
+Assert-SourceContains $pathSource 'CanonicalizeRoot' 'root path canonicalization'
+Assert-SourceContains $verifierSource 'CanonicalPathPolicy.CanonicalizeRoot' 'verifier uses rooted path policy'
+Assert-SourceContains $verifierSource 'Path.GetFullPath(Path.Combine' 'rooted ancestor traversal'
+Assert-SourceContains $verifierSource 'TestPolicyFileSecurity' 'policy file threat model'
+Assert-SourceContains $verifierSource 'TestImmediatePolicyDirectorySecurity' 'immediate policy directory threat model'
+Assert-SourceContains $verifierSource 'TestPolicyAncestorSecurity' 'higher policy ancestor threat model'
+Assert-SourceContains $aclSource 'InheritanceFlags' 'ACL inheritance applicability'
+Assert-SourceContains $aclSource 'PropagationFlags' 'ACL propagation applicability'
+Assert-SourceContains $aclSource 'AccessControlType.Deny' 'ACL deny precedence'
+Assert-SourceContains $classifierSource 'ChainStatusClassifier' 'chain status classifier extraction'
+Assert-SourceContains $classifierSource 'RevocationStatusUnknown' 'revocation-unavailable chain classification'
+Assert-SourceContains $classifierSource 'OfflineRevocation' 'offline-revocation chain classification'
+Assert-SourceContains $verifierSource 'ChainStatusClassifier.Classify' 'verifier uses chain status classifier'
+Assert-SourceContains $classifierSource 'ClassifyException' 'chain exception classification'
+Assert-SourceContains $aclSource 'AccessControlType.Deny' 'ACL deny precedence implementation'
+Assert-SourceContains $aclSource 'PropagationFlags.InheritOnly' 'ACL propagation implementation'
+Assert-SourceContains $verifierSource 'BLOCKED_BY_MISSING_TOOL' 'missing capability result'
 Assert-SourceNotContains $verifierSource 'X509RevocationMode.NoCheck' 'production revocation must not disable checks'
 Assert-SourceNotContains $verifierSource 'allowedSignerThumbprints' 'SHA-1 thumbprint policy must be retired'
 
@@ -73,19 +93,76 @@ function Invoke-Fixture {
 function Invoke-SyntheticVerifier {
     param(
         [Parameter(Mandatory)]$Fixture,
-        [string]$PolicyPath = $Fixture.policyPath
+        [string]$PolicyPath = $Fixture.policyPath,
+        [string]$TrustedRoot = $null
     )
     $project = Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\IUMP.Infrastructure.DeploymentApproval.csproj'
-    $trustedRoot = Split-Path -Parent $Fixture.manifestPath
+    $trustedRoot = if ([string]::IsNullOrWhiteSpace($TrustedRoot)) { Split-Path -Parent $Fixture.manifestPath } else { $TrustedRoot }
     $expectedSha = (Get-FileHash -LiteralPath $Fixture.manifestPath -Algorithm SHA256).Hash
     $output = & dotnet run --project $project --no-restore -- --mode synthetic `
         --manifest $Fixture.manifestPath --signature $Fixture.signaturePath --policy $PolicyPath `
         --trusted-root $trustedRoot --expected-sha256 $expectedSha --repository-root $repoRoot 2>$null
-    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    $jsonLine = @($output | Where-Object { $_ -like 'IUMP_VERIFICATION_RESULT=*' } | ForEach-Object { $_.Substring('IUMP_VERIFICATION_RESULT='.Length) } | Select-Object -Last 1)
     if ($jsonLine.Count -ne 1) {
         throw 'signed verifier returned no machine-readable result'
     }
     ConvertFrom-Json -InputObject $jsonLine[0]
+}
+
+function Invoke-ChainScenario {
+    param([Parameter(Mandatory)][string]$Scenario)
+    $project = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $output = & dotnet run --project $project --no-restore -- --chain-status $Scenario 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "chain-status fixture failed for $Scenario"
+    }
+    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if ($jsonLine.Count -ne 1) {
+        throw "chain-status fixture returned no result for $Scenario"
+    }
+    (ConvertFrom-Json -InputObject $jsonLine[0]).disposition
+}
+
+function Invoke-ChainExceptionScenario {
+    param([Parameter(Mandatory)][string]$Scenario)
+    $project = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $output = & dotnet run --project $project --no-restore -- --chain-exception $Scenario 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "chain-exception fixture failed for $Scenario"
+    }
+    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if ($jsonLine.Count -ne 1) {
+        throw "chain-exception fixture returned no result for $Scenario"
+    }
+    (ConvertFrom-Json -InputObject $jsonLine[0]).disposition
+}
+
+function Invoke-AclScenario {
+    param([Parameter(Mandatory)][string]$Scenario)
+    $project = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $output = & dotnet run --project $project --no-restore -- --acl-status $Scenario 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "acl-status fixture failed for $Scenario"
+    }
+    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if ($jsonLine.Count -ne 1) {
+        throw "acl-status fixture returned no result for $Scenario"
+    }
+    (ConvertFrom-Json -InputObject $jsonLine[0]).unsafePermission
+}
+
+function Invoke-RootScenario {
+    param([Parameter(Mandatory)][string]$Scenario)
+    $project = Join-Path $repoRoot 'tests\Verification\DeploymentSignatureFixture\DeploymentSignatureFixture.csproj'
+    $output = & dotnet run --project $project --no-restore -- --root-path $Scenario 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "root-path fixture failed for $Scenario"
+    }
+    $jsonLine = @($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    if ($jsonLine.Count -ne 1) {
+        throw "root-path fixture returned no result for $Scenario"
+    }
+    (ConvertFrom-Json -InputObject $jsonLine[0]).canonicalRoot
 }
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('iump-signed-approval-' + [Guid]::NewGuid().ToString('N'))
@@ -99,6 +176,8 @@ try {
     Assert-Equal $validResult.manifestReadCount 1 'manifest single-read count'
     Assert-Equal $validResult.policyReadCount 1 'policy single-read count'
     Assert-Equal $validResult.exitCode 0 'valid synthetic exit code'
+    $driveRootResult = Invoke-SyntheticVerifier -Fixture $valid -TrustedRoot ([IO.Path]::GetPathRoot($valid.manifestPath))
+    Assert-Equal $driveRootResult.status 'PASS' 'drive-root trusted evidence boundary'
 
     $unsigned = [pscustomobject]@{
         manifestPath = $valid.manifestPath
@@ -131,13 +210,32 @@ try {
     $mismatchOutput = & dotnet run --project (Join-Path $repoRoot 'src\Infrastructure\DeploymentApproval\IUMP.Infrastructure.DeploymentApproval.csproj') --no-restore -- --mode synthetic `
         --manifest $valid.manifestPath --signature $valid.signaturePath --policy $valid.policyPath `
         --trusted-root (Split-Path -Parent $valid.manifestPath) --expected-sha256 ('0' * 64) --repository-root $repoRoot 2>$null
-    $mismatchJson = @($mismatchOutput | Where-Object { $_ -match '^\s*\{' })
+    $mismatchJson = @($mismatchOutput | Where-Object { $_ -like 'IUMP_VERIFICATION_RESULT=*' } | ForEach-Object { $_.Substring('IUMP_VERIFICATION_RESULT='.Length) })
     Assert-Equal ((ConvertFrom-Json $mismatchJson[0]).status) 'FAIL' 'expected SHA mismatch status'
 
     foreach ($variant in @('wrong-signer', 'expired', 'eku-mismatch', 'secret', 'sha1', 'weak-rsa', 'policy-v1')) {
         $fixture = Invoke-Fixture -Root (Join-Path $tempRoot $variant) -Variant $variant
         Assert-Equal (Invoke-SyntheticVerifier -Fixture $fixture).status 'FAIL' "$variant contract status"
     }
+
+    Assert-Equal (Invoke-ChainScenario -Scenario 'fatal') 'Invalid' 'fatal chain status takes precedence over revocation uncertainty'
+    Assert-Equal (Invoke-ChainScenario -Scenario 'mixed') 'Invalid' 'mixed fatal and revocation-unavailable chain status fails'
+    Assert-Equal (Invoke-ChainScenario -Scenario 'revocation-unavailable') 'Blocked' 'revocation-unavailable-only chain status blocks'
+    Assert-Equal (Invoke-ChainScenario -Scenario 'empty') 'Invalid' 'empty failed chain status is invalid'
+    Assert-Equal (Invoke-ChainExceptionScenario -Scenario 'crypto') 'Invalid' 'cryptographic chain exception fails closed'
+    Assert-Equal (Invoke-ChainExceptionScenario -Scenario 'platform') 'MissingTool' 'platform chain capability is missing-tool'
+    Assert-Equal (Invoke-AclScenario -Scenario 'allow') $true 'ACL explicit allow is unsafe'
+    Assert-Equal (Invoke-AclScenario -Scenario 'deny') $false 'ACL deny takes precedence over allow'
+    Assert-Equal (Invoke-AclScenario -Scenario 'inherit-only') $false 'ACL inherit-only rule is not effective on directory'
+    Assert-Equal (Invoke-AclScenario -Scenario 'inherited') $true 'ACL inherited container rule is effective on directory'
+    Assert-Equal (Invoke-AclScenario -Scenario 'inherited-file') $true 'ACL inherited object rule is effective on file'
+    Assert-Equal (Invoke-AclScenario -Scenario 'replacement') $true 'ACL replacement rights are unsafe'
+    Assert-Equal (Invoke-AclScenario -Scenario 'delete-child') $true 'ACL delete-child rights are unsafe'
+    Assert-Equal (Invoke-AclScenario -Scenario 'other-user') $false 'ACL unrelated identity is not applicable'
+    Assert-Equal (Invoke-RootScenario -Scenario 'drive') ([IO.Path]::GetPathRoot($env:SystemDrive + '\')) 'drive root remains rooted'
+    $uncRoot = Invoke-RootScenario -Scenario 'unc'
+    Assert-Equal ($uncRoot -like '\\server\share*') $true 'UNC root remains rooted'
+    Assert-Equal ($uncRoot -like '\\server\sharefolder*') $false 'UNC root boundary remains canonical'
 
     $missingPolicy = Invoke-SyntheticVerifier -Fixture $valid -PolicyPath (Join-Path $tempRoot 'missing-policy.json')
     Assert-Equal $missingPolicy.status 'BLOCKED' 'missing trust anchor status'
@@ -148,7 +246,7 @@ try {
     $productionOutput = & dotnet run --project $productionProject --no-restore -- `
         --manifest $valid.manifestPath --signature $valid.signaturePath `
         --trusted-root (Split-Path -Parent $valid.manifestPath) --expected-sha256 $validSha --repository-root $repoRoot 2>$null
-    $productionJson = @($productionOutput | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    $productionJson = @($productionOutput | Where-Object { $_ -like 'IUMP_VERIFICATION_RESULT=*' } | ForEach-Object { $_.Substring('IUMP_VERIFICATION_RESULT='.Length) } | Select-Object -Last 1)
     if ($productionJson.Count -ne 1) { throw 'production verifier returned no machine-readable result' }
     $production = ConvertFrom-Json -InputObject $productionJson[0]
     Assert-NotEqual $production.status 'PASS' 'production synthetic signer cannot pass'

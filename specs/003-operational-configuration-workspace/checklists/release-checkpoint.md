@@ -110,3 +110,23 @@ The signed-approval contract remains fail-closed: missing company policy is
 `BLOCKED_BY_MISSING_TOOL`; synthetic fixtures are contract-only and never establish production
 approval. No port 5432, substitute database, package install, container, secret, Phase 7, or Spec
 004 work was used.
+
+## Atomic signed-approval review remediation checkpoint (current corrective phase)
+
+Date: 2026-08-04
+Baseline: `37606adde7ac39476e53d9aaf43ded608e45038e` (authoritative merged `main`)
+Branch: `fix/003-atomic-review-remediation`
+Scope: T141-T156 review remediation only; no merge, Phase 7, Spec 004, deployment, or release.
+
+The current branch corrects the seven Standards/Specification findings recorded in
+`atomic-review-remediation-analyze.md` and `atomic-review-remediation-review.md`. The focused
+deployment-signature suite is green at 65 checks/0 failures and deployment-target at 95 checks/0
+failures. Fresh solution build, Unit, PostgreSQL Integration (`127.0.0.1:5433/iump_dev`), Web
+lint/build, repository checks, and Fast are PASS. Full remains exit 20 with PASS=17 and the two
+company-approval blockers `BLK-ENV-003` and `BLK-ENV-005`; frontend behavior remains
+`BLOCKED_BY_PACKAGE_POLICY`. AC-005 and AC-011 remain PARTIAL and Release-ready remains NO.
+
+The provider-native Spec Kit analyze/implement/converge command is **NOT_RUN** because no
+executable provider command is installed; direct convergence and final analysis are recorded in
+`atomic-review-remediation-convergence.md` without claiming provider PASS. This checkpoint is the
+stop boundary for the single implementation phase; it does not authorize merge or release.

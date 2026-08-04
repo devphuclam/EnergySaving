@@ -22,6 +22,119 @@ function New-DeploymentTargetResult {
         -BlockerId $BlockerId
 }
 
+function ConvertFrom-DeploymentVerifierProcessResult {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][object[]]$Stdout = @(),
+        [Parameter(Mandatory)][int]$ProcessExitCode,
+        [AllowNull()][string]$InvocationError = $null,
+        [switch]$Production
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($InvocationError)) {
+        return [pscustomobject]@{
+            Classification = 'BLOCKED_BY_MISSING_TOOL'
+            ExitCode = 20
+            BlockerId = 'BLK-ENV-001'
+            Evidence = 'signed approval verifier process could not be started'
+        }
+    }
+
+    $prefix = 'IUMP_VERIFICATION_RESULT='
+    $jsonLines = @($Stdout | ForEach-Object {
+            $line = ([string]$_).Trim()
+            if ($line.StartsWith($prefix, [StringComparison]::Ordinal)) {
+                $line.Substring($prefix.Length)
+            }
+        })
+    if ($jsonLines.Count -ne 1) {
+        return [pscustomobject]@{
+            Classification = 'FAIL'
+            ExitCode = 1
+            BlockerId = $null
+            Evidence = 'atomic signed approval verifier returned malformed or multiple machine-readable results'
+        }
+    }
+
+    try {
+        $verifierResult = ConvertFrom-Json -InputObject $jsonLines[0] -ErrorAction Stop
+        $requiredNames = @(
+            'status', 'classification', 'exitCode', 'blockerId', 'evidence',
+            'synthetic', 'manifestReadCount', 'policyReadCount'
+        )
+        $missingNames = @($requiredNames | Where-Object {
+                -not ($verifierResult.PSObject.Properties.Name -contains $_)
+            })
+        if ($missingNames.Count -gt 0) {
+            throw 'structured verifier result is missing required fields'
+        }
+        $numericResultTypes = @([int], [long])
+        if ($verifierResult.status -isnot [string] -or
+            $verifierResult.classification -isnot [string] -or
+            $verifierResult.exitCode.GetType() -notin $numericResultTypes -or
+            ($null -ne $verifierResult.blockerId -and $verifierResult.blockerId -isnot [string]) -or
+            $verifierResult.evidence -isnot [string] -or
+            $verifierResult.synthetic -isnot [bool] -or
+            $verifierResult.manifestReadCount.GetType() -notin $numericResultTypes -or
+            $verifierResult.policyReadCount.GetType() -notin $numericResultTypes) {
+            throw 'structured verifier result has invalid field types'
+        }
+        $status = [string]$verifierResult.status
+        $classification = [string]$verifierResult.classification
+        $exitCode = [int]$verifierResult.exitCode
+        $blockerId = if ($null -eq $verifierResult.blockerId) { $null } else { [string]$verifierResult.blockerId }
+        $synthetic = [bool]$verifierResult.synthetic
+        $manifestReadCount = [int]$verifierResult.manifestReadCount
+        $policyReadCount = [int]$verifierResult.policyReadCount
+        $evidence = [string]$verifierResult.evidence
+    }
+    catch {
+        return [pscustomobject]@{
+            Classification = 'FAIL'
+            ExitCode = 1
+            BlockerId = $null
+            Evidence = 'atomic signed approval verifier returned malformed JSON'
+        }
+    }
+
+    $validStatus = $status -in @('PASS', 'FAIL', 'BLOCKED')
+    $validClassification = $classification -in @('RUNNABLE_NOW', 'BLOCKED_BY_MISSING_TOOL', 'BLOCKED_BY_COMPANY_APPROVAL')
+    $expectedBlocker = switch ($classification) {
+        'BLOCKED_BY_MISSING_TOOL' { 'BLK-ENV-001' }
+        'BLOCKED_BY_COMPANY_APPROVAL' { 'BLK-ENV-005' }
+        default { $null }
+    }
+    $validExit = ($status -eq 'PASS' -and $classification -eq 'RUNNABLE_NOW' -and $exitCode -eq 0 -and $null -eq $blockerId) -or
+        ($status -eq 'FAIL' -and $classification -eq 'RUNNABLE_NOW' -and $exitCode -eq 1 -and $null -eq $blockerId) -or
+        ($status -eq 'BLOCKED' -and $expectedBlocker -and $exitCode -eq 20 -and $blockerId -eq $expectedBlocker)
+    $validReads = ($manifestReadCount -ge 0 -and $manifestReadCount -le 1 -and
+        $policyReadCount -ge 0 -and $policyReadCount -le 1) -and
+        (($status -ne 'PASS') -or ($manifestReadCount -eq 1 -and $policyReadCount -eq 1))
+    $safeEvidence = $evidence.Length -le 512 -and
+        $evidence -notmatch '[\r\n]' -and
+        $evidence -notmatch '(?i)(password|secret|token|private.?key|api.?key|connection.?string)\s*(=|:)' -and
+        $evidence -notmatch '(?:[A-Za-z]:\\|\\\\|(?:^|\s)/)'
+    if (-not $validStatus -or -not $validClassification -or -not $validExit -or
+        ($Production -and $synthetic) -or -not $validReads -or -not $safeEvidence -or
+        $ProcessExitCode -ne $exitCode) {
+        return [pscustomobject]@{
+            Classification = 'FAIL'
+            ExitCode = 1
+            BlockerId = $null
+            Evidence = 'atomic signed approval verifier returned an invalid structured result contract'
+        }
+    }
+
+    [pscustomobject]@{
+        Classification = if ($status -eq 'PASS') { 'PASS' } elseif ($status -eq 'FAIL') { 'FAIL' } else { $classification }
+        ExitCode = $exitCode
+        BlockerId = $blockerId
+        Evidence = $evidence
+        ManifestReadCount = $manifestReadCount
+        PolicyReadCount = $policyReadCount
+    }
+}
+
 function Invoke-DeploymentSignatureVerifier {
     [CmdletBinding()]
     param(
@@ -52,6 +165,18 @@ function Invoke-DeploymentSignatureVerifier {
         }
     }
 
+    $runtimeOutput = @(& dotnet --list-runtimes 2>$null)
+    if ($LASTEXITCODE -ne 0 -or
+        -not (@($runtimeOutput | Where-Object { $_ -match '^Microsoft\.NETCore\.App\s+10\.' }).Count -gt 0) -or
+        -not (@($runtimeOutput | Where-Object { $_ -match '^Microsoft\.WindowsDesktop\.App\s+10\.' }).Count -gt 0)) {
+        return [pscustomobject]@{
+            Classification = 'BLOCKED_BY_MISSING_TOOL'
+            ExitCode = 20
+            BlockerId = 'BLK-ENV-001'
+            Evidence = 'signed approval verifier requires its preinstalled .NET and Windows Desktop runtimes'
+        }
+    }
+
     $stderrPath = Join-Path ([IO.Path]::GetTempPath()) ('iump-verifier-' + [Guid]::NewGuid().ToString('N') + '.log')
     try {
         $arguments = @(
@@ -63,81 +188,29 @@ function Invoke-DeploymentSignatureVerifier {
             '--repository-root', $RepositoryRoot
         )
 
+        $invocationError = $null
         try {
             $output = @(& dotnet @arguments 2> $stderrPath)
             $processExitCode = [int]$LASTEXITCODE
         }
         catch {
-            return [pscustomobject]@{
-                Classification = 'BLOCKED_BY_MISSING_TOOL'
-                ExitCode = 20
-                BlockerId = 'BLK-ENV-001'
-                Evidence = 'atomic signed approval verifier could not be invoked'
+            $invocationError = 'process-start-failure'
+            $processExitCode = 20
+            $output = @()
+        }
+        if ([string]::IsNullOrWhiteSpace($invocationError) -and $processExitCode -ne 0) {
+            $protocolLines = @($output | ForEach-Object {
+                    $line = ([string]$_).Trim()
+                    if ($line.StartsWith('IUMP_VERIFICATION_RESULT=', [StringComparison]::Ordinal)) {
+                        $line
+                    }
+                })
+            if ($protocolLines.Count -eq 0) {
+                $invocationError = 'verifier-process-failure'
             }
         }
-
-        $jsonLines = @($output | ForEach-Object {
-                $jsonLine = ([string]$_).Trim()
-                if ($jsonLine.StartsWith('{', [StringComparison]::Ordinal) -and
-                    $jsonLine.EndsWith('}', [StringComparison]::Ordinal)) {
-                    $jsonLine
-                }
-            })
-        if ($jsonLines.Count -ne 1) {
-            return [pscustomobject]@{
-                Classification = 'FAIL'
-                ExitCode = 1
-                BlockerId = $null
-                Evidence = 'atomic signed approval verifier returned malformed or multiple machine-readable results'
-            }
-        }
-
-        try {
-            $jsonLine = $jsonLines[0]
-            $verifierResult = ConvertFrom-Json -InputObject $jsonLine -ErrorAction Stop
-            $status = [string]$verifierResult.status
-            $classification = [string]$verifierResult.classification
-            $exitCode = [int]$verifierResult.exitCode
-            $blockerId = if ($null -eq $verifierResult.blockerId) { $null } else { [string]$verifierResult.blockerId }
-            $synthetic = [bool]$verifierResult.synthetic
-            $manifestReadCount = [int]$verifierResult.manifestReadCount
-            $policyReadCount = [int]$verifierResult.policyReadCount
-            $evidence = [string]$verifierResult.evidence
-        }
-        catch {
-            return [pscustomobject]@{
-                Classification = 'FAIL'
-                ExitCode = 1
-                BlockerId = $null
-                Evidence = 'atomic signed approval verifier returned malformed JSON'
-            }
-        }
-
-        $validStatus = $status -in @('PASS', 'FAIL', 'BLOCKED')
-        $validClassification = $classification -in @('RUNNABLE_NOW', 'BLOCKED_BY_MISSING_TOOL', 'BLOCKED_BY_COMPANY_APPROVAL')
-        $validExit = ($status -eq 'PASS' -and $classification -eq 'RUNNABLE_NOW' -and $exitCode -eq 0 -and $null -eq $blockerId) -or
-            ($status -eq 'FAIL' -and $classification -eq 'RUNNABLE_NOW' -and $exitCode -eq 1 -and $null -eq $blockerId) -or
-            ($status -eq 'BLOCKED' -and $classification -in @('BLOCKED_BY_MISSING_TOOL', 'BLOCKED_BY_COMPANY_APPROVAL') -and $exitCode -eq 20 -and -not [string]::IsNullOrWhiteSpace($blockerId))
-        $validReads = $status -eq 'BLOCKED' -or
-            ($status -eq 'FAIL' -and $manifestReadCount -in @(0, 1) -and $policyReadCount -in @(0, 1)) -or
-            ($status -eq 'PASS' -and $manifestReadCount -eq 1 -and $policyReadCount -eq 1)
-        if (-not $validStatus -or -not $validClassification -or -not $validExit -or $synthetic -or -not $validReads -or $processExitCode -ne $exitCode) {
-            return [pscustomobject]@{
-                Classification = 'FAIL'
-                ExitCode = 1
-                BlockerId = $null
-                Evidence = 'atomic signed approval verifier returned an invalid structured result contract'
-            }
-        }
-
-        return [pscustomobject]@{
-            Classification = if ($status -eq 'PASS') { 'PASS' } elseif ($status -eq 'FAIL') { 'FAIL' } else { $classification }
-            ExitCode = $exitCode
-            BlockerId = $blockerId
-            Evidence = $evidence
-            ManifestReadCount = $manifestReadCount
-            PolicyReadCount = $policyReadCount
-        }
+        ConvertFrom-DeploymentVerifierProcessResult -Stdout $output -ProcessExitCode $processExitCode `
+            -InvocationError $invocationError -Production
     }
     finally {
         Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue

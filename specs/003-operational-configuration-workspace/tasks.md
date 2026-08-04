@@ -360,7 +360,8 @@ T024 Web types       ┘           └─> T025-T032 Web green
 | Final Trusted-Approval and Checkpoint Corrective Closure | 12 | T098-T109 |
 | Final Signed-Approval and Release-Evidence Corrective Closure | 14 | T110-T123 |
 | Atomic Signed-Approval and Post-Merge Corrective Closure | 17 | T124-T140 |
-| **Total** | **140** | **T001-T140** |
+| Atomic Signed-Approval Review Remediation | 16 | T141-T156 |
+| **Total** | **156** | **T001-T156** |
 
 **Historical MVP**: Phase 6 acceptance hardening and final evidence only
 (T073–T080). Stop after T080.
@@ -395,3 +396,24 @@ for an explicitly authorized continuation.
 - [ ] T138 [RUNNABLE_NOW] Run focused verification, unit/integration, Web lint/build, repository checks, Fast, and fresh Full harness; record PostgreSQL target and every PASS/FAIL/BLOCKED result without using port 5432 or substitutes.
 - [ ] T139 [RUNNABLE_NOW] Perform separate Standards and Specification reviews against the constitution, DOC-05, DOC-07, Feature 003 artifacts, and T124-T140; resolve all Critical/High/actionable Medium findings and record the review axes.
 - [ ] T140 [RUNNABLE_NOW] Run direct artifact Converge/final Analyze when provider commands are unavailable, verify unique task IDs and no scope creep, run `git diff --check`, prepare the PR, push only `fix/003-atomic-signed-approval`, and stop without merging or releasing.
+
+---
+
+## Atomic Signed-Approval Review Remediation
+
+- [x] T141 [RUNNABLE_NOW] Record read-only Analyze and the Standards/Specification findings F-01 through F-07 against baseline `37606adde7ac39476e53d9aaf43ded608e45038e` in `specs/003-operational-configuration-workspace/checklists/atomic-review-remediation-analyze.md` and `atomic-review-remediation-review.md`.
+- [x] T142 [RUNNABLE_NOW] Run and record fresh initial T138 verification on the merged-main implementation before remediation, including Release build, Unit, PostgreSQL Integration at `127.0.0.1:5433/iump_dev`, Web lint/build, focused checks, Fast, and Full classification.
+- [x] T143 [RUNNABLE_NOW] Add red tests and correct `ContainsReparsePoint` so Windows drive roots and UNC roots remain rooted while every existing ancestor, trusted root, manifest, and signature path is canonicalized and fail-closed.
+- [x] T144 [P] [RUNNABLE_NOW] Build a reusable signed manifest/signature/policy fixture and repair deployment-target negative tests to use a valid evidence pair with exactly one injected fault, asserting classification, exit code, and evidence reason for SHA, JSON/schema, UTC, secret, deployment-model, path, and reparse cases.
+- [x] T145 [P] [RUNNABLE_NOW] Refine company policy ACL evaluation into file, immediate-directory, and higher-ancestor threat checks with inheritance/propagation, deny precedence, effective applicability, replacement/delete-child semantics, and deterministic locked-policy contract tests; fail closed as `BLOCKED_BY_MISSING_TOOL` when safe capability is unavailable.
+- [x] T146 [P] [RUNNABLE_NOW] Extract and test chain-status classification so Revoked and fatal trust/validity statuses yield FAIL, while BLOCKED is reserved for revocation-unavailable-only statuses.
+- [x] T147 [P] [RUNNABLE_NOW] Add stable missing-tool/process-start/runtime capability classification so dotnet/project/framework/process-start failures return structured `BLOCKED_BY_MISSING_TOOL`, exit 20, and the repository blocker ID without reinterpreting them as malformed evidence.
+- [x] T148 [P] [RUNNABLE_NOW] Extract a behavioral `ConvertFrom-DeploymentVerifierProcessResult` parser seam and cover valid PASS/FAIL/company/missing-tool results, malformed/multiple/no JSON, extra output, mismatches, blocker IDs, read counts, synthetic production output, evidence redaction, and process failure cases.
+- [x] T149 [RUNNABLE_NOW] Synchronize current post-main checkpoint truth for `37606adde7ac39476e53d9aaf43ded608e45038e`, direct integration on `main`, no new PR/reviewer/workflow/status checks, and the new remediation branch without rewriting historical evidence.
+- [x] T150 [RUNNABLE_NOW] Complete the single Atomic Signed-Approval Review Remediation implementation phase using red evidence, minimal green changes, refactor, architecture/repository-policy checks, and an explicit checkpoint with AC-005/AC-011 PARTIAL and Release-ready NO.
+- [x] T151 [RUNNABLE_NOW] Rerun fresh T138 verification after remediation: focused suites, Release build, Unit, PostgreSQL Integration at `127.0.0.1:5433/iump_dev`, Web lint/build, repository checks, Fast, and Full with every PASS/FAIL/BLOCKED/NOT_RUN classification.
+- [x] T152 [RUNNABLE_NOW] Rerun and record the independent Standards Review, resolving all High and actionable Medium findings and documenting any remaining judgement-call smells.
+- [x] T153 [RUNNABLE_NOW] Rerun and record the independent Specification Review against DOC-05, DOC-07, spec.md, plan.md, tasks.md, acceptance criteria, and release gates; resolve all High/actionable Medium gaps.
+- [x] T154 [RUNNABLE_NOW] Run the actual final Analyze/convergence command if available; otherwise record provider `NOT_RUN` and perform direct artifact/code/test convergence, including unique IDs and no scope creep.
+- [x] T155 [RUNNABLE_NOW] Complete T138-T140 ledger evidence, update acceptance/release/final-verification artifacts and prepare the Feature 003 Atomic Review Remediation report and PR body; keep AC-005/AC-011 PARTIAL and Release-ready NO.
+- [x] T156 [RUNNABLE_NOW] Run `git diff --check`, verify no secrets/private keys/real policy/temporary fixture artifacts, commit `fix(feature-003): remediate atomic approval review findings`, push only `fix/003-atomic-review-remediation`, prepare/request the PR when capability exists, and stop without merging or creating Phase 7/Spec 004.

@@ -364,3 +364,28 @@ subsequent authorized steps. No Phase 7, Spec 004, control, savings, or AI behav
 
 **Scope**: corrective implementation and evidence classification only; no release approval,
 deployment, merge, or credential change.
+
+### Atomic signed-approval review remediation after merged main
+
+**Date**: 2026-08-04
+**Baseline**: `37606adde7ac39476e53d9aaf43ded608e45038e` (authoritative merged `main`)
+**Branch**: `fix/003-atomic-review-remediation`
+
+This bounded corrective phase addresses the seven independent Standards/Specification findings
+from the merged Feature 003 signed-approval implementation: Windows drive/UNC reparse-root
+canonicalization, single-fault deployment evidence fixtures, effective ACL inheritance and deny
+precedence, chain-status precedence, missing-tool classification, structured result parsing, and
+post-main truth synchronization. The verifier remains observation/evidence-only: no equipment
+control, write-back, remote command, savings claim, or product capability is introduced.
+
+Fresh evidence is PASS for Release build, Unit, PostgreSQL Integration at
+`127.0.0.1:5433/iump_dev`, Web lint/build, repository checks, focused deployment-signature
+(65/0), focused deployment-target (95/0), and Fast (14). Full remains exit 20 with
+`BLK-ENV-003` and `BLK-ENV-005`; frontend behavior remains package-policy blocked. AC-005 and
+AC-011 remain PARTIAL and Release-ready remains NO. The provider-native Spec Kit command is
+`NOT_RUN` because no executable provider command is installed; direct analysis/convergence is
+recorded in the feature checklist without claiming provider PASS.
+
+**Scope**: corrective verification-contract implementation and evidence synchronization only; no
+merge, release, Phase 7, Spec 004, package installation, container, port 5432, secret, or
+credential change is implied.
