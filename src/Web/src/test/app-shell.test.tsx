@@ -1,6 +1,7 @@
 import {
   AppShell,
   initialAppShellState,
+  navigationCancellationRestore,
   transitionAppShell,
   viewportNavigationMode,
   workspaceStatusFailureSession,
@@ -24,7 +25,7 @@ import {
   selectedSetupPath,
   workspaceStatusRequestFromSearch,
 } from '../features/setup/setupTypes'
-import { resolveLanding } from '../components/navigation/NavigationModel'
+import { deriveRouteAccess, resolveLanding } from '../components/navigation/NavigationModel'
 
 type FakeObservations = {
   credentials?: { username: string; password: string }
@@ -267,5 +268,25 @@ export function runAppShellChecks(): string[] {
   const setupRequiredLanding = resolveLanding({ enabledRoutes: ['setup'], dashboardPermitted: false, setupRequired: true })
   if (setupRequiredLanding.kind !== 'route' || setupRequiredLanding.route !== 'setup')
     failures.push('setup must be selectable only when the workspace requires it')
+
+  const engineerRouteAccess = deriveRouteAccess({ roleMode: 'Engineer', setupRequired: false })
+  const accessState = transitionAppShell(initialAppShellState, { type: 'route-access', access: engineerRouteAccess })
+  if (accessState.routeAccess?.dashboard !== true)
+    failures.push('workspace status must publish confirmed route access into the shell')
+  const newSession = transitionAppShell(accessState, { type: 'signed-in', session: { state: 'ready' } })
+  if (newSession.routeAccess !== undefined)
+    failures.push('a new session must re-confirm route access instead of reusing stale access')
+  const blockedLanding = transitionAppShell(initialAppShellState, { type: 'landing', resolution: { kind: 'blocked' } })
+  if (blockedLanding.landingPresentation?.kind !== 'blocked' || !blockedLanding.landingResolved)
+    failures.push('a workspace-status failure must surface a blocked landing presentation')
+  const retried = transitionAppShell(blockedLanding, { type: 'retry-workspace-status' })
+  if (retried.landingResolved || retried.landingPresentation !== undefined || retried.routeAccess !== undefined)
+    failures.push('retry must re-request workspace status without a stale presentation or access')
+  if (navigationCancellationRestore(true, '/configuration') !== '/configuration')
+    failures.push('popstate cancellation must restore the last committed URL')
+  if (navigationCancellationRestore(false, '/configuration') !== undefined)
+    failures.push('programmatic cancellation must not rewrite the URL')
+  if (workspaceStatusFailureSession(new WorkspaceGatewayError(503)).state !== 'error')
+    failures.push('a dependency workspace failure must not masquerade as an auth outcome')
   return failures
 }

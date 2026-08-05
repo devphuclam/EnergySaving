@@ -1,23 +1,28 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWebGateways } from '../gateways/GatewayContext'
 import type { AuthSession } from '../gateways/webGateways'
 import { WorkspaceGatewayError, type WorkspaceStatusRequest } from '../features/setup/setupTypes'
 import { workspaceStatusRequestFromSearch } from '../features/setup/setupTypes'
 import { ContextBar } from '../components/context/ContextBar'
 import { ForbiddenState } from '../components/feedback/ForbiddenState'
+import { RetryState } from '../components/feedback/RetryState'
 import { ConfirmDialog } from '../components/dialogs/ConfirmDialog'
 import { hasUnsavedChanges, unsavedChangesMessage } from '../components/forms/UnsavedChangesGuard'
 import { NavigationDrawer } from '../components/navigation/NavigationDrawer'
 import { Rail } from '../components/navigation/Rail'
 import { Sidebar } from '../components/navigation/Sidebar'
 import {
+  deriveRouteAccess,
   firstPermittedNavigationRoute,
   isNavigationRouteAvailable,
+  navigationItems,
   resolveLanding,
   routeFromPath as navigationRouteFromPath,
   visibleNavigationItems,
   type LandingResolution,
   type NavigationRoute,
+  type RouteAccess,
+  type WorkspaceRoleMode,
 } from '../components/navigation/NavigationModel'
 
 export type WebRoute = NavigationRoute
@@ -41,6 +46,8 @@ export type AppShellState = {
   landingResolved: boolean
   setupRequired: boolean
   landingPresentation?: LandingResolution
+  /** Server-derived route availability; absent until the workspace status confirms scope. */
+  routeAccess?: RouteAccess
 }
 
 export type AppShellTransition =
@@ -52,6 +59,8 @@ export type AppShellTransition =
   | { type: 'navigation-denied'; nextRoute?: NavigationRoute }
   | { type: 'nav-mode'; mode: NavigationMode }
   | { type: 'setup-required'; setupRequired: boolean }
+  | { type: 'route-access'; access: RouteAccess }
+  | { type: 'retry-workspace-status' }
   | { type: 'landing'; resolution: LandingResolution }
 
 export const initialAppShellState: AppShellState = {
@@ -75,6 +84,7 @@ export function transitionAppShell(state: AppShellState, event: AppShellTransiti
     landingResolved: false,
     setupRequired: false,
     landingPresentation: undefined,
+    routeAccess: undefined,
     feedback: event.session.state === 'ready'
       ? 'Đăng nhập thành công. Phạm vi được cấp đã sẵn sàng.'
       : event.session.state === 'invalid-credentials'
@@ -88,10 +98,13 @@ export function transitionAppShell(state: AppShellState, event: AppShellTransiti
     landingResolved: false,
     setupRequired: false,
     landingPresentation: undefined,
+    routeAccess: undefined,
     feedback: 'Đã đăng xuất.',
   }
   if (event.type === 'nav-mode') return { ...state, navMode: event.mode }
   if (event.type === 'setup-required') return { ...state, setupRequired: event.setupRequired }
+  if (event.type === 'route-access') return { ...state, routeAccess: event.access }
+  if (event.type === 'retry-workspace-status') return { ...state, landingResolved: false, landingPresentation: undefined, routeAccess: undefined, setupRequired: false, feedback: '' }
   if (event.type === 'navigation-denied') return { ...state, landingPresentation: { kind: 'safe-forbidden', nextRoute: event.nextRoute } }
   if (event.type === 'landing') return {
     ...state,
@@ -117,6 +130,15 @@ export function viewportNavigationMode(width = window.innerWidth): NavigationMod
   return width >= 1280 ? 'expanded' : 'rail'
 }
 
+/**
+ * Popstate cancellation target: a back/forward attempt must be undone back to the last URL this
+ * app committed (captured before popstate fired), never to the already-popped URL the browser is
+ * showing. Programmatic navigation has not changed the URL yet, so nothing needs restoring.
+ */
+export function navigationCancellationRestore(fromHistory: boolean, lastCommittedHref: string | undefined): string | undefined {
+  return fromHistory ? lastCommittedHref : undefined
+}
+
 type PendingNavigation = {
   route: WebRoute
   request?: WorkspaceStatusRequest
@@ -136,10 +158,9 @@ export function AppShell({ children }: AppShellProps) {
   const [password, setPassword] = useState('')
   const [locationKey, setLocationKey] = useState(() => window.location.href)
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null)
-  const visibleItems = useMemo(() => {
-    const items = visibleNavigationItems(state.session)
-    return state.setupRequired ? items : items.filter(item => item.route !== 'setup')
-  }, [state.session, state.setupRequired])
+  const lastCommittedHrefRef = useRef(window.location.href)
+  const effectiveAccess: RouteAccess = state.routeAccess ?? deriveRouteAccess({ setupRequired: false })
+  const visibleItems = useMemo(() => visibleNavigationItems(effectiveAccess), [effectiveAccess])
 
   useEffect(() => { document.documentElement.lang = 'vi' }, [])
 
@@ -153,6 +174,7 @@ export function AppShell({ children }: AppShellProps) {
       const suffix = query.toString() ? `?${query.toString()}` : ''
       window.history.pushState({}, '', `/${route}${suffix}`)
     }
+    lastCommittedHrefRef.current = window.location.href
     setLocationKey(window.location.href)
     setState(current => transitionAppShell(current, { type: 'navigate', route }))
   }
@@ -160,11 +182,12 @@ export function AppShell({ children }: AppShellProps) {
   /** Canonical guarded navigation used by every entry path: brand, sidebar, rail, drawer,
    * popstate, route callbacks, session restoration and programmatic callers. */
   function requestNavigation(route: WebRoute, request?: WorkspaceStatusRequest, fromHistory = false) {
-    if (state.session.state !== 'ready') return
-    if (!isNavigationRouteAvailable(route, state.session, state.setupRequired)) {
+    if (state.session.state !== 'ready' || !state.routeAccess) return
+    const access = state.routeAccess
+    if (!isNavigationRouteAvailable(route, access)) {
       setState(current => transitionAppShell(current, {
         type: 'navigation-denied',
-        nextRoute: firstPermittedNavigationRoute(state.session, state.setupRequired),
+        nextRoute: firstPermittedNavigationRoute(access),
       }))
       return
     }
@@ -173,7 +196,7 @@ export function AppShell({ children }: AppShellProps) {
         route,
         request,
         fromHistory,
-        previousHref: fromHistory ? window.location.href : undefined,
+        previousHref: navigationCancellationRestore(fromHistory, lastCommittedHrefRef.current),
         message: unsavedChangesMessage() ?? 'Bạn có thay đổi chưa lưu. Hãy lưu hoặc hủy trước khi rời trang.',
       })
       return
@@ -185,10 +208,10 @@ export function AppShell({ children }: AppShellProps) {
     function handlePopState() {
       setLocationKey(window.location.href)
       const route = navigationRouteFromPath(window.location.pathname)
-      if (!route || !isNavigationRouteAvailable(route, state.session, state.setupRequired)) {
+      if (!route || !state.routeAccess || !isNavigationRouteAvailable(route, state.routeAccess)) {
         setState(current => transitionAppShell(current, {
           type: 'navigation-denied',
-          nextRoute: firstPermittedNavigationRoute(state.session, state.setupRequired),
+          nextRoute: firstPermittedNavigationRoute(state.routeAccess ?? deriveRouteAccess({ setupRequired: false })),
         }))
         return
       }
@@ -196,7 +219,7 @@ export function AppShell({ children }: AppShellProps) {
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [state.session, state.setupRequired])
+  }, [state.session.state, state.routeAccess])
 
   useEffect(() => {
     function handleResize() {
@@ -219,33 +242,36 @@ export function AppShell({ children }: AppShellProps) {
     const request = workspaceStatusRequestFromSearch(window.location.search)
     const isRoot = pathname === '/' || pathname === ''
     const requestedRoute = isRoot && request && !('invalidSearch' in request) ? '/setup' : pathname
-    const resolve = (setupRequired: boolean) => {
-      const base = visibleNavigationItems(state.session)
-      const enabledRoutes = (setupRequired ? base : base.filter(item => item.route !== 'setup')).map(item => item.route)
+    const resolve = (roleMode: WorkspaceRoleMode, setupRequired: boolean) => {
+      const access = deriveRouteAccess({ capabilities: state.session.capabilities, roleMode, setupRequired })
+      const enabledRoutes = navigationItems.filter(item => access[item.route]).map(item => item.route)
       const resolution = resolveLanding({
         deepLink: isRoot ? (requestedRoute === '/setup' ? requestedRoute : undefined) : requestedRoute,
         enabledRoutes,
-        dashboardPermitted: enabledRoutes.includes('dashboard'),
+        dashboardPermitted: access.dashboard,
         setupRequired,
       })
+      setState(current => transitionAppShell(current, { type: 'route-access', access }))
       setState(current => transitionAppShell(current, { type: 'setup-required', setupRequired }))
       setState(current => transitionAppShell(current, { type: 'landing', resolution }))
       if (isRoot && resolution.kind === 'route') {
         const suffix = requestedRoute === '/setup' && request && !('invalidSearch' in request) ? window.location.search : ''
         window.history.replaceState({}, '', `/${resolution.route}${suffix}`)
+        lastCommittedHrefRef.current = window.location.href
         setLocationKey(window.location.href)
       }
     }
     void gateways.workspace.getStatus(request).then(workspace => {
-      resolve(workspace.landing === 'SetupWizard' || workspace.landing === 'ContinueSetup')
+      resolve(workspace.roleMode, workspace.landing === 'SetupWizard' || workspace.landing === 'ContinueSetup')
     }).catch(error => {
-      if (!isRoot) {
-        // Non-root deep links resolve from session capabilities alone; a workspace-status failure
-        // must never fabricate Setup availability, so Setup stays unreachable (fail closed).
-        resolve(false)
+      const failureSession = workspaceStatusFailureSession(error)
+      if (failureSession.state === 'expired' || failureSession.state === 'forbidden') {
+        setState(current => transitionAppShell(current, { type: 'session', session: failureSession }))
         return
       }
-      setState(current => transitionAppShell(current, { type: 'session', session: workspaceStatusFailureSession(error) }))
+      // Dependency and unexpected failures fail closed on root and non-root entries with a
+      // retry-able blocked presentation. A failed workspace status never fabricates availability.
+      setState(current => transitionAppShell(current, { type: 'landing', resolution: { kind: 'blocked' } }))
     })
   }, [gateways.workspace, locationKey, state.landingResolved, state.session.state])
 
@@ -291,7 +317,7 @@ export function AppShell({ children }: AppShellProps) {
     <header className="topbar">
       <a className="brand" href="/" onClick={event => {
         event.preventDefault()
-        const home = firstPermittedNavigationRoute(state.session, state.setupRequired)
+        const home = firstPermittedNavigationRoute(effectiveAccess)
         if (home) requestNavigation(home)
       }}><span className="brand-mark" aria-hidden="true">I</span><span>IDEA Utility Monitoring</span></a>
       <div className="session-controls"><span className="scope-pill" aria-label="Phạm vi hiện tại">{scope}</span>
@@ -315,6 +341,7 @@ export function AppShell({ children }: AppShellProps) {
         {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Lỗi phiên. Kiểm tra kết nối rồi đăng nhập lại.</section>}
         {authenticated && state.landingResolved && state.landingPresentation?.kind === 'safe-forbidden' && <ForbiddenState message="Đường dẫn không còn được phép trong phạm vi hiện tại." action={forbiddenNextRoute ? <button className="button button-secondary" type="button" onClick={() => requestNavigation(forbiddenNextRoute)}>Tiếp tục trong phạm vi được cấp</button> : undefined} />}
         {authenticated && state.landingResolved && state.landingPresentation?.kind === 'safe-no-authorized-capability' && <ForbiddenState title="Chưa có phạm vi được cấp" message="Không có capability nào trong phiên này được phép hiển thị." />}
+        {authenticated && state.landingResolved && state.landingPresentation?.kind === 'blocked' && <RetryState message="Không thể xác nhận trạng thái không gian làm việc." onRetry={() => setState(current => transitionAppShell(current, { type: 'retry-workspace-status' }))} />}
         {authenticated && (!state.landingPresentation || state.landingPresentation.kind === 'route') ? children(state.route, requestNavigation, state.session, locationKey) : null}
       </main>
     </div>

@@ -57,3 +57,25 @@ behavior) were corrected in the Web shell, shared components, and `App.css`; the
 recorded as compile-visible checks in the exact planned test sources. Evidence:
 `phase-01-corrective-review.md`. Lint, build, and the Fast harness remain **PASS** (`PASS=11`);
 runtime behavior execution remains **BLOCKED_BY_PACKAGE_POLICY** and no visual PASS is claimed.
+
+## Round-2 corrective closure (supersedes the prior Phase-1-complete YES)
+
+**Baseline**: `637b3504d195afa24bc1de938970d5a1cfa97fc6`; **Branch**:
+`fix/004-phase-01-corrective-round-2`; evidence: `phase-01-corrective-review-round-2.md`.
+
+The prior checkpoint's closure was re-reviewed and four remaining findings (R2-01–R2-04) were
+corrected in the Web shell and shared components: first-attempt required-reason rejection,
+server-derived per-route `RouteAccess` (fail-closed, no invented capability, no role-name
+authorization, no probing; workspace-status failures map to expired/forbidden/blocked on root and
+non-root entries), restored `beforeunload` plus last-committed-URL popstate restoration, and
+repeated-submit error-summary focus. Lint, build, and the Fast harness remain **PASS**
+(`PASS=11`); runtime behavior execution remains **BLOCKED_BY_PACKAGE_POLICY** and no visual PASS is
+claimed. No merge, no T028, no Phase 2 work was performed.
+
+| Gate | Decision |
+|---|---|
+| Phase 1 implementation complete | **YES** (after round-2 corrective closure) |
+| Progression to Phase 2 | **NO** — requires a separate explicit `/speckit.implement` invocation selecting Phase 2 |
+| Planning-ready | **YES** (inherited from Phase 0) |
+| Release-ready | **NO** — later phases plus visual, browser/accessibility and release evidence remain |
+| T028 executed | **NO** |

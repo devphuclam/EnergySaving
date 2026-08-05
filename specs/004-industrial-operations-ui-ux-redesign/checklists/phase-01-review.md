@@ -44,3 +44,33 @@ Result: **PASS — Phase 1 scope aligns with the specification and locked clarif
 No Critical/High issue remains for the Phase 1 boundary. Visual baseline validation, browser/axe
 automation, pilot usability and full release evidence are intentionally deferred to the later phase
 that owns them; these are not silently converted to PASS.
+
+## Round-2 corrective review (supersedes the earlier review conclusions)
+
+**Baseline**: `637b3504d195afa24bc1de938970d5a1cfa97fc6`; **Branch**:
+`fix/004-phase-01-corrective-round-2`; evidence: `phase-01-corrective-review-round-2.md`.
+
+The earlier "no unresolved Critical/High finding" conclusion was premature for four items; the
+round-2 review re-examined them and records them **CLOSED**:
+
+- **R2-01 (High)** — empty required reason confirmed on the first attempt. CLOSED:
+  `reasonConfirmationDecision` computed inside the confirm handler; `onConfirm` never fires with an
+  empty required reason; focus returns to the textarea; state resets on close/reopen.
+- **R2-02 (High)** — route availability fail-open except Audit. CLOSED: explicit `RouteAccess`
+  derived from authoritative server data (`roleMode` + landing from the workspace status,
+  `AUDIT_READ` from `/api/v1/me` capabilities) drives every navigation entry path and fails closed
+  before the status confirms scope; workspace-status failures map to expired/forbidden/blocked
+  presentations on root and non-root entries. Server contract was sufficient — no
+  `BLOCKED_BY_AUTHORIZATION_CONTRACT` declared; no capability code invented, no role-name
+  authorization, no probing.
+- **R2-03 (High)** — `beforeunload` lost and popstate cancel restored the already-popped URL.
+  CLOSED: registry-driven `beforeunload` with `preventDefault`/`returnValue`; popstate cancel
+  restores the last committed URL (`lastCommittedHrefRef`, captured before popstate) with no
+  Back/Forward loops.
+- **R2-04 (Medium)** — first-invalid focus worked only once. CLOSED: `activationKey` re-evaluates
+  focus on every submit attempt; first invalid field else summary; mount-time errors stay passive.
+
+Standards review after round 2: **PASS — no unresolved Critical or High finding**. Specification
+review: **PASS** — the corrected shell stays within Phase 1 scope and the locked
+route-and-permission-matrix contract (server-authoritative availability, fail-closed presentation,
+no backend contract change).

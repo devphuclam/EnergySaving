@@ -89,3 +89,28 @@ fail-closed on every entry path (including `popstate` and brand), `navigation-de
 `reasonRequiredValidation`. The extended compile-visible checks type-check under `tsc -b`; lint,
 build, and the Fast harness (`PASS=11`) remain PASS. Runtime execution and visual rendering
 classifications are unchanged.
+
+## Corrective review round 2 (R2-01–R2-04) — supersedes the closure statements above
+
+**Baseline**: `637b3504d195afa24bc1de938970d5a1cfa97fc6`; **Branch**:
+`fix/004-phase-01-corrective-round-2`; evidence: `phase-01-corrective-review-round-2.md`.
+
+- R2-01: `ReasonDialog` validates inside the confirm handler via `reasonConfirmationDecision`;
+  an empty required reason is rejected on the very first attempt, focus returns to the textarea,
+  close/reopen resets state.
+- R2-02: route availability is now derived from server data only — `deriveRouteAccess` consumes
+  `roleMode` (workspace status, as server `hasAuthorizedScope` scope presence) for
+  Dashboard/Configuration/Simulator/Telemetry/Setup and `AUDIT_READ` from the returned capability
+  collection for Audit; every entry path fails closed until the workspace status confirms scope;
+  workspace-status failures map to expired (401), forbidden (403) or a blocked/retry presentation
+  (dependency/other) on root and non-root entries. No new capability code, no role-name
+  authorization, no probing; the server contract was sufficient (no blocker declared).
+- R2-03: a single registry-driven `beforeunload` listener restores the unload guard
+  (`preventDefault` + `returnValue` while any guard is dirty); popstate cancel restores the last
+  committed URL via `lastCommittedHrefRef` captured before popstate, with no Back/Forward loops.
+- R2-04: `FieldErrorSummary` re-focuses the first invalid field (else the summary) on every submit
+  attempt via a numeric `activationKey`; mount-time server errors never force focus.
+- Verification: `npm run lint` PASS, `npm run build` PASS, Fast harness **PASS=11** (first attempt
+  `FAIL=1` solely because a stale `IUMP.Api.exe` from the earlier session locked its own build
+  outputs; the leftover dev process was stopped and the harness re-ran clean). Runtime behavior
+  execution remains **BLOCKED_BY_PACKAGE_POLICY**; visual/browser rendering remains **NOT_RUN**.

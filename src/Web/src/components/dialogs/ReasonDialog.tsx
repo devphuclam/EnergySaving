@@ -7,6 +7,18 @@ export function reasonRequiredValidation(reason: string, required: boolean, atte
   return reason.trim() ? undefined : 'Lý do là bắt buộc.'
 }
 
+export type ReasonConfirmationDecision = { valid: true; value: string } | { valid: false; error: string }
+
+/**
+ * Fresh validation computed inside the confirm handler at confirm time. The handler must never
+ * rely on a render-time error value: the first confirm attempt computes this decision from the
+ * current input, so an empty required reason is always rejected on the very first attempt.
+ */
+export function reasonConfirmationDecision(reason: string, required: boolean): ReasonConfirmationDecision {
+  if (required && !reason.trim()) return { valid: false, error: 'Lý do là bắt buộc.' }
+  return { valid: true, value: reason.trim() }
+}
+
 export function ReasonDialog({ open, title, description, onConfirm, onCancel, required = true }: {
   open: boolean; title: string; description: string; onConfirm: (reason: string) => void; onCancel: () => void; required?: boolean
 }) {
@@ -15,15 +27,16 @@ export function ReasonDialog({ open, title, description, onConfirm, onCancel, re
   const inputId = useId()
   const errorId = useId()
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => { if (!open) { setReason(''); setAttempted(false) } }, [open])
+  useEffect(() => { setReason(''); setAttempted(false) }, [open])
   const error = reasonRequiredValidation(reason, required, attempted)
   return <ConfirmDialog open={open} title={title} description={description} onCancel={onCancel} onConfirm={() => {
-    if (error) {
+    const decision = reasonConfirmationDecision(reason, required)
+    if (!decision.valid) {
       setAttempted(true)
       inputRef.current?.focus()
       return
     }
-    onConfirm(reason.trim())
+    onConfirm(decision.value)
   }} confirmLabel="Xác nhận với lý do">
     <div className="field-control">
       <label htmlFor={inputId}><span>Lý do{required && ' *'}</span></label>

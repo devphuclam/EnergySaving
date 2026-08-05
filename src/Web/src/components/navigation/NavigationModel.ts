@@ -1,7 +1,39 @@
-import type { AuthSession } from '../../gateways/webGateways'
-
 export type NavigationRoute = 'setup' | 'dashboard' | 'configuration' | 'simulator' | 'telemetry' | 'audit'
 export type NavigationGroup = 'monitoring' | 'configuration' | 'governance' | 'setup'
+
+/**
+ * Workspace mode returned by the server's operational-workspace status. It is the server's own
+ * computed scope-presence signal: 'Administrator' and 'Engineer' confirm an authorized Site or
+ * Area scope, 'ReadOnly' means no authorized scope. It is never treated as a role grant here;
+ * only scope presence is consumed, mirroring the server's hasAuthorizedScope rule.
+ */
+export type WorkspaceRoleMode = 'Administrator' | 'Engineer' | 'ReadOnly'
+
+/**
+ * Effective per-route availability derived only from authoritative server data. The server remains
+ * the authorization authority; this model never infers a permission from a role name and never
+ * invents a capability code. Absent input fails closed.
+ */
+export type RouteAccess = Record<NavigationRoute, boolean>
+
+export type RouteAccessInput = {
+  capabilities?: string[]
+  roleMode?: WorkspaceRoleMode
+  setupRequired: boolean
+}
+
+/** Fail-closed derivation: no input confirms a scope or a capability, so no route opens. */
+export function deriveRouteAccess(input: RouteAccessInput): RouteAccess {
+  const hasAuthorizedScope = input.roleMode === 'Administrator' || input.roleMode === 'Engineer'
+  return {
+    dashboard: hasAuthorizedScope,
+    configuration: hasAuthorizedScope,
+    simulator: hasAuthorizedScope,
+    telemetry: hasAuthorizedScope,
+    audit: input.capabilities !== undefined && input.capabilities.includes('AUDIT_READ'),
+    setup: hasAuthorizedScope && input.setupRequired,
+  }
+}
 
 export type NavigationItem = {
   route: NavigationRoute
@@ -29,6 +61,7 @@ export type LandingResolution =
   | { kind: 'route'; route: NavigationRoute; reason: 'deep-link' | 'priority' | 'dashboard-fallback' }
   | { kind: 'safe-forbidden'; nextRoute?: NavigationRoute }
   | { kind: 'safe-no-authorized-capability' }
+  | { kind: 'blocked' }
 
 export type LandingResolutionInput = {
   deepLink?: string
@@ -57,45 +90,32 @@ export function routeLabel(route: NavigationRoute): string {
   return navigationItems.find(item => item.route === route)?.label ?? 'Không gian làm việc'
 }
 
-export function canAccessNavigationItem(item: NavigationItem, session: Pick<AuthSession, 'capabilities'>): boolean {
-  if (!item.capability) return true
-  // The server remains the authorization authority. An absent capability collection is never
-  // treated as permission: capability-protected navigation fails closed.
-  return session.capabilities !== undefined && session.capabilities.includes(item.capability)
+export function canAccessNavigationItem(item: NavigationItem, access: RouteAccess): boolean {
+  return access[item.route]
 }
 
-export function visibleNavigationItems(session: Pick<AuthSession, 'capabilities'>): NavigationItem[] {
-  return navigationItems.filter(item => canAccessNavigationItem(item, session))
+export function visibleNavigationItems(access: RouteAccess): NavigationItem[] {
+  return navigationItems.filter(item => access[item.route])
 }
 
 /**
  * Canonical route availability predicate used by every navigation entry path (deep link, root
  * landing, brand, sidebar, rail, drawer, popstate, programmatic callbacks, session restoration).
- * Setup is only reachable when the workspace status confirms it is required; capability-gated
- * routes fail closed when the capability collection is absent.
+ * Availability comes only from the server-derived RouteAccess: an unconfirmed or absent access
+ * model fails every route closed.
  */
-export function isNavigationRouteAvailable(
-  route: NavigationRoute,
-  session: Pick<AuthSession, 'capabilities'>,
-  setupRequired: boolean,
-): boolean {
-  const item = navigationItems.find(candidate => candidate.route === route)
-  if (!item) return false
-  if (route === 'setup' && !setupRequired) return false
-  return canAccessNavigationItem(item, session)
+export function isNavigationRouteAvailable(route: NavigationRoute, access: RouteAccess): boolean {
+  return access[route]
 }
 
 /**
  * First permitted destination for home/brand navigation and for the safe forbidden recovery
  * action. Prefers Dashboard, then the shared priority order, then Setup when it is required.
  */
-export function firstPermittedNavigationRoute(
-  session: Pick<AuthSession, 'capabilities'>,
-  setupRequired: boolean,
-): NavigationRoute | undefined {
-  if (isNavigationRouteAvailable('dashboard', session, setupRequired)) return 'dashboard'
+export function firstPermittedNavigationRoute(access: RouteAccess): NavigationRoute | undefined {
+  if (access.dashboard) return 'dashboard'
   for (const route of routePriority) {
-    if (isNavigationRouteAvailable(route, session, setupRequired)) return route
+    if (access[route]) return route
   }
   return undefined
 }

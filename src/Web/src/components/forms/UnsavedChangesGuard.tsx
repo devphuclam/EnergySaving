@@ -32,6 +32,15 @@ export function clearUnsavedChange(id: string): void {
   emit()
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (event) => {
+    const message = unsavedChangesMessage()
+    if (!message) return
+    event.preventDefault()
+    event.returnValue = message
+  })
+}
+
 export function UnsavedChangesGuard({ when, message = 'Bạn có thay đổi chưa lưu. Hãy lưu hoặc hủy trước khi rời trang.', children }: { when: boolean; message?: string; children?: ReactNode }) {
   const id = useId()
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { Field } from '../components/forms/Field'
-import { FieldErrorSummary, firstErrorFieldId, type FieldError } from '../components/forms/FieldErrorSummary'
+import { FieldErrorSummary, fieldErrorSummaryFocusTarget, firstErrorFieldId, type FieldError } from '../components/forms/FieldErrorSummary'
 import { FormSection } from '../components/forms/FormSection'
 import {
   UnsavedChangesGuard,
@@ -18,6 +18,12 @@ export function runConfigurationFormChecks(): string[] {
   ]
   if (firstErrorFieldId(errors) !== 'first-field') failures.push('error focus must target the first invalid field')
   if (firstErrorFieldId([]) !== undefined) failures.push('no invalid field must not produce a focus target')
+  if (fieldErrorSummaryFocusTarget(errors) !== 'first-field')
+    failures.push('a failed submit must focus the first invalid field')
+  if (fieldErrorSummaryFocusTarget([{ id: '', label: 'x', message: 'y' }]) !== 'summary')
+    failures.push('a failed submit without a field id must fall back to the summary')
+  if (fieldErrorSummaryFocusTarget([]) !== undefined)
+    failures.push('a submit with no invalid field must not force focus')
   registerUnsavedChange('check-field', 'Có thay đổi chưa lưu.')
   if (!hasUnsavedChanges()) failures.push('a registered unsaved change must block shell navigation')
   clearUnsavedChange('check-field')
