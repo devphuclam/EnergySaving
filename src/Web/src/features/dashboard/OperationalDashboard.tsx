@@ -58,6 +58,7 @@ function pointIdOf(item: Record<string, unknown>): string | undefined {
 }
 
 export const DASHBOARD_QUALITY_REASON_UNAVAILABLE = 'Dashboard contract không cung cấp quality reason.'
+export const DASHBOARD_QUALITY_UNRECOGNIZED = 'Dashboard contract did not provide a recognized quality.'
 
 function pointLabel(snapshot: OperationalDashboardSnapshot, item: Record<string, unknown>): string {
   const pointId = pointIdOf(item)
@@ -70,6 +71,22 @@ function pointLabel(snapshot: OperationalDashboardSnapshot, item: Record<string,
 
 function qualityOf(value: unknown): DataQuality | undefined {
   return value === 'Good' || value === 'Uncertain' || value === 'Bad' || value === 'Missing' ? value : undefined
+}
+
+export type DashboardQualityPresentation = {
+  quality?: DataQuality
+  status: OperationalStatus
+  isException: boolean
+  priority: number
+  reasonAvailability: 'authoritative' | 'absent'
+}
+
+export function dashboardQualityPresentation(value: unknown): DashboardQualityPresentation {
+  const quality = qualityOf(value)
+  if (!quality) return { status: 'Unavailable', isException: true, priority: 6, reasonAvailability: 'absent' }
+  if (quality === 'Good') return { quality, status: 'Good', isException: false, priority: 0, reasonAvailability: 'authoritative' }
+  const priority = quality === 'Bad' ? 1 : quality === 'Missing' ? 3 : 5
+  return { quality, status: quality, isException: true, priority, reasonAvailability: 'authoritative' }
 }
 
 function dashboardRecordTotal(record: { count: number; items: unknown[] }): number {
@@ -142,12 +159,13 @@ export function collectDashboardExceptions(snapshot: OperationalDashboardSnapsho
     })
   }
   for (const item of snapshot.latest.items) {
-    const quality = qualityOf(valueOf(item, 'quality', 'Quality'))
-    if (quality === 'Bad' || quality === 'Uncertain' || quality === 'Missing') items.push({
-      key: `quality:${stableExceptionIdentity(snapshot, item)}:${quality}`, kind: 'quality', priority: dashboardExceptionPriority('quality', quality), status: quality, title: `Chất lượng dữ liệu: ${pointLabel(snapshot, item)}`,
-      observed: `Bản ghi hiện tại có trạng thái ${quality}.`,
-      evidence: 'Quality được lấy trực tiếp từ Operational Dashboard response; lý do chi tiết không có trong contract này.',
-      nextAction: 'Mở Measurement để xem timestamp, nguồn và chi tiết chất lượng.', tone: quality === 'Bad' ? 'danger' : 'warning',
+    const rawQuality = valueOf(item, 'quality', 'Quality')
+    const presentation = dashboardQualityPresentation(rawQuality)
+    if (presentation.isException) items.push({
+      key: `quality:${stableExceptionIdentity(snapshot, item)}:${rawQuality === undefined ? 'absent' : String(rawQuality)}`, kind: 'quality', priority: presentation.priority, status: presentation.status, title: `Chất lượng dữ liệu: ${pointLabel(snapshot, item)}`,
+      observed: presentation.reasonAvailability === 'authoritative' ? `Bản ghi hiện tại có trạng thái ${presentation.quality}.` : DASHBOARD_QUALITY_UNRECOGNIZED,
+      evidence: presentation.reasonAvailability === 'authoritative' ? 'Quality được lấy trực tiếp từ Operational Dashboard response; lý do chi tiết không có trong contract này.' : DASHBOARD_QUALITY_UNRECOGNIZED,
+      nextAction: 'Mở Measurement để xem timestamp, nguồn và chi tiết chất lượng.', tone: presentation.status === 'Bad' ? 'danger' : 'warning',
     })
   }
   if (snapshot.points.count > snapshot.latest.count) items.push({
@@ -206,7 +224,7 @@ function DashboardReady({ snapshot, onNewSetup, onContinueSetup, onNavigate }: {
     <ExceptionList presentation={exceptions} onNavigate={onNavigate} />
     <DashboardSummary snapshot={snapshot} onNavigate={onNavigate} />
     <div className="dashboard-evidence-grid"><section className="evidence-panel" aria-labelledby="dashboard-health-title"><div className="section-heading"><div><p className="card-kicker">Source health</p><h2 id="dashboard-health-title">Tình trạng nguồn</h2></div><button className="button button-secondary" type="button" onClick={() => onNavigate('telemetry')}>Mở Measurement</button></div>{snapshot.health.items.length === 0 ? <EmptyState title="Chưa có source health" message="Response hiện tại không trả bản ghi source health trong phạm vi này." /> : <><p className="metadata">Hiển thị {Math.min(8, snapshot.health.items.length)} trong tổng số {dashboardRecordTotal(snapshot.health)} bản ghi source health.</p><ul className="evidence-list">{snapshot.health.items.slice(0, 8).map((item, index) => { const status = textOf(item, 'status', 'Status'); const presentation = dashboardHealthPresentation(status); const received = textOf(item, 'lastReceivedAtUtc', 'LastReceivedAtUtc'); return <li key={`${pointLabel(snapshot, item)}-${index}`}><strong>{pointLabel(snapshot, item)}</strong><OperationalStatusBadge status={presentation.status} detail={status ?? 'Unknown'} /><span className="metadata">{received ? `Lần nhận cuối: ${received}` : 'Lần nhận cuối: chưa có'}</span></li> })}</ul></>}</section>
-      <section className="evidence-panel" aria-labelledby="dashboard-quality-title"><div className="section-heading"><div><p className="card-kicker">Data quality</p><h2 id="dashboard-quality-title">Chất lượng giá trị mới nhất</h2></div><span className="metadata">{DASHBOARD_QUALITY_REASON_UNAVAILABLE}</span></div>{snapshot.latest.items.length === 0 ? <EmptyState title="Chưa có giá trị mới nhất" message="Không có bản ghi hiện tại trong response; đây không phải giá trị zero." /> : <><p className="metadata">Hiển thị {Math.min(8, snapshot.latest.items.length)} trong tổng số {dashboardRecordTotal(snapshot.latest)} bản ghi latest.</p><ul className="evidence-list">{snapshot.latest.items.slice(0, 8).map((item, index) => { const quality = qualityOf(valueOf(item, 'quality', 'Quality')); return <li key={`${pointLabel(snapshot, item)}-${index}`}><strong>{pointLabel(snapshot, item)}</strong>{quality ? <DataQualityIndicator quality={quality} /> : <OperationalStatusBadge status="Unavailable" detail="Quality chưa có" />}<span className="numeric">{String(valueOf(item, 'value', 'Value') ?? 'Missing')} {String(valueOf(item, 'unit', 'Unit') ?? '')}</span></li> })}</ul></>}</section></div>
+      <section className="evidence-panel" aria-labelledby="dashboard-quality-title"><div className="section-heading"><div><p className="card-kicker">Data quality</p><h2 id="dashboard-quality-title">Chất lượng giá trị mới nhất</h2></div><span className="metadata">{DASHBOARD_QUALITY_REASON_UNAVAILABLE}</span></div>{snapshot.latest.items.length === 0 ? <EmptyState title="Chưa có giá trị mới nhất" message="Không có bản ghi hiện tại trong response; đây không phải giá trị zero." /> : <><p className="metadata">Hiển thị {Math.min(8, snapshot.latest.items.length)} trong tổng số {dashboardRecordTotal(snapshot.latest)} bản ghi latest.</p><ul className="evidence-list">{snapshot.latest.items.slice(0, 8).map((item, index) => { const quality = dashboardQualityPresentation(valueOf(item, 'quality', 'Quality')); return <li key={`${pointLabel(snapshot, item)}-${index}`}><strong>{pointLabel(snapshot, item)}</strong>{quality.quality ? <DataQualityIndicator quality={quality.quality} /> : <OperationalStatusBadge status={quality.status} detail={DASHBOARD_QUALITY_UNRECOGNIZED} />}<span className="numeric">{String(valueOf(item, 'value', 'Value') ?? 'Missing')} {String(valueOf(item, 'unit', 'Unit') ?? '')}</span></li> })}</ul></>}</section></div>
     <section className="card setup-runtime-panel" aria-labelledby="dashboard-setup-title"><div><p className="card-kicker">Thiết lập và runtime</p><h2 id="dashboard-setup-title">Mức sẵn sàng kích hoạt</h2><p className="muted">{snapshot.incompleteSetup.count > 0 ? `${snapshot.incompleteSetup.count} chuỗi chưa hoàn tất; bước tiếp theo ${snapshot.incompleteSetup.nextStep ?? 'chưa có trong response'}.` : 'Không có chuỗi chưa hoàn tất trong response.'}</p></div><div className="dashboard-action-row">{snapshot.incompleteSetup.count > 0 && <button className="button button-primary" type="button" onClick={onContinueSetup}>Tiếp tục Setup</button>}{snapshot.incompleteSetup.count === 0 && snapshot.roleMode === 'Administrator' && <button className="button button-secondary" type="button" onClick={onNewSetup}>Tạo cấu hình</button>}<OperationalStatusBadge status={runtimeStatus === 'Available' ? 'Available' : 'Unavailable'} detail={`Simulator ${runtime.label}`} /></div></section>
     <ChartContainer title="Xu hướng lịch sử" description="Chỉ hiển thị khi endpoint cung cấp historical series có timestamp." points={[]} metadata={{ timezone: 'Asia/Ho_Chi_Minh', coverage: 'Coverage: chưa có trong contract' }} unavailableReason="Operational Dashboard response hiện chỉ có summary/latest; không có historical series. Không dựng trend từ một giá trị hiện tại." />
   </>

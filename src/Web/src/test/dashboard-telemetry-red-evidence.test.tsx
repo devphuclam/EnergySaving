@@ -1,5 +1,5 @@
-import { DASHBOARD_QUALITY_REASON_UNAVAILABLE, OperationalDashboard, dashboardExceptionItems, dashboardExceptionPresentation, dashboardFreshness, dashboardHealthPresentation } from '../features/dashboard/OperationalDashboard'
-import { PointCurrentRoute, classifyTelemetryState, formatIntervalSeconds, isRetainableTelemetrySnapshot, qualityOf } from '../features/telemetry/PointCurrentRoute'
+import { DASHBOARD_QUALITY_REASON_UNAVAILABLE, DASHBOARD_QUALITY_UNRECOGNIZED, OperationalDashboard, dashboardExceptionItems, dashboardExceptionPresentation, dashboardFreshness, dashboardHealthPresentation, dashboardQualityPresentation } from '../features/dashboard/OperationalDashboard'
+import { PointCurrentRoute, classifyTelemetryState, formatIntervalSeconds, hasNumericTelemetryData, isExpiredSessionState, isRetainableTelemetrySnapshot, qualityOf } from '../features/telemetry/PointCurrentRoute'
 import type { OperationalDashboardSnapshot } from '../gateways/webGateways'
 import { ChartContainer, chartSegments, type EvidenceChartPoint } from '../components/charts/ChartContainer'
 
@@ -13,10 +13,13 @@ const fixture: OperationalDashboardSnapshot = {
 }
 
 /** T028/T029/T030/T031 source-visible red evidence; runtime frontend runner remains package-policy blocked. */
+export const DASHBOARD_TELEMETRY_RED_EVIDENCE_EXPECTED_FAILURES = 0
+
 export function runDashboardTelemetryRedEvidence(): string[] {
   const failures: string[] = []
   if (typeof OperationalDashboard !== 'function' || typeof PointCurrentRoute !== 'function') failures.push('dashboard and telemetry routes must be importable')
   if (typeof ChartContainer !== 'function') failures.push('ChartContainer must be importable')
+  if (DASHBOARD_TELEMETRY_RED_EVIDENCE_EXPECTED_FAILURES !== 0) failures.push('red evidence is expected to return an empty failure array')
   const exceptions = dashboardExceptionItems(fixture)
   if (!exceptions.some(item => item.kind === 'health' && item.status === 'Stale')) failures.push('stale source health must surface before summary')
   if (!exceptions.some(item => item.key === 'missing-latest')) failures.push('points without latest evidence must remain visible')
@@ -32,19 +35,37 @@ export function runDashboardTelemetryRedEvidence(): string[] {
   if (classifyTelemetryState({ gatewayState: 'conflict', dataState: 'HierarchyConflict' }) !== 'conflict') failures.push('HierarchyConflict must use ConflictState')
   if (classifyTelemetryState({ gatewayState: 'expired' }) !== 'expired') failures.push('expired must have explicit session presentation')
   const retainedData = { state: 'ready' as const, value: 0, health: 'Online', pointId: 'p-1', dataState: 'Data' as const }
-  if (!isRetainableTelemetrySnapshot(retainedData, 'p-1')) failures.push('finite Data with matching point identity must be retainable')
+  if (!hasNumericTelemetryData(retainedData, 'p-1') || !isRetainableTelemetrySnapshot(retainedData, 'p-1')) failures.push('finite Data with matching point identity must be numeric and retainable')
+  if (!hasNumericTelemetryData({ ...retainedData, value: 12 }, 'p-1')) failures.push('positive finite Data must remain numeric')
   if (classifyTelemetryState({ gatewayState: 'dependency', previousSnapshot: retainedData, selectedPointId: 'p-1', retryableRefresh: true }) !== 'retryable-stale') failures.push('retryable refresh must retain only legitimate previous Data evidence')
   const notConfigured = { state: 'ready' as const, value: null, health: 'Unavailable', pointId: 'p-1', dataState: 'NotConfigured' as const }
+  if (hasNumericTelemetryData(notConfigured, 'p-1') || isRetainableTelemetrySnapshot(notConfigured, 'p-1')) failures.push('NotConfigured must be neither numeric nor retainable')
   if (classifyTelemetryState({ gatewayState: 'dependency', previousSnapshot: notConfigured, selectedPointId: 'p-1', retryableRefresh: true }) !== 'dependency') failures.push('NotConfigured plus dependency must not become retryable-stale')
+  const noData = { state: 'no-data' as const, value: null, health: 'NoData', pointId: 'p-1', dataState: 'NoData' as const }
+  if (hasNumericTelemetryData(noData, 'p-1') || !isRetainableTelemetrySnapshot(noData, 'p-1')) failures.push('NoData must be retainable but never numeric')
+  if (classifyTelemetryState({ gatewayState: 'dependency', previousSnapshot: noData, selectedPointId: 'p-1', retryableRefresh: true }) !== 'retryable-stale') failures.push('NoData plus dependency must remain retryable-stale Missing evidence')
+  for (const value of [null, NaN, Infinity]) {
+    const malformed = { state: 'ready' as const, value, health: 'Online', pointId: 'p-1', dataState: 'Data' as const }
+    if (hasNumericTelemetryData(malformed, 'p-1') || isRetainableTelemetrySnapshot(malformed, 'p-1')) failures.push('null/NaN/Infinity Data must be neither numeric nor retainable')
+  }
+  const mismatched = { ...retainedData, pointId: 'p-2' }
+  if (hasNumericTelemetryData(mismatched, 'p-1') || isRetainableTelemetrySnapshot(mismatched, 'p-1')) failures.push('point identity mismatch must be neither numeric nor retainable')
   if (classifyTelemetryState({ gatewayState: 'loading', requestPending: true }) !== 'loading') failures.push('selected pending request must render loading')
   if (classifyTelemetryState({ gatewayState: 'ready', dataState: 'Data', snapshot: { ...retainedData, value: null }, selectedPointId: 'p-1' }) !== 'runtime-error') failures.push('malformed Data must fail closed')
   if (qualityOf('unknown') !== 'Missing') failures.push('unknown quality must fail closed to Missing')
+  if (dashboardQualityPresentation('Good').isException || dashboardQualityPresentation('Good').status !== 'Good') failures.push('Good quality must not be an exception')
+  for (const quality of ['Uncertain', 'Bad', 'Missing'] as const) if (!dashboardQualityPresentation(quality).isException) failures.push(`${quality} quality must be an exception`)
+  for (const unknownQuality of [undefined, 'unknown']) {
+    const presentation = dashboardQualityPresentation(unknownQuality)
+    if (!presentation.isException || presentation.status !== 'Unavailable' || presentation.quality !== undefined || presentation.reasonAvailability !== 'absent') failures.push('absent/unknown quality must fail closed as an unavailable exception')
+  }
+  if (DASHBOARD_QUALITY_UNRECOGNIZED !== 'Dashboard contract did not provide a recognized quality.') failures.push('unknown quality must use the explicit contract limitation without a fabricated reason')
   if (formatIntervalSeconds() !== 'Chưa có' || formatIntervalSeconds(10) !== '10s') failures.push('interval formatting must not produce Chưa cós')
   if (DASHBOARD_QUALITY_REASON_UNAVAILABLE !== 'Dashboard contract không cung cấp quality reason.') failures.push('dashboard contract limitation must not be passed as quality reason')
-  const beyondVisibleLimit = { ...fixture, health: { count: 10, items: Array.from({ length: 9 }, (_, index) => ({ pointId: `p-${index + 1}`, status: index === 8 ? 'Stale' : 'Online' })) } }
+  const beyondVisibleLimit = { ...fixture, points: { count: 1, items: fixture.points.items.slice(0, 1) }, health: { count: 10, items: Array.from({ length: 9 }, (_, index) => ({ pointId: `p-${index + 1}`, status: index === 8 ? 'Stale' : 'Online' })) } }
   const exceptionPresentation = dashboardExceptionPresentation(beyondVisibleLimit, 8)
   if (exceptionPresentation.totalCount !== 1 || exceptionPresentation.hiddenCount !== 0) failures.push('exceptions must be classified before presentation cap')
-  const mixed = { ...fixture, health: { count: 5, items: [{ pointId: 'bad', status: 'Bad' }, { pointId: 'suspended', status: 'Suspended' }, { pointId: 'missing', status: 'NoData' }, { pointId: 'stale', status: 'Stale' }, { pointId: 'uncertain', status: 'Uncertain' }] }, latest: fixture.latest }
+  const mixed = { ...fixture, points: { count: 1, items: fixture.points.items.slice(0, 1) }, health: { count: 5, items: [{ pointId: 'bad', status: 'Bad' }, { pointId: 'suspended', status: 'Suspended' }, { pointId: 'missing', status: 'NoData' }, { pointId: 'stale', status: 'Stale' }, { pointId: 'uncertain', status: 'Uncertain' }] }, latest: fixture.latest }
   const mixedExceptions = dashboardExceptionItems(mixed)
   if (mixedExceptions.filter(item => item.kind === 'health').map(item => item.priority).join(',') !== '1,2,3,4,5') failures.push('mixed exceptions must use deterministic semantic priority')
   const capped = dashboardExceptionPresentation({ ...mixed, incompleteSetup: { count: 2 } }, 3)
@@ -56,5 +77,7 @@ export function runDashboardTelemetryRedEvidence(): string[] {
   ]
   const segments = chartSegments(points)
   if (points[0].value !== 0 || segments.length !== 2) failures.push('zero must remain numeric and Missing must create a chart gap')
+  if (!isExpiredSessionState('expired') || isExpiredSessionState('dependency')) failures.push('only known expiry may stop refresh and expose session recovery')
+  if (!String(PointCurrentRoute).includes('stopForExpiredSession') || !String(PointCurrentRoute).includes('sessionExpired')) failures.push('current/options expiry must stop auto-refresh and hide ordinary retry controls')
   return failures
 }
