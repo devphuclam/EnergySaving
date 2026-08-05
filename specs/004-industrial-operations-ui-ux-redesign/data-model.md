@@ -27,7 +27,7 @@ The selected operational context shown across the shell and data-bearing pages.
 | `timezone` | `string` | WorkspaceStatus | e.g. `Asia/Ho_Chi_Minh`; DOC-04 working default |
 | `cutoffUtc` | `string \| null` | WorkspaceStatus | Data cutoff/freshness |
 | `scopeLabel` | `string \| null` | `AuthSession` | Existing scope pill label |
-| `landing` | `'Dashboard' \| 'Setup'` | WorkspaceStatus | Existing contract; drives D-001 landing |
+| `landing` | `'Dashboard' \| 'Setup'` | WorkspaceStatus | Existing backend input only; never bypasses effective-permission landing resolution |
 | `live` / `stale` / `degraded` | derived | freshness calculation | FR-005 context flag |
 
 FR-005: site/area, timezone, cutoff, and freshness must remain visible where applicable. One
@@ -67,17 +67,24 @@ the existing behavior provides one.
 
 ### PM-004 — Landing Resolution
 
-Client-side decision record (D-001), derived from `AuthSession` + `WorkspaceStatus` + pathname:
+Client-side decision record (D-001), derived from `AuthSession` + `WorkspaceStatus` + pathname. The
+existing `WorkspaceStatus.landing` value is an input hint, not an authorization decision or a
+permission bypass. Resolve a valid permitted deep link first, then the first enabled effectively
+permitted capability (Configuration, Simulator, Telemetry, Audit, Setup only when required), then
+Dashboard only when enabled and permitted, otherwise a safe `no-authorized-capability` presentation
+state:
 
-| Priority | Input | Route |
+| Priority | Input | Route or state |
 |---|---|---|
 | 1 | Valid permitted deep link (known included route + permitted) | that route |
-| 2a | Not-configured workspace (`workspace.landing === 'Setup'` or status unavailable) | `setup` |
-| 2b | First permitted priority capability | dashboard → configuration → simulator → telemetry → audit → setup |
-| 3 | None permitted / unknown / disabled | `dashboard` (safe fallback) |
+| 2 | First enabled capability the user is effectively permitted to access | configuration → simulator → telemetry → audit → setup (only when required, enabled, and permitted) |
+| 3 | No higher-priority capability; Dashboard is enabled and effectively permitted | `dashboard` |
+| 4 | No included capability is enabled and effectively permitted | safe `no-authorized-capability` presentation state |
 
 Session expiry returns to the prior route only when it remains valid and permitted; otherwise the
-fallback (FR-023). Never redirects through a forbidden route; no landing preference persisted.
+same fallback is resolved. Invalid, expired, or unauthorized deep links use a safe forbidden/not-
+found experience. Never redirects through a forbidden route, probes unauthorized metadata, or
+persists a landing preference.
 
 ### PM-005 — Operational Overview (dashboard)
 

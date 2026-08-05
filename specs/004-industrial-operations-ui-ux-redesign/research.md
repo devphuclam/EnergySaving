@@ -20,6 +20,12 @@ deferred by the specification and records evidence-backed decisions for the plan
   4. A safe no-authorized-capability state when no included capability is permitted; it must not
      route through Dashboard or any forbidden page and must not disclose capability/object metadata.
 
+  The existing `WorkspaceStatus.landing` (`Dashboard`/`Setup`) is only server-provided context for
+  presentation. It cannot bypass the effective-permission check or force Setup ahead of another
+  permitted capability. Dashboard is not part of the priority list; it is permission-checked only
+  as the documented fallback. The no-authorized-capability result is a safe presentation state, not
+  a new backend authorization state or route.
+
 - **Rationale**: FR-028 requires effective-permission-based landing, deep-link precedence, and a
   permitted Dashboard fallback. The priority order follows the daily operational hierarchy in
   DOC-08 while treating Dashboard as an explicit permission-checked fallback rather than an

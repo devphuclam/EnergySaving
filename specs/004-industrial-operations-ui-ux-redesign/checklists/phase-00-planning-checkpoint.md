@@ -2,10 +2,10 @@
 
 **Feature**: 004 Industrial Operations UI/UX Redesign
 **Constitution**: 1.1.0
-**Baseline**: `48c439535d95437c63c7cb07f5e70ab64ee5db34` (in HEAD ancestry; verified)
-**Branch**: `004-industrial-operations-ui-ux-redesign`
-**Date**: 2026-08-04
-**Status**: PLANNING — no implementation performed.
+**Baseline**: `9d10fb6510863418f7871c4bdc05d1cf0a7ade4c` (authoritative merged `main`; verified)
+**Branch**: `fix/004-phase-00-governance-remediation`
+**Date**: 2026-08-05
+**Status**: PHASE 0 GOVERNANCE REMEDIATION — no implementation performed.
 
 ## 1. Actual commands executed
 
@@ -24,6 +24,12 @@
 - Post-planning integration truth: planning commits `df73c2893fa6b936120ff5742000d0b25e180e4c` and
   `26b7443f7f88cb84dfbaf2fb3ffddaa6c32fcbd3` are integrated into `main`. The historical planning
   invocation itself did not merge; that integration occurred afterward and is recorded separately.
+- Remediation entry gate: `git status --short --branch`, `git rev-parse HEAD`, and ancestry check
+  confirmed a clean `main` baseline at `9d10fb6510863418f7871c4bdc05d1cf0a7ade4c`; work then moved
+  to the neutral branch shown above without reset, stash, force, or production-source changes.
+- Original cross-artifact analysis: **YES — run before this remediation** and delivered as the
+  baseline report with findings F-001–F-013. A fresh analysis has **not** run after the edits;
+  `Analyze-clean` therefore remains **NO** until the next `/speckit.analyze` invocation.
 ## 2. UI UX Pro Max invocation
 
 - **Skill mechanism**: Native skill tool invocation (`skill(name: "ui-ux-pro-max")`) twice — once at
@@ -101,6 +107,9 @@ decorative charts, color-only status, unsupported packages/fonts, dark theme (de
 - `contracts/test-strategy.md`
 - `quickstart.md`
 - `checklists/phase-00-planning-checkpoint.md` (this file)
+- `checklists/phase-00-analysis-remediation.md` (original findings, changes, and remaining gate)
+- `checklists/phase-05-usability-evidence.md` (SC-002 protocol; execution remains NOT_RUN)
+- `tasks.md` (canonical 71-task dependency-ordered ledger)
 
 ## 8. Frontend architecture
 
@@ -171,37 +180,63 @@ separate from planning; constitution amendment NOT required (1.1.0 governs).
 - Approved package sources (if a frontend runner is ever requested — not required by this
   feature).
 
-## 18. Findings
+## 18. Remediation findings and evidence
 
-| Severity | Count | Detail |
-|---|---|---|
-| Critical | 0 | — |
-| High | 0 | — |
-| Medium | 0 | — |
+The original analysis baseline reported F-001–F-013. This targeted remediation updates only
+Feature 004 governance/design artifacts and records the changes in
+`checklists/phase-00-analysis-remediation.md`:
 
-Planning quality review (prompt §16) completed: all FR-001..FR-028 and SC-001..SC-016 mapped to
-artifacts; every included surface has a migration destination; every clarified decision appears in
-plan; no out-of-scope backend feature; no unsupported package assumed; accessibility and
-responsive behavior concrete; component ownership clear; phase boundaries independently
-verifiable; no TODO/TBD/placeholder/contradiction/scope-creep found.
+- F-001 landing capability model: reconciled across research, data model, IA, route matrix, plan,
+  quickstart, and this checkpoint; `WorkspaceStatus.landing` is input only.
+- F-002 analysis gate: T008 now requires a fresh analysis, Critical/High resolution, Medium/Low
+  disposition, and `Analyze-clean: YES`; T010 requires that evidence.
+- F-003 template/guidance synchronization: T005 records path-by-path inspection and permits edits
+  only when actual drift is found; no generic template/guidance drift was assumed.
+- F-004 parallel markers: only T011 and T012 remain `[P]`; shared-file and phase-entry tasks are
+  ordered.
+- F-005 SC-002: T064 and `phase-05-usability-evidence.md` define the 90% formula, P0 workflows,
+  attempt rules, owner, evidence path, and honest statuses.
+- F-006 Full evidence: T065 remains the mandatory Full evidence task, while T066 is the blocked
+  accessibility evidence leaf; T067/T068/T069/T070/T071 inspect/reference these results without
+  making runnable governance checks depend on Full passing.
+- F-007 quickstart: viewport ranges are `>=1280`, `768-1279`, `<768`; repository commands return
+  to the repository root before invoking `scripts/*`.
+- F-008 phase truth: tasks exist, original analysis has run, fresh analysis is pending, and readiness
+  is not overstated.
+- F-009 Feature 003 preservation: exact acceptance/checklist paths and permitted commands are owned
+  by T062 and the test strategy.
+- F-010 scope/count: six screen routes plus root landing are explicit; `App.tsx` is composition-only.
+- F-011 ownership: vague feature-local/shared ownership is narrowed to named test/component paths.
+- F-012/F-013: the mobile traceability row is labeled and the requirements checklist records current
+  lifecycle state rather than stale next-step guidance.
+
+Remaining governance gate: fresh `/speckit.analyze`, post-remediation Standards/Specification review,
+and final T010 checkpoint are **NOT_RUN**. Critical/High remaining count is therefore not asserted
+clean until that fresh analysis completes.
 
 ## 19. Readiness
 
 | State | Result |
 |---|---|
 | Planning-ready | YES |
-| Implementation-ready | NO (requires `/speckit.tasks` + `/speckit.analyze` + final governance checkpoint) |
+| Tasks-ready | YES (`tasks.md` exists; 71 sequential tasks; graph validation recorded) |
+| Original analysis run | YES (baseline report; findings F-001–F-013) |
+| Analyze-clean | NO (fresh post-remediation analysis pending) |
+| Implementation-ready | NO (requires fresh clean analysis, post-remediation reviews, and T010) |
 | Release-ready | NO |
 
 ## 20. Next command
 
-`/speckit.tasks`
+`/speckit.analyze`
 
 ## 21. Explicit stop
 
 - Production source changed: NO.
 - Package installed: NO.
-- tasks.md created: NO.
+- tasks.md exists: YES (canonical 71-task ledger).
+- Original `/speckit.analyze` run: YES; fresh post-remediation `/speckit.analyze`: NOT_RUN.
+- Analyze-clean: NO; Implementation-ready: NO; Release-ready: NO.
 - `/speckit.implement` executed: NO.
 - Feature 003 reopened: NO.
-- Merge/PR/release performed: NO (commit + push branch only).
+- Merge/PR/release performed: NO; this remediation is committed and pushed only to the neutral
+  branch, and must not be merged by this task.

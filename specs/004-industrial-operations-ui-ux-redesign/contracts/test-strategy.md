@@ -29,7 +29,7 @@
 | Desktop/tablet responsive, mobile non-regression | Manual viewport journeys + screenshots (actual rendering evidence) | RUNNABLE_NOW (manual; visual PASS only with approved evidence) |
 | Zero vs No Data; Good/Uncertain/Bad; stale/unavailable; color-independent status | Fixture-driven manual review (documented fixtures) + type-level tests | RUNNABLE_NOW |
 | Loading/empty/error/forbidden/conflict/blocked/retry states | Fixture/manual review; state model tests | RUNNABLE_NOW |
-| Feature 003 regression compatibility | Existing acceptance/regression checks + harness; any blocked evidence reported separately | RUNNABLE_NOW / BLOCKED as evidenced |
+| Feature 003 regression compatibility | `specs/003-operational-configuration-workspace/checklists/acceptance-traceability.md`, `phase-01-verification.md`, `phase-02-verification.md`, `phase-04-checkpoint.md`, `phase-05-checkpoint.md`, `post-phase-06-corrective-review.md`; `npm run lint`/`npm run build` from `src/Web`; `scripts/harness.ps1 -Mode Fast/Full -Feature 003-operational-configuration-workspace` | RUNNABLE_NOW / BLOCKED as evidenced |
 | Lint | `npm run lint` | RUNNABLE_NOW |
 | Production build (type-check + Vite build) | `npm run build` | RUNNABLE_NOW |
 | Automated browser E2E / automated axe | Not installed | BLOCKED_BY_PACKAGE_POLICY — never PASS |

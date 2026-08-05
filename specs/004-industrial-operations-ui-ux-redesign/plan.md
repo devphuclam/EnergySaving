@@ -11,7 +11,7 @@
 PASS. This is a planning-only invocation; it does not authorize green implementation.
 
 **Implementation Readiness**: **NO** — remains NO until the final Phase 0 governance checkpoint
-permits progression, after `/speckit.tasks` and `/speckit.analyze`.
+permits progression after a fresh clean `/speckit.analyze` and the recorded remediation gate.
 
 **Release Readiness**: **NO** — remains NO until required release evidence passes.
 
@@ -71,9 +71,9 @@ claims; No Data distinct from zero; status never color-only; one implementation 
 `/speckit.implement` invocation; blocked evidence stays blocked; release readiness separate from
 planning readiness (repository harness + constitution).
 
-**Scale/Scope**: 6 existing routes (dashboard, telemetry, configuration, simulator, audit, setup);
-7 configuration entities; shared shell/nav/table/form/dialog/chart/status contracts; 6 incremental
-phases. No new routes or behavior.
+**Scale/Scope**: 6 existing screen routes (dashboard, telemetry, configuration, simulator, audit,
+setup) plus the root `/` landing entry; 7 configuration entities; shared
+shell/nav/table/form/dialog/chart/status contracts; 6 incremental phases. No new routes or behavior.
 
 ## Constitution and Readiness Gates
 
@@ -100,31 +100,35 @@ The planning gate MUST verify:
   YES — spec.md, research.md, data-model.md, contracts/* (7 artifacts), quickstart.md, plan.md.
 - Planning-ready does not authorize green implementation or release: YES — recorded above.
 
-**Planning gate evidence**: `PASS` — planning artifacts committed on branch
-`004-industrial-operations-ui-ux-redesign` at baseline `48c4395` (in HEAD ancestry);
-verified by `git merge-base --is-ancestor 48c439535d95437c63c7cb07f5e70ab64ee5db34 HEAD`.
+**Planning gate evidence**: `PASS` — historical planning artifacts were committed at baseline
+`48c439535d95437c63c7cb07f5e70ab64ee5db34` and are now integrated into the authoritative `main`
+baseline `9d10fb6510863418f7871c4bdc05d1cf0a7ade4c`; the remediation checkpoint records the
+current neutral branch and entry ancestry check.
 
 ### Implementation gate
 
 The implementation gate MUST require all of the following:
 
-- cross-artifact `/speckit.analyze` is clean: NOT_RUN (not performed in this invocation; next
-  command `/speckit.tasks`, then `/speckit.analyze`).
-- zero unresolved Critical or High findings: NO findings recorded in this planning phase.
+- cross-artifact `/speckit.analyze` is clean: **NOT_RUN** for the fresh remediation run; the
+  original analysis baseline found Critical/High governance findings that are recorded in
+  `checklists/phase-00-analysis-remediation.md` and must be rechecked before implementation.
+- zero unresolved Critical or High findings: pending fresh analysis; no implementation work may
+  begin while any Critical/High finding remains.
 - constitution impact has been evaluated: PASS — source precedence respected, Feature 003
   preserved, no backend capability added, no package/Docker/public source, no equipment control,
   No Data distinct from zero, status not color-only, one phase per invocation, blocked evidence
   stays blocked, release readiness separate from planning.
 - every required constitution amendment is approved and applied: none required (NO).
-- affected templates and guidance are synchronized: N/A at planning; to be confirmed before
-  implementation-ready.
-- the final Phase 0 governance checkpoint permits progression: pending (checkpoint created with
-  Implementation-ready NO until tasks + analyze).
+- affected templates and guidance are synchronized: pending the explicit path-by-path verification
+  in Phase 0 T005; generic templates/guidance are changed only if actual drift is evidenced.
+- the final Phase 0 governance checkpoint permits progression: pending (checkpoint requires fresh
+  clean analysis, post-remediation reviews, and T010).
 - the governing constitution version is recorded: 1.1.0.
 - green implementation has not bypassed Phase 0: N/A — no implementation performed.
 
-**Implementation gate evidence**: `NOT_RUN` — requires `/speckit.tasks` and `/speckit.analyze`
-(not executed here). Implementation-ready stays NO.
+**Implementation gate evidence**: `NOT_RUN` — requires the fresh `/speckit.analyze`, the
+remediation evidence, the template/guidance synchronization check, and the final Phase 0 checkpoint.
+Implementation-ready stays NO.
 
 ### Release gate
 
@@ -181,8 +185,9 @@ specs/004-industrial-operations-ui-ux-redesign/
 │   └── test-strategy.md          # available-tools evidence plan + honest limitations
 ├── checklists/
 │   ├── requirements.md           # specification quality checklist (all pass)
-│   └── phase-00-planning-checkpoint.md  # planning gate evidence and readiness
-└── tasks.md                      # NOT created by /speckit-plan (future /speckit-tasks)
+│   ├── phase-00-planning-checkpoint.md  # planning gate evidence and readiness
+│   └── phase-00-analysis-remediation.md # original findings and remediation evidence
+└── tasks.md                      # canonical dependency-ordered task ledger
 ```
 
 ### Source Code (repository root)
@@ -196,7 +201,7 @@ src/Web/
 └── src/
     ├── index.css                 # remove prefers-color-scheme dark block (light-only)
     ├── App.css                   # migrate tokens to DOC-08 semantic set; compact table spacing
-    ├── App.tsx                   # unchanged route switch (composition)
+    ├── App.tsx                   # existing route switch; composition/landing presentation only
     ├── app/
     │   └── AppShell.tsx          # grouped nav, rail/drawer, context bar, landing, skip link
     ├── components/               # NEW: shared contracts (DataTable, FormSection, StatusBadge,
@@ -241,6 +246,9 @@ migration in `App.css`. No framework, package, or project-structure change (FR-0
   `contracts/route-and-permission-matrix.md`, `contracts/migration-phases.md`,
   `contracts/test-strategy.md`.
 - `quickstart.md`.
+- `tasks.md` and `checklists/phase-00-analysis-remediation.md` — the governed task ledger and
+  targeted remediation evidence; fresh analysis remains pending.
+- `checklists/phase-05-usability-evidence.md` — SC-002 protocol template; execution remains NOT_RUN.
 - Mermaid diagrams are embedded in the artifacts: application-shell structure
   (information-architecture.md), navigation/permission + landing flow
   (route-and-permission-matrix.md), responsive sidebar state flow

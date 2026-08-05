@@ -193,7 +193,7 @@ As an internal user working for long periods, I want readable, keyboard-accessib
 | FR-022–FR-023 | US1 scenario 2; US3 scenario 3; US7 scenario 3; SC-008, SC-012 |
 | FR-024 | US4 scenario 3; US7 scenario 3; SC-004, SC-008 |
 | FR-028 | US1 scenarios 1–4; US7 scenarios 1–3; SC-001, SC-008, SC-010, SC-015 |
-| FR-019 | US7 scenarios 1–3; Edge case 8; SC-005, SC-006, SC-016 |
+| FR-019 mobile non-regression boundary | US7 scenarios 1–3; Edge case 8; SC-005, SC-006, SC-016 |
 | FR-026 | Edge case 7; SC-010; Scope and Evidence Boundaries |
 | FR-027 | US3 scenario 1; US4 scenario 3; US6 scenario 1; US7 scenarios 1–2; SC-005, SC-006, SC-009 |
 

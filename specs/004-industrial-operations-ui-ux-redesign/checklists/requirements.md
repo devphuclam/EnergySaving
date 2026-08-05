@@ -31,5 +31,10 @@
 
 ## Notes
 
-- All checklist items pass after reviewing the specification against DOC-08 v0.1, the source register, CONTEXT.md, the constitution, and the requested out-of-scope boundaries.
-- The feature is ready for `$speckit-clarify` or `$speckit-plan`; this specify step intentionally does not create `plan.md` or `tasks.md`.
+- Historical specify review: all checklist items passed against DOC-08 v0.1, the source register,
+  CONTEXT.md, the constitution, and the requested out-of-scope boundaries.
+- The feature has since advanced through clarify, plan, and tasks generation. The current governance
+  state is Phase 0 remediation: `tasks.md` exists, the original analysis has run, a fresh
+  cross-artifact analysis is still required, and Implementation-ready/Release-ready remain NO.
+- The next lifecycle command after this targeted remediation is `/speckit.analyze`; this checklist
+  does not claim implementation or release evidence.

@@ -35,10 +35,7 @@ No new routes are added; no new backend contract or capability is introduced (FR
 flowchart TD
   A[Authenticated] --> B{Deep link valid + permitted?}
   B -->|yes| C[Deep-linked route]
-  B -->|no| D{Workspace status Setup?}
-  D -->|not configured + setup permitted| E[setup]
-  D -->|not configured + setup not permitted| F[First permitted capability in order]
-  D -->|configured / unknown| F
+  B -->|no| F{First enabled capability effectively permitted?}
   F --> G1[configuration]
   F --> G2[simulator]
   F --> G3[telemetry]
@@ -54,6 +51,10 @@ flowchart TD
   J -->|no| N[safe no-authorized-capability state]
   I --> H
 ```
+
+`WorkspaceStatus.landing` is contextual input only. A `Setup` value cannot bypass effective
+authorization or force Setup ahead of another permitted capability; Setup is selected only when it
+is required, enabled, and permitted.
 
 ## 4. Per-route permission behavior
 

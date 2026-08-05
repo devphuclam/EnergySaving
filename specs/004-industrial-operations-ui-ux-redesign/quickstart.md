@@ -26,7 +26,8 @@ Set-Location .\src\Web
 npm run lint
 npm run build
 
-# Repository verification
+# Repository verification (return to repository root first)
+Set-Location ..\..
 & .\scripts\harness.ps1 -Mode Fast            # iteration
 & .\scripts\harness.ps1 -Mode Full -Feature 004-industrial-operations-ui-ux-redesign  # before completion claims
 & .\scripts\build.ps1
@@ -47,7 +48,7 @@ npm run dev
 | 1 | Log in with a permitted user; visit each included area | Active section, scope, timezone, cutoff visible; back navigation preserves context | information-architecture.md §2–3; FR-001/005 |
 | 2 | Deep link `/dashboard` and an unauthorized route | Deep link restores; unauthorized shows safe forbidden/not-found with next action; no metadata leak | route-and-permission-matrix.md §3/6; FR-023/028 |
 | 3 | Landing after login (no deep link) | First permitted capability; Dashboard fallback only when Dashboard is permitted; safe no-authorized-capability state otherwise; never via forbidden route | route-and-permission-matrix.md §3; FR-028 |
-| 4 | Resize to 1280–1279 and below 768 | Desktop: full sidebar; tablet: rail + drawer with focus trap/Escape/focus-return; mobile: rail preserved, non-regression, unsupported flows direct to desktop/tablet | responsive-accessibility.md §1–2; FR-002/019/020 |
+| 4 | Resize to >=1280, 768-1279, and <768 | Desktop: full sidebar; tablet: rail + drawer with focus trap/Escape/focus-return; mobile: rail preserved, non-regression, unsupported flows direct to desktop/tablet | responsive-accessibility.md section 1-2; FR-002/019/020 |
 | 5 | Keyboard-only: navigate, open drawer, table row action, dialog, pagination | Visible focus, logical order, accessible names, skip link | responsive-accessibility.md §3; FR-020 |
 | 6 | Fixture: valid zero, No Data, Good/Uncertain/Bad, stale, unavailable | Zero ≠ No Data; each quality state has text+icon+reason; chart Missing = gap; text alternative present | design-system.md §3/7; FR-011/012 |
 | 7 | Configuration list/edit: invalid field, conflict, destructive action | Field-level error + summary + first-invalid focus; conflict offers reload/compare; confirmation + reason for destructive | component-contracts.md C-10/13/14; FR-008/009/014 |
