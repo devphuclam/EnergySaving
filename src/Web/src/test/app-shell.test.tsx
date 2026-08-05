@@ -2,6 +2,8 @@ import {
   AppShell,
   initialAppShellState,
   transitionAppShell,
+  viewportNavigationMode,
+  workspaceStatusFailureSession,
   type AppShellState,
   type WebRoute,
 } from '../app/AppShell'
@@ -17,6 +19,7 @@ import {
   toUtcQueryValue,
 } from '../gateways/webGateways'
 import {
+  WorkspaceGatewayError,
   deriveSiteAndEngineerState,
   selectedSetupPath,
   workspaceStatusRequestFromSearch,
@@ -242,5 +245,27 @@ export function runAppShellChecks(): string[] {
     failures.push('AppShell landing must not render an unauthorized deep link')
   if (resolveLanding({ enabledRoutes: ['configuration', 'dashboard'], dashboardPermitted: true }).kind !== 'route')
     failures.push('AppShell landing must select the first permitted capability')
+
+  const denied = transitionAppShell(initialAppShellState, { type: 'navigation-denied', nextRoute: 'dashboard' })
+  if (denied.landingPresentation?.kind !== 'safe-forbidden' || denied.landingPresentation.nextRoute !== 'dashboard')
+    failures.push('blocked navigation must surface a safe forbidden presentation with a recovery route')
+  const setupRequired = transitionAppShell(initialAppShellState, { type: 'setup-required', setupRequired: true })
+  if (!setupRequired.setupRequired) failures.push('workspace status must drive the setup-required contract')
+  if (workspaceStatusFailureSession(new WorkspaceGatewayError(401)).state !== 'expired')
+    failures.push('401 workspace status must map to an expired session presentation')
+  if (workspaceStatusFailureSession(new WorkspaceGatewayError(403)).state !== 'forbidden')
+    failures.push('403 workspace status must map to a forbidden session presentation')
+  if (workspaceStatusFailureSession(new Error('unreachable')).state !== 'error')
+    failures.push('non-HTTP workspace failures must map to a generic error session presentation')
+  if (viewportNavigationMode(1280) !== 'expanded' || viewportNavigationMode(1279) !== 'rail')
+    failures.push('JS must select the expanded sidebar only at or above 1280px')
+  if (viewportNavigationMode(768) !== 'rail' || viewportNavigationMode(767) !== 'rail')
+    failures.push('rail navigation must remain selected across the tablet and mobile breakpoints')
+  const setupNotRequiredLanding = resolveLanding({ enabledRoutes: ['configuration', 'setup'], dashboardPermitted: true, setupRequired: false })
+  if (setupNotRequiredLanding.kind === 'route' && setupNotRequiredLanding.route === 'setup')
+    failures.push('setup must not be selected when the workspace does not require it')
+  const setupRequiredLanding = resolveLanding({ enabledRoutes: ['setup'], dashboardPermitted: false, setupRequired: true })
+  if (setupRequiredLanding.kind !== 'route' || setupRequiredLanding.route !== 'setup')
+    failures.push('setup must be selectable only when the workspace requires it')
   return failures
 }

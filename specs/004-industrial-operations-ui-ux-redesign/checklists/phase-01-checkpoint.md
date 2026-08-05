@@ -48,3 +48,12 @@ application change was made. PostgreSQL was not contacted; port 5432 was not use
 
 This `/speckit.implement` invocation stops here as required by the Phase 1 boundary. It did not merge,
 push, or execute T028 or any later task. A separate invocation must explicitly select Phase 2.
+
+## Corrective review closure
+
+The four High findings (C1–C4: navigation permission fail-closed, tablet rail/CSS breakpoints,
+unsaved-change shell guard and error-summary activation, dialog accessibility and required-reason
+behavior) were corrected in the Web shell, shared components, and `App.css`; the invariants are
+recorded as compile-visible checks in the exact planned test sources. Evidence:
+`phase-01-corrective-review.md`. Lint, build, and the Fast harness remain **PASS** (`PASS=11`);
+runtime behavior execution remains **BLOCKED_BY_PACKAGE_POLICY** and no visual PASS is claimed.

@@ -59,13 +59,45 @@ export function routeLabel(route: NavigationRoute): string {
 
 export function canAccessNavigationItem(item: NavigationItem, session: Pick<AuthSession, 'capabilities'>): boolean {
   if (!item.capability) return true
-  // The server remains the authorization authority. An absent capability list is the legacy
-  // provider shape; do not invent a client-side role rule in that case.
-  return session.capabilities === undefined || session.capabilities.includes(item.capability)
+  // The server remains the authorization authority. An absent capability collection is never
+  // treated as permission: capability-protected navigation fails closed.
+  return session.capabilities !== undefined && session.capabilities.includes(item.capability)
 }
 
 export function visibleNavigationItems(session: Pick<AuthSession, 'capabilities'>): NavigationItem[] {
   return navigationItems.filter(item => canAccessNavigationItem(item, session))
+}
+
+/**
+ * Canonical route availability predicate used by every navigation entry path (deep link, root
+ * landing, brand, sidebar, rail, drawer, popstate, programmatic callbacks, session restoration).
+ * Setup is only reachable when the workspace status confirms it is required; capability-gated
+ * routes fail closed when the capability collection is absent.
+ */
+export function isNavigationRouteAvailable(
+  route: NavigationRoute,
+  session: Pick<AuthSession, 'capabilities'>,
+  setupRequired: boolean,
+): boolean {
+  const item = navigationItems.find(candidate => candidate.route === route)
+  if (!item) return false
+  if (route === 'setup' && !setupRequired) return false
+  return canAccessNavigationItem(item, session)
+}
+
+/**
+ * First permitted destination for home/brand navigation and for the safe forbidden recovery
+ * action. Prefers Dashboard, then the shared priority order, then Setup when it is required.
+ */
+export function firstPermittedNavigationRoute(
+  session: Pick<AuthSession, 'capabilities'>,
+  setupRequired: boolean,
+): NavigationRoute | undefined {
+  if (isNavigationRouteAvailable('dashboard', session, setupRequired)) return 'dashboard'
+  for (const route of routePriority) {
+    if (isNavigationRouteAvailable(route, session, setupRequired)) return route
+  }
+  return undefined
 }
 
 export function resolveLanding(input: LandingResolutionInput): LandingResolution {

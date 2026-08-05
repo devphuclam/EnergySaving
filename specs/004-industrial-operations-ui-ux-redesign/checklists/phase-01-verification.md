@@ -78,3 +78,14 @@ No backend authorization or API contract was changed; server authorization remai
 - No `package.json`, lockfile, API, Worker, database, migration, secret, generated binary, Docker, or
   PostgreSQL target change. Port `5432` was not used.
 - No new route was added; no equipment-control/write-back behavior was introduced.
+
+## Corrective review (C1–C4)
+
+Post-review corrections are recorded in `phase-01-corrective-review.md`: navigation permission
+fail-closed on every entry path (including `popstate` and brand), `navigation-denied` and
+`setup-required` transitions, tablet rail/CSS breakpoint consolidation in `App.css`,
+`viewportNavigationMode` contract, unsaved-change shell guard via the registry + ConfirmDialog,
+`FieldErrorSummary` explicit `activate`, dialog `useId` accessibility wiring, and
+`reasonRequiredValidation`. The extended compile-visible checks type-check under `tsc -b`; lint,
+build, and the Fast harness (`PASS=11`) remain PASS. Runtime execution and visual rendering
+classifications are unchanged.
