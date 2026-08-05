@@ -4,6 +4,7 @@
 **Baseline**: `1cc45e3e64636e093aa0e714f0b2ecc08968ecbb`
 **Branch**: `feat/004-phase-01-shell-foundations`
 **Date**: 2026-08-05
+**Implementation commit**: `b1854d78dd10b122bf64cc55b7fdcedf1f5c62a1` (`feat(feature-004): implement phase one shell foundations`)
 **Status**: PHASE 1 COMPLETE — implementation and review stopped at T027.
 
 ## Task boundary
