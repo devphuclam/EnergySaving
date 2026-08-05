@@ -108,3 +108,13 @@ marketing layout. DOC-08 and the feature contracts remain authoritative.
 - PostgreSQL 5432 touched: NO.
 - Merge performed: NO.
 - Release created: NO.
+
+## Superseded by final Phase 2 closure
+
+The final closure review on `fix/004-phase-02-final-closure` supersedes the round-2 readiness
+decision for P2-FC-01 through P2-FC-05 without deleting this historical record. Production
+correction commit: `f86c2cdda45deb9c2f1fd98e42779b439ab1cc81`. See
+[phase-02-final-closure-review.md](phase-02-final-closure-review.md), the final sections of
+[phase-02-verification.md](phase-02-verification.md),
+[phase-02-review.md](phase-02-review.md), and
+[phase-02-checkpoint.md](phase-02-checkpoint.md) for the actual final evidence and readiness.

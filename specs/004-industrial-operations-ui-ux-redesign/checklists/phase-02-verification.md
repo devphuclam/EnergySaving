@@ -135,3 +135,46 @@ Phase 3 YES; Full Feature 004 NO; Release-ready NO**. External coverage, cutoff,
 timestamp/reason and historical-series limitations remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
 
 P2-C01–P2-C06 are evaluated in [phase-02-corrective-review.md](phase-02-corrective-review.md). Coverage, cutoff, Dashboard source timestamp/quality reason, historical series and missing intervals remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`; they are not implementation PASS and do not authorize backend work. After the corrective High findings close, this limitation does not block independent Phase 3 Configuration Management work.
+
+## Final Phase 2 closure (supersedes round 2 readiness)
+
+| Item | Result |
+|---|---|
+| Authoritative starting main | `9b6aca799f738b44ec9d75a34338abeaf4d0d167` |
+| Branch | `fix/004-phase-02-final-closure` |
+| Production corrective commit | `f86c2cdda45deb9c2f1fd98e42779b439ab1cc81` |
+| Historical original implementation | `24265cd0252be94032f790655edfcf21f4776eee` |
+| Historical first corrective | `9b5b56926844398c002674e318a13781ade7cda1` |
+| Historical round-2 production | `c219f45ec3e9d7a019e07b91fbe57ac446fbd742` |
+| Historical round-2 evidence baseline | `9b6aca799f738b44ec9d75a34338abeaf4d0d167` |
+| Scope | P2-FC-01 through P2-FC-05; T028-T036 only |
+| T037-T071 | NOT EXECUTED; remain pending |
+| Backend/API/Worker/database/migrations | NOT CHANGED |
+| Package/lockfile changes | NOT CHANGED |
+
+The final source-visible evidence separates `hasNumericTelemetryData` from
+`isRetainableTelemetrySnapshot`, classifies absent/unknown Dashboard quality as an explicit
+Unavailable exception, corrects the isolated exception fixtures, and stops both current and
+options-triggered Measurement refresh after known expiry. The exported evidence functions are
+type-checked and statically reviewed; they were not executed because the approved runtime
+frontend executor is unavailable.
+
+| Verification | Result | Detail |
+|---|---|---|
+| `npm run lint` | PASS | Existing non-blocking Fast Refresh/hooks warnings only |
+| `npm run build` | PASS | TypeScript/Vite production build |
+| Fast harness | PASS=11 | Failures=0 |
+| Source-visible checks | TYPE_CHECKED + STATIC_REVIEW | No runtime PASS claim |
+| Runtime frontend | BLOCKED_BY_PACKAGE_POLICY | No approved executor |
+| Browser/visual | NOT_RUN | No approved visual evidence |
+| Accessibility automation | BLOCKED_BY_PACKAGE_POLICY | No approved browser/axe package |
+| Full harness | NOT_RUN | Outside this corrective scope |
+| `git diff --check` | PASS | No whitespace errors |
+
+Final closure decision: **Critical 0 / High 0 / Medium 0; Phase-2-complete YES; progression to
+Phase 3 YES; Full Feature 004 NO; Release-ready NO**. External coverage, cutoff, Dashboard source
+timestamp/reason, historical series and missing interval limitations remain
+`DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
+
+Evidence artifact identity is the checkpoint commit/HEAD created after the production corrective
+commit; its SHA is recorded in the final report after that evidence commit is created.
