@@ -142,3 +142,44 @@ h2 { font-size: 1.125rem; margin: 0 0 .5rem; }
 .route-frame { min-width: 0; }.numeric { font-variant-numeric: tabular-nums; }
 @media (max-width: 1279px) { .layout { grid-template-columns: 4.25rem minmax(0, 1fr); }.sidebar-rail { flex-direction: column; overflow: visible; padding: 1rem .5rem; }.topbar { padding: 0 1rem; }.context-bar { padding: .6rem 1rem; }.context-user { margin-left: 0; } }
 @media (max-width: 767px) { .topbar { align-items: flex-start; flex-direction: column; gap: .65rem; padding: .75rem 1rem; }.session-controls, .sign-in-form { align-items: stretch; width: 100%; }.session-controls { flex-wrap: wrap; }.sign-in-input { flex: 1 1 9rem; min-height: 2.75rem; }.layout { grid-template-columns: 4.25rem minmax(0, 1fr); }.context-bar { gap: .55rem; }.context-item { min-width: 7rem; }.content { padding: 1rem .75rem 3rem; }.page-heading, .page-header-row { flex-direction: column; }.page-actions { width: 100%; }.three-up, .two-up { grid-template-columns: 1fr; }.form-card, .simulator-card { align-items: stretch; flex-direction: column; }.readiness-list { min-width: 0; }.table-scroll { max-width: 100%; overflow-x: auto; }.data-table { min-width: 42rem; }.navigation-drawer { max-width: min(20rem, 92vw); } }
+
+/* Feature 004 Phase 2: compact, evidence-first operational surfaces. */
+.dashboard-scope-strip { align-items: stretch; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; display: grid; gap: 1rem; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 1rem; padding: .75rem 1rem; }
+.dashboard-scope-strip > div { display: grid; gap: .2rem; min-width: 0; }
+.dashboard-scope-strip strong { font-size: .82rem; overflow-wrap: anywhere; }
+.dashboard-summary, .dashboard-exceptions { margin: 1rem 0; }
+.section-heading { align-items: flex-start; display: flex; gap: 1rem; justify-content: space-between; margin-bottom: .75rem; }
+.dashboard-summary-list, .exception-list, .evidence-list { list-style: none; margin: 0; padding: 0; }
+.dashboard-summary-list { border: 1px solid var(--color-border); border-radius: .45rem; overflow: hidden; }
+.dashboard-summary-list li { align-items: center; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: grid; gap: .75rem; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 2.7rem; padding: .45rem .75rem; }
+.dashboard-summary-list li:last-child, .evidence-list li:last-child { border-bottom: 0; }
+.dashboard-summary-list li > div { display: grid; gap: .1rem; min-width: 0; }
+.dashboard-summary-list li span { color: var(--muted); font-size: .75rem; }
+.summary-value { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.exception-list { display: grid; gap: .65rem; }
+.exception-item { background: var(--color-surface); border: 1px solid var(--color-border); border-left: 4px solid var(--color-warning); border-radius: .45rem; padding: .75rem 1rem; }
+.exception-item.exception-danger { border-left-color: var(--color-danger); }
+.exception-item p { margin: .35rem 0; }
+.dashboard-action-row { align-items: center; display: flex; flex-wrap: wrap; gap: .6rem; justify-content: space-between; }
+.dashboard-evidence-grid, .telemetry-evidence-grid { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1rem 0; }
+.evidence-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; padding: 1rem; }
+.evidence-list { border-top: 1px solid var(--color-border); }
+.evidence-list li { align-items: center; border-bottom: 1px solid var(--color-border); display: grid; gap: .6rem; grid-template-columns: minmax(0, 1fr) auto; min-height: 2.7rem; padding: .45rem 0; }
+.evidence-list li .metadata, .evidence-list li .numeric { grid-column: 1 / -1; }
+.setup-runtime-panel { align-items: center; flex-direction: row; justify-content: space-between; }
+.chart-shell { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; margin: 1rem 0; padding: 1rem; }
+.chart-header { align-items: flex-start; display: flex; gap: 1rem; justify-content: space-between; }
+.chart-metadata { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); margin: .9rem 0; }
+.chart-metadata div { border-bottom: 1px solid var(--color-border); padding: .35rem 0; }
+.chart-metadata dt { color: var(--muted); font-size: .7rem; font-weight: 750; text-transform: uppercase; }
+.chart-metadata dd { font-size: .8rem; margin: .15rem 0 0; overflow-wrap: anywhere; }
+.evidence-chart { margin: .5rem 0 0; }
+.evidence-chart svg { background: #fbfcfe; border: 1px solid var(--color-border); border-radius: .3rem; display: block; height: auto; max-width: 100%; }
+.chart-axis { stroke: #9aa9b8; stroke-width: 1; }.chart-line { stroke: var(--color-primary-action); stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }.chart-threshold { stroke: var(--color-warning); stroke-width: 2; }.chart-point { stroke: white; stroke-width: 2; }.chart-point-good { fill: var(--color-success); }.chart-point-uncertain { fill: var(--color-warning); }.chart-point-bad { fill: var(--color-danger); }.chart-point-missing { fill: var(--color-text-secondary); }
+.evidence-chart figcaption { color: var(--muted); font-size: .75rem; margin-top: .5rem; }
+.chart-alternative { margin-top: .75rem; }.chart-alternative summary { color: var(--color-primary-action); cursor: pointer; font-size: .8rem; font-weight: 700; }.chart-alt-table { margin-top: .6rem; }
+.telemetry-selector, .telemetry-refresh { margin-bottom: 1rem; }.telemetry-refresh { align-items: center; display: flex; flex-wrap: wrap; gap: .75rem; }
+.evidence-status-row { align-items: center; display: flex; flex-wrap: wrap; gap: .65rem; }
+.data-table th, .data-table td { min-height: 2.5rem; }
+@media (max-width: 900px) { .dashboard-scope-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }.dashboard-evidence-grid, .telemetry-evidence-grid { grid-template-columns: 1fr; } }
+@media (max-width: 767px) { .dashboard-scope-strip { grid-template-columns: 1fr; }.setup-runtime-panel { align-items: stretch; flex-direction: column; }.dashboard-summary-list li { grid-template-columns: minmax(0, 1fr) auto; }.dashboard-summary-list li .button { grid-column: 2; grid-row: 1; }.chart-header { flex-direction: column; } }

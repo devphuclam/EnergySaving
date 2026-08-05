@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChartContainer } from '../../components/charts/ChartContainer'
+import { PageHeader } from '../../components/context/PageHeader'
+import { DataQualityIndicator, type DataQuality } from '../../components/status/DataQualityIndicator'
+import { FreshnessIndicator, type Freshness } from '../../components/status/FreshnessIndicator'
+import { OperationalStatusBadge } from '../../components/status/OperationalStatusBadge'
+import { BlockedState } from '../../components/feedback/BlockedState'
+import { EmptyState } from '../../components/feedback/EmptyState'
+import { ErrorState } from '../../components/feedback/ErrorState'
+import { ForbiddenState } from '../../components/feedback/ForbiddenState'
+import { LoadingState } from '../../components/feedback/LoadingState'
+import { RetryState } from '../../components/feedback/RetryState'
+import { FeedbackBanner } from '../../components/feedback/FeedbackBanner'
 import { useWebGateways } from '../../gateways/GatewayContext'
 import type { LatestSnapshot, TelemetryOptionSnapshot, TelemetrySelection } from '../../gateways/webGateways'
 import { LatestRefreshCoordinator, mergeSelectedPointOption, type RefreshRequestContext } from './telemetryRefreshCoordinator'
@@ -47,6 +59,27 @@ function failureMessage(state: LatestSnapshot['state']) {
   if (state === 'not-found') return 'Không tìm thấy lựa chọn hợp lệ.'
   if (state === 'validation' || state === 'conflict') return 'Hierarchy đã chọn không hợp lệ.'
   return 'Không thể tải dữ liệu.'
+}
+
+function qualityOf(value: string | undefined, hasData: boolean): DataQuality | undefined {
+  if (value === 'Good' || value === 'Uncertain' || value === 'Bad' || value === 'Missing') return value
+  return hasData ? undefined : 'Missing'
+}
+
+function freshnessOf(snapshot: LatestSnapshot): Freshness {
+  const sourceHealth = snapshot.health.toLowerCase()
+  if (sourceHealth === 'online' || sourceHealth === 'available' || sourceHealth === 'good') return 'Live'
+  if (sourceHealth === 'stale') return 'Stale'
+  if (['nodata', 'no data', 'suspended', 'decommissioned'].includes(sourceHealth)) return 'Degraded'
+  return 'Unavailable'
+}
+
+function operationalStatusOf(health: string): 'Available' | 'Unavailable' | 'Stale' | 'Uncertain' {
+  const value = health.toLowerCase()
+  if (value === 'online' || value === 'available' || value === 'good') return 'Available'
+  if (value === 'stale') return 'Stale'
+  if (value === 'uncertain' || value === 'degraded') return 'Uncertain'
+  return 'Unavailable'
 }
 
 export function PointCurrentRoute() {
@@ -198,29 +231,48 @@ export function PointCurrentRoute() {
   const hasUsableSnapshot = snapshot.state === 'ready' || snapshot.state === 'no-data'
   const errorState = lastError ?? (!hasUsableSnapshot && snapshot.state !== 'no-selection' ? snapshot.state : undefined)
   const showingStaleSnapshot = hasUsableSnapshot && Boolean(lastError)
+  const retry = <button type="button" className="button button-secondary" disabled={refreshing} onClick={() => refreshCoordinator.current?.refresh()}>Thử lại</button>
+
+  const renderError = (state: LatestSnapshot['state']) => {
+    if (state === 'forbidden' || state === 'not-found') return <ForbiddenState message={failureMessage(state)} action={retry} />
+    if (state === 'dependency') return <BlockedState message={failureMessage(state)} nextAction={retry} />
+    return <ErrorState message={failureMessage(state)} action={retry} />
+  }
 
   return (
     <section className="page" aria-labelledby="telemetry-title">
-      <div className="page-heading"><div><p className="eyebrow">Giám sát đo lường</p><h1 id="telemetry-title">Dữ liệu mới nhất & sức khỏe nguồn</h1><p className="lede">Chọn rõ Site, Area, Asset và điểm đo để xem dữ liệu.</p></div><span className="badge badge-neutral">{autoRefresh ? 'Tự động 10 giây' : 'Tự động đã tắt'}</span></div>
-      <article className="card" aria-label="Bộ chọn phân cấp đo lường"><div className="card-header"><div><p className="card-kicker">Phạm vi được cấp quyền</p><h2>Chọn phân cấp</h2></div><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại lựa chọn</button></div>
-        {options.state === 'loading' && <p role="status">Đang tải lựa chọn…</p>}
-        {options.state !== 'loading' && options.state !== 'ready' && <div className="feedback feedback-error" role="alert"><p>{failureMessage(options.state)}</p><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button></div>}
-        {options.state === 'ready' && <div className="selector-grid">
+      <PageHeader eyebrow="Giám sát đo lường" title="Dữ liệu mới nhất & sức khỏe nguồn" description="Chọn rõ Site, Area, Asset và điểm đo để xem dữ liệu được cấp quyền." />
+      <article className="card telemetry-selector" aria-label="Bộ chọn phân cấp đo lường">
+        <div className="card-header"><div><p className="card-kicker">Phạm vi được cấp quyền</p><h2>Chọn phân cấp</h2></div><button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại lựa chọn</button></div>
+        {options.state === 'loading' && <LoadingState message="Đang tải hierarchy được cấp quyền…" />}
+        {options.state !== 'loading' && options.state !== 'ready' && <ErrorState message={failureMessage(options.state)} action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button>} />}
+        {options.state === 'ready' && options.sites.length === 0 && <EmptyState title="Chưa có hierarchy" message="Không có Site nào trong phạm vi được cấp quyền." />}
+        {options.state === 'ready' && options.sites.length > 0 && <div className="selector-grid">
           <label>Site<select value={selection.siteId ?? ''} onChange={event => changeSite(event.target.value)}><option value="">Chọn Site</option>{options.sites.map(site => <option key={site.siteId} value={site.siteId}>{site.code} — {site.name}</option>)}</select></label>
           <label>Area<select value={selection.areaId ?? ''} disabled={!selection.siteId} onChange={event => changeArea(event.target.value)}><option value="">{selection.siteId ? 'Chọn Area' : 'Chọn Site trước'}</option>{options.areas.map(area => <option key={area.areaId} value={area.areaId}>{area.code} — {area.name}</option>)}</select></label>
           <label>Asset<select value={selection.assetId ?? ''} disabled={!selection.areaId} onChange={event => changeAsset(event.target.value)}><option value="">{selection.areaId ? 'Chọn Asset' : 'Chọn Area trước'}</option>{options.assets.map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.code} — {asset.name}</option>)}</select></label>
           <label>Điểm đo<select value={selection.pointId ?? ''} disabled={!selection.assetId} onChange={event => changePoint(event.target.value)}><option value="">{selection.assetId ? 'Chọn điểm đo' : 'Chọn Asset trước'}</option>{options.points.map(point => <option key={point.pointId} value={point.pointId}>{point.code} — {point.name}</option>)}</select></label>
         </div>}
         {options.state === 'ready' && selection.assetId && <div className="toolbar" role="group" aria-label="Tìm và phân trang điểm đo"><label>Tìm điểm đo<input value={pointSearchDraft} maxLength={100} onChange={event => setPointSearchDraft(event.target.value)} /></label><button type="button" className="button button-secondary" onClick={() => { setPointPage(1); setPointSearch(pointSearchDraft.trim()) }}>Tìm</button><button type="button" className="button button-secondary" disabled={pointPage <= 1} onClick={() => setPointPage(value => Math.max(1, value - 1))}>Trang trước</button><span>{`Trang ${pointPage} / ${totalPointPages} · ${options.scopedCount ?? 0} điểm`}</span><button type="button" className="button button-secondary" disabled={pointPage >= totalPointPages} onClick={() => setPointPage(value => value + 1)}>Trang sau</button></div>}
-        {options.state === 'ready' && options.sites.length === 0 && <p className="muted">Chưa có hierarchy được cấp quyền.</p>}
       </article>
-      {selected && <div className="toolbar" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => { refreshCoordinator.current?.refresh() }}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
-      {errorState && <div className="feedback feedback-error" role="alert"><p>{failureMessage(errorState)}</p><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => { refreshCoordinator.current?.refresh() }}>Thử lại</button></div>}
-      {showingStaleSnapshot && <p className="feedback feedback-info" role="status">Dữ liệu lần cuối vẫn được giữ trong khi chờ kết nối phục hồi.</p>}
-      {!selected && <div className="feedback feedback-info" role="status"><p>Chưa chọn điểm đo.</p><p className="muted">Không có điểm đo nào được tự động chọn.</p></div>}
-      {selected && !hasUsableSnapshot && !errorState && <p role="status">Đang tải dữ liệu mới nhất và sức khỏe nguồn…</p>}
-      {selected && hasUsableSnapshot && <div className="card-grid two-up"><article className="card latest-card"><div className="card-header"><div><p className="card-kicker">Điểm đo {snapshot.pointCode ?? selected.pointId}</p><h2>{snapshot.pointName ?? 'Quan sát mới nhất'}</h2></div><span className="badge badge-neutral">{snapshot.dataState ?? snapshot.state}</span></div><p className="muted">Chỉ số: {snapshot.metric ?? '—'} · Đơn vị: {snapshot.unit ?? '—'}</p><div className="latest-value"><strong>{hasData ? snapshot.value : 'Chưa có dữ liệu'}</strong><span>{hasData ? snapshot.unit ?? 'value' : ''}</span></div><p className="muted">Chất lượng: {snapshot.quality ?? '—'} · {snapshot.reason ?? (hasData ? 'Accepted' : 'NO_DATA')}</p><dl className="readiness-list"><div><dt>Thời điểm nguồn</dt><dd>{snapshot.sourceTimestamp ?? '—'}</dd></div><div><dt>Thời điểm nhận</dt><dd>{snapshot.receivedTimestamp ?? '—'}</dd></div><div><dt>Lần làm mới gần nhất</dt><dd>{snapshot.lastRefreshAt ?? '—'}</dd></div></dl></article><article className="card"><p className="card-kicker">Sức khỏe nguồn / Lượt chạy</p><h2>{snapshot.health}</h2><p className="muted">Nguồn: {snapshot.source?.name ?? '—'}</p><dl className="readiness-list"><div><dt>Mã lượt chạy</dt><dd>{snapshot.runId ?? '—'}</dd></div><div><dt>Trạng thái lượt chạy</dt><dd>{snapshot.runStatus ?? '—'}</dd></div><div><dt>Đã tạo</dt><dd>{snapshot.generated ?? '—'}</dd></div><div><dt>Đã chấp nhận / Từ chối</dt><dd>{snapshot.accepted ?? '—'} / {snapshot.rejected ?? '—'}</dd></div><div><dt>Lần sản xuất cuối</dt><dd>{snapshot.lastProductionAtUtc ?? '—'}</dd></div></dl></article></div>}
-      {selected && hasUsableSnapshot && <p className="muted">Khoảng thời gian: {snapshot.expectedIntervalSeconds ?? '—'}s · Không có dữ liệu sau: {snapshot.noDataAfterSeconds ?? '—'}s</p>}
+      {selected && <div className="telemetry-refresh" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => refreshCoordinator.current?.refresh()}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
+      {errorState && renderError(errorState)}
+      {showingStaleSnapshot && <RetryState message="Đang hiển thị bằng chứng nhận được gần nhất; lần làm mới mới nhất chưa thành công." onRetry={() => refreshCoordinator.current?.refresh()} />}
+      {!selected && <EmptyState title="Chưa chọn điểm đo" message="Chọn đầy đủ Site, Area, Asset và điểm đo để xem dữ liệu mới nhất." />}
+      {selected && !hasUsableSnapshot && !errorState && <LoadingState message="Đang tải dữ liệu mới nhất và sức khỏe nguồn…" />}
+      {selected && hasUsableSnapshot && <>
+        <div className="telemetry-evidence-grid">
+          <article className="card latest-card"><div className="card-header"><div><p className="card-kicker">Điểm đo {snapshot.pointCode ?? selected.pointId}</p><h2>{snapshot.pointName ?? 'Quan sát mới nhất'}</h2></div><OperationalStatusBadge status={hasData ? 'Available' : 'Missing'} /></div>
+            <p className="muted">Chỉ số: {snapshot.metric ?? 'Chưa có trong contract'} · Đơn vị: {snapshot.unit ?? '—'}</p>
+            <div className="latest-value"><strong>{hasData ? snapshot.value : 'No Data'}</strong><span>{hasData ? snapshot.unit ?? 'value' : ''}</span></div>
+            <div className="evidence-status-row"><DataQualityIndicator quality={qualityOf(snapshot.quality, hasData) ?? 'Missing'} reason={snapshot.reason} /><FreshnessIndicator freshness={freshnessOf(snapshot)} lastRefresh={snapshot.lastRefreshAt} /></div>
+            <dl className="readiness-list"><div><dt>Thời điểm nguồn</dt><dd>{snapshot.sourceTimestamp ?? 'Chưa có'}</dd></div><div><dt>Thời điểm nhận</dt><dd>{snapshot.receivedTimestamp ?? 'Chưa có'}</dd></div><div><dt>Lần truy vấn</dt><dd>{snapshot.lastRefreshAt ?? 'Chưa có'}</dd></div></dl>
+          </article>
+          <article className="card"><p className="card-kicker">Sức khỏe nguồn / lượt chạy</p><div className="evidence-status-row"><OperationalStatusBadge status={operationalStatusOf(snapshot.health)} detail={snapshot.health} /><span className="metadata">Nguồn: {snapshot.source?.name ?? 'Chưa xác định'}</span></div><dl className="readiness-list"><div><dt>Mã lượt chạy</dt><dd>{snapshot.runId ?? '—'}</dd></div><div><dt>Trạng thái lượt chạy</dt><dd>{snapshot.runStatus ?? '—'}</dd></div><div><dt>Đã tạo / chấp nhận / từ chối</dt><dd>{snapshot.generated ?? '—'} / {snapshot.accepted ?? '—'} / {snapshot.rejected ?? '—'}</dd></div><div><dt>Lần sản xuất cuối</dt><dd>{snapshot.lastProductionAtUtc ?? '—'}</dd></div><div><dt>Ngưỡng không có dữ liệu</dt><dd>{snapshot.noDataAfterSeconds ?? 'Chưa có' }s</dd></div></dl></article>
+        </div>
+        <FeedbackBanner tone="info" title="Phạm vi bằng chứng" message="Coverage và chuỗi lịch sử chưa được cung cấp bởi contract hiện tại; không suy diễn thành 0 hoặc dữ liệu lịch sử." live={false} />
+        <ChartContainer title="Lịch sử điểm đo" description="Chỉ hiển thị khi contract cung cấp chuỗi thời gian có timestamp." points={[]} unavailableReason="Historical series chưa có trong contract hiện tại." />
+      </>}
     </section>
   )
 }

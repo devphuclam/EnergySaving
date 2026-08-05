@@ -706,7 +706,7 @@ export const webGateways: WebGateways = {
           accepted: current.run?.accepted ?? current.health?.accepted,
           rejected: current.run?.rejected ?? current.health?.rejected,
           lastProductionAtUtc: current.run?.lastProductionAtUtc,
-          lastRefreshAt: current.queriedAtUtc ?? new Date().toISOString(),
+          lastRefreshAt: current.queriedAtUtc,
           expectedIntervalSeconds: current.health?.expectedIntervalSeconds,
           noDataAfterSeconds: current.health?.noDataAfterSeconds,
           errorCode: current.errorCode,
