@@ -16,7 +16,7 @@ function App() {
         ? <OperationalDashboard session={session} onNewSetup={() => navigate('setup', { mode: 'new' })} onContinueSetup={() => navigate('setup')} onNavigate={navigate} />
         : route === 'configuration' ? <ConfigurationRoutes />
           : route === 'simulator' ? <SimulatorRoute />
-            : route === 'telemetry' ? <PointCurrentRoute /> : <AuditRoute />}
+            : route === 'telemetry' ? <PointCurrentRoute onSessionRecovery={() => window.location.reload()} /> : <AuditRoute />}
   </div>}</AppShell></GatewayProvider>
 }
 

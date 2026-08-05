@@ -20,7 +20,8 @@ type RequestedSelection = Partial<TelemetrySelection>
 type CompleteTelemetrySelection = TelemetrySelection & { areaId: string; assetId: string }
 type OptionLevel = 'sites' | 'areas' | 'assets' | 'points'
 
-const emptySnapshot: LatestSnapshot = { state: 'no-selection', value: null, health: 'Chưa chọn điểm', dataState: 'NoSelection' }
+const noSelectionSnapshot: LatestSnapshot = { state: 'no-selection', value: null, health: 'Chưa chọn điểm', dataState: 'NoSelection' }
+const loadingSnapshot: LatestSnapshot = { state: 'loading', value: null, health: 'Đang tải dữ liệu hiện tại' }
 
 function readSelection(): RequestedSelection {
   const params = new URLSearchParams(window.location.search)
@@ -88,38 +89,58 @@ function operationalStatusOf(health: string): 'Available' | 'Unavailable' | 'Sta
 
 export type TelemetryPresentation = 'no-selection' | 'not-configured' | 'no-data' | 'data' | 'conflict' | 'forbidden' | 'not-found' | 'dependency' | 'runtime-error' | 'expired' | 'retryable-stale' | 'loading'
 
-export function classifyTelemetryState({ gatewayState, dataState, hasUsableSnapshot, retryableRefresh = false }: {
+export function isRetainableTelemetrySnapshot(snapshot: LatestSnapshot, expectedPointId?: string): boolean {
+  if (!snapshot.pointId || (expectedPointId && snapshot.pointId !== expectedPointId)) return false
+  if (snapshot.dataState === 'Data') return snapshot.state === 'ready' && typeof snapshot.value === 'number' && Number.isFinite(snapshot.value)
+  if (snapshot.dataState === 'NoData') {
+    const health = snapshot.health.trim().toLowerCase()
+    return snapshot.state === 'no-data' && health.length > 0 && !['unavailable', 'unknown', 'đang tải dữ liệu hiện tại'].includes(health)
+  }
+  return false
+}
+
+export type TelemetryClassificationInput = {
   gatewayState: GatewayState
   dataState?: LatestSnapshot['dataState']
-  hasUsableSnapshot: boolean
+  snapshot?: LatestSnapshot
+  previousSnapshot?: LatestSnapshot
+  selectedPointId?: string
+  requestPending?: boolean
   retryableRefresh?: boolean
-}): TelemetryPresentation {
+  /** Retained for source compatibility; it is never trusted for new retry decisions. */
+  hasUsableSnapshot?: boolean
+}
+
+export function classifyTelemetryState({ gatewayState, dataState, snapshot, previousSnapshot, selectedPointId, requestPending = false, retryableRefresh = false }: TelemetryClassificationInput): TelemetryPresentation {
   if (gatewayState === 'no-selection' || dataState === 'NoSelection') return 'no-selection'
+  if (requestPending || gatewayState === 'loading') return 'loading'
   if (gatewayState === 'expired') return 'expired'
   if (gatewayState === 'forbidden') return 'forbidden'
   if (gatewayState === 'not-found') return 'not-found'
   if (gatewayState === 'conflict' || gatewayState === 'validation' || dataState === 'Ambiguous' || dataState === 'HierarchyConflict') return 'conflict'
-  if (retryableRefresh && hasUsableSnapshot && ['dependency', 'runtime-error', 'error'].includes(gatewayState)) return 'retryable-stale'
-  if (gatewayState === 'dependency') return 'dependency'
-  if (gatewayState === 'runtime-error' || gatewayState === 'error') return 'runtime-error'
   if (dataState === 'NotConfigured') return 'not-configured'
   if (dataState === 'NoData' || gatewayState === 'no-data') return 'no-data'
-  if (gatewayState === 'ready' && dataState === 'Data') return 'data'
-  return gatewayState === 'loading' ? 'loading' : 'runtime-error'
+  if (retryableRefresh && ['dependency', 'runtime-error', 'error'].includes(gatewayState) &&
+    isRetainableTelemetrySnapshot(previousSnapshot ?? snapshot ?? noSelectionSnapshot, selectedPointId)) return 'retryable-stale'
+  if (gatewayState === 'dependency') return 'dependency'
+  if (gatewayState === 'runtime-error' || gatewayState === 'error') return 'runtime-error'
+  if (gatewayState === 'ready' && dataState === 'Data' && isRetainableTelemetrySnapshot(snapshot ?? noSelectionSnapshot, selectedPointId)) return 'data'
+  return 'runtime-error'
 }
 
 export function formatIntervalSeconds(value?: number): string {
   return typeof value === 'number' && Number.isFinite(value) ? `${value}s` : 'Chưa có'
 }
 
-export function PointCurrentRoute() {
+export function PointCurrentRoute({ onSessionRecovery }: { onSessionRecovery?: () => void } = {}) {
   const gateways = useWebGateways()
   const [selection, setSelection] = useState<RequestedSelection>(readSelection)
   const [options, setOptions] = useState<TelemetryOptionSnapshot>({ state: 'loading', sites: [], areas: [], assets: [], points: [] })
   const [pointPage, setPointPage] = useState(1)
   const [pointSearch, setPointSearch] = useState('')
   const [pointSearchDraft, setPointSearchDraft] = useState('')
-  const [snapshot, setSnapshot] = useState<LatestSnapshot>(emptySnapshot)
+  const [snapshot, setSnapshot] = useState<LatestSnapshot>(noSelectionSnapshot)
+  const snapshotRef = useRef<LatestSnapshot>(noSelectionSnapshot)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastError, setLastError] = useState<LatestSnapshot['state'] | undefined>()
@@ -206,6 +227,10 @@ export function PointCurrentRoute() {
   }, [selection])
   const key = selectionKey(selection)
   const totalPointPages = Math.max(1, Math.ceil((options.scopedCount ?? 0) / (options.pageSize ?? 100)))
+  const commitSnapshot = useCallback((next: LatestSnapshot) => {
+    snapshotRef.current = next
+    setSnapshot(next)
+  }, [])
 
   const applySnapshot = useCallback((currentSelection: CompleteTelemetrySelection, next: LatestSnapshot) => {
     const selectedPoint = pointOptionFromSnapshot(currentSelection, next)
@@ -213,15 +238,23 @@ export function PointCurrentRoute() {
       selectedPointOption.current = selectedPoint
       setOptions(previous => ({ ...previous, points: mergeSelectedPointOption(previous.points, selectedPoint) }))
     }
-    const failed = ['dependency', 'runtime-error', 'forbidden', 'expired', 'not-found', 'validation', 'conflict', 'error'].includes(next.state)
+    const malformedData = next.dataState === 'Data' && !isRetainableTelemetrySnapshot(next, currentSelection.pointId)
+    const normalized = malformedData ? { ...next, state: 'runtime-error' as const, value: null, errorCode: 'MALFORMED_DATA' } : next
+    const failed = ['dependency', 'runtime-error', 'forbidden', 'expired', 'not-found', 'validation', 'conflict', 'error'].includes(normalized.state)
     if (failed) {
-      setLastError(next.state)
-      if (!['dependency', 'runtime-error', 'error'].includes(next.state)) setSnapshot(emptySnapshot)
+      setLastError(normalized.state)
+      if (normalized.state === 'expired') {
+        refreshCoordinator.current?.clear()
+        setRefreshing(false)
+      }
+      const canRetain = !malformedData && ['dependency', 'runtime-error', 'error'].includes(normalized.state) &&
+        isRetainableTelemetrySnapshot(snapshotRef.current, currentSelection.pointId)
+      if (!canRetain) commitSnapshot({ ...normalized, value: null, health: 'Unavailable' })
     } else {
       setLastError(undefined)
-      setSnapshot(next)
+      commitSnapshot(normalized)
     }
-  }, [])
+  }, [commitSnapshot])
 
   const requestSnapshot = useCallback(async (currentSelection: CompleteTelemetrySelection, context: RefreshRequestContext) => {
     const next = await gateways.latest.getSnapshot(currentSelection, context.signal)
@@ -232,22 +265,22 @@ export function PointCurrentRoute() {
     if (!selected) {
       refreshCoordinator.current?.clear()
       selectedPointOption.current = undefined
-      setSnapshot(emptySnapshot)
+      commitSnapshot(noSelectionSnapshot)
       setLastError(undefined)
       setRefreshing(false)
       return
     }
     selectedPointOption.current = undefined
-    setSnapshot(emptySnapshot)
+    commitSnapshot(loadingSnapshot)
     setLastError(undefined)
     refreshCoordinator.current?.select(key, context => requestSnapshot(selected, context))
     return () => refreshCoordinator.current?.clear()
-  }, [key, requestSnapshot, selected, selection])
+  }, [commitSnapshot, key, requestSnapshot, selected, selection])
 
   useEffect(() => { refreshCoordinator.current?.setAutoRefresh(autoRefresh) }, [autoRefresh])
 
   const clearSelectionSnapshot = () => {
-    setSnapshot(emptySnapshot)
+    commitSnapshot(noSelectionSnapshot)
     setLastError(undefined)
     setRefreshing(false)
   }
@@ -255,17 +288,24 @@ export function PointCurrentRoute() {
   const changeSite = (siteId: string) => { const next = { siteId: siteId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); setOptions(previous => ({ ...previous, areas: [], assets: [] })); resetPoints() }
   const changeArea = (areaId: string) => { const next = { ...selection, areaId: areaId || undefined, assetId: undefined, pointId: undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); setOptions(previous => ({ ...previous, assets: [] })); resetPoints() }
   const changeAsset = (assetId: string) => { const next = { ...selection, assetId: assetId || undefined, pointId: undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next); resetPoints() }
-  const changePoint = (pointId: string) => { selectedPointOption.current = undefined; const next = { ...selection, pointId: pointId || undefined }; clearSelectionSnapshot(); setSelection(next); writeSelection(next) }
+  const changePoint = (pointId: string) => { selectedPointOption.current = undefined; const next = { ...selection, pointId: pointId || undefined }; commitSnapshot(pointId ? loadingSnapshot : noSelectionSnapshot); setLastError(undefined); setRefreshing(false); setSelection(next); writeSelection(next) }
 
-  const hasData = snapshot.state === 'ready' && snapshot.dataState === 'Data' && snapshot.value !== null
-  const hasUsableSnapshot = snapshot.state === 'ready' || snapshot.state === 'no-data'
+  const hasData = isRetainableTelemetrySnapshot(snapshot, selected?.pointId)
   const currentGatewayState = lastError ?? snapshot.state
-  const presentation = classifyTelemetryState({ gatewayState: currentGatewayState, dataState: snapshot.dataState, hasUsableSnapshot, retryableRefresh: Boolean(lastError) })
+  const presentation = classifyTelemetryState({
+    gatewayState: currentGatewayState,
+    dataState: lastError ? undefined : snapshot.dataState,
+    snapshot,
+    previousSnapshot: snapshotRef.current,
+    selectedPointId: selected?.pointId,
+    requestPending: Boolean(selected && snapshot.state === 'loading' && !lastError),
+    retryableRefresh: Boolean(lastError),
+  })
   const retry = <button type="button" className="button button-secondary" disabled={refreshing} onClick={() => refreshCoordinator.current?.refresh()}>Thử lại</button>
 
   const renderError = (state: LatestSnapshot['state']) => {
     if (state === 'forbidden' || state === 'not-found') return <ForbiddenState message={failureMessage(state)} action={retry} />
-    if (state === 'expired') return <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage(state)} live />
+    if (state === 'expired') return <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage(state)} action={<button type="button" className="button button-secondary" onClick={() => onSessionRecovery?.()}>Tải lại phiên đăng nhập</button>} live />
     if (state === 'conflict' || state === 'validation') return <ConflictState message={failureMessage(state)} action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại hierarchy</button>} />
     if (state === 'dependency') return <BlockedState message={failureMessage(state)} nextAction={retry} />
     return <ErrorState message={failureMessage(state)} action={retry} />
@@ -273,7 +313,7 @@ export function PointCurrentRoute() {
 
   const renderOptionsState = () => {
     if (options.state === 'forbidden' || options.state === 'not-found') return <ForbiddenState message={failureMessage(options.state)} action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại hierarchy</button>} />
-    if (options.state === 'expired') return <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage(options.state)} live />
+    if (options.state === 'expired') return <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage(options.state)} action={<button type="button" className="button button-secondary" onClick={() => onSessionRecovery?.()}>Tải lại phiên đăng nhập</button>} live />
     if (options.state === 'dependency') return <BlockedState message="Dịch vụ hierarchy tạm thời chưa sẵn sàng." nextAction={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button>} />
     if (options.state === 'conflict' || options.state === 'validation') return <ConflictState message="Hierarchy đã thay đổi; hãy tải lại rồi chọn lại phạm vi." action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại hierarchy</button>} />
     return <ErrorState message="Không thể tải hierarchy được cấp quyền." action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button>} />
