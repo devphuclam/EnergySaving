@@ -98,3 +98,13 @@ states that the Dashboard contract did not provide a recognized quality.
 - Merge performed: NO.
 - Release created: NO.
 - Evidence commit: this checkpoint commit/HEAD; its SHA is reported after the evidence commit is created.
+
+## Superseded by classifier closure
+
+The later Phase 2 classifier closure reopened this review's readiness decision for P2-CC-01 through
+P2-CC-04 and supersedes it without deleting history. Production corrective commit:
+`7e9e1230fd69a33b0c7138765aea326f30a0aaca`. See
+[phase-02-classifier-closure-review.md](phase-02-classifier-closure-review.md) and the final
+sections of [phase-02-verification.md](phase-02-verification.md),
+[phase-02-review.md](phase-02-review.md), and
+[phase-02-checkpoint.md](phase-02-checkpoint.md) for the authoritative current decision.

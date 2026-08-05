@@ -119,6 +119,51 @@ timestamp/reason/historical-series limitations remain `DEFERRED_EXTERNAL_CONTRAC
 - Release created: NO.
 - Next command: `/speckit.implement` — Phase 3 only when separately authorized.
 
+## Phase 2 classifier closure checkpoint
+
+| Item | Result |
+|---|---|
+| Starting main SHA | `869638a7410d49d4d8a7b9610ef6efa4ad06b815` |
+| Working branch | `fix/004-phase-02-classifier-closure` |
+| Production corrective commit | `7e9e1230fd69a33b0c7138765aea326f30a0aaca` |
+| Evidence commit | This checkpoint commit/HEAD; SHA is recorded after evidence commit creation |
+| Reopened findings | P2-CC-01 through P2-CC-04 |
+| Completed task range | T001-T036 |
+| Pending task range | T037-T071 |
+| T037 / Phase 3 | NOT EXECUTED |
+
+### Final actual decision
+
+| Evidence | Result |
+|---|---|
+| Lint | PASS; existing non-blocking warnings only |
+| Build | PASS |
+| Fast harness | PASS=11; failures=0 |
+| Source-visible checks | TYPE_CHECKED + STATIC_REVIEW; not runtime PASS |
+| Runtime frontend | BLOCKED_BY_PACKAGE_POLICY |
+| Browser/visual | NOT_RUN |
+| Accessibility automation | BLOCKED_BY_PACKAGE_POLICY |
+| Full harness | NOT_RUN for this corrective scope |
+| `git diff --check` | PASS |
+| Critical findings | 0 |
+| High findings | 0 |
+| Medium findings | 0 |
+
+The final classifier governance decision is **Phase-2-complete YES** and **Progression to Phase 3
+YES**. Full Feature 004 completion remains **NO**, Release-ready remains **NO**, and external
+contract limitations remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
+
+## Explicit classifier stop
+
+- T037 executed: NO.
+- Phase 3 executed: NO.
+- Backend/API/Worker/database/migrations changed: NO.
+- Package installed: NO.
+- PostgreSQL 5432 touched: NO.
+- Merge performed: NO.
+- Release created: NO.
+- Next command: `/speckit.implement` — Phase 3 only when separately authorized.
+
 ## Final Phase 2 closure checkpoint
 
 | Item | Result |

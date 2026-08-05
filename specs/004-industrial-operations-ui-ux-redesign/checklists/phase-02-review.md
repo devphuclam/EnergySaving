@@ -109,3 +109,13 @@ source timestamp/reason, historical series and missing interval limitations rema
 
 Final review decision: **Phase-2-complete YES; progression to Phase 3 YES; Full Feature 004 NO;
 Release-ready NO**. T037 and all Phase 3 work remain explicitly outside this invocation.
+
+## Superseded by Phase 2 classifier closure
+
+The classifier closure on `fix/004-phase-02-classifier-closure` reopened the prior final readiness
+decision for P2-CC-01 through P2-CC-04, corrected the active retryable-failure precedence, removed
+duplicate expiry recovery, and aligned Vietnamese quality semantics. Production corrective commit:
+`7e9e1230fd69a33b0c7138765aea326f30a0aaca`. See
+[phase-02-classifier-closure-review.md](phase-02-classifier-closure-review.md) and the final
+sections of [phase-02-verification.md](phase-02-verification.md) and
+[phase-02-checkpoint.md](phase-02-checkpoint.md). Historical review findings remain unchanged.
