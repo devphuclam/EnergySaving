@@ -41,4 +41,35 @@ Specification finding count: **Critical 0 / High 0 / Medium 1 (combined contract
 
 ## Superseded by corrective remediation
 
+## Superseding post-merge review (P2-R2)
+
+Baseline: `9b5b56926844398c002674e318a13781ade7cda1`
+Production corrective commit: `c219f45`
+Scope: Dashboard exception pipeline, Telemetry state/retention semantics, expired recovery and
+checkpoint identity only.
+
+### Standards review
+
+| Area | Result |
+|---|---|
+| Exception evidence trust | PASS; classification precedes caps and hidden counts are explicit |
+| Telemetry evidence trust | PASS; only finite Data or legitimate NoData with expected identity is retainable |
+| Recovery and continuity | PASS; selected loading is distinct, expiry has an observable recovery action, and auto-refresh stops after expiry |
+| Accessibility/content | PASS; loading/error/recovery states have text and actionable controls; no color-only claim added |
+| Scope isolation | PASS; only allowed Web route owners, source-visible tests and Phase 2 evidence changed |
+
+Standards findings: **Critical 0 / High 0 / Medium 0 / Low 0**.
+
+### Specification review
+
+| Trace | Result |
+|---|---|
+| P2-R2-01 / FR-006 | PASS; all authorized health/latest records are classified before visible presentation limits |
+| P2-R2-02 / FR-004, FR-011, FR-012 | PASS; loading, zero, NoData, NotConfigured, malformed and retryable/non-retryable states are distinct |
+| P2-R2-03 / FR-020, FR-023 | PASS; expired session has a direct reload-session action and safe AppShell recovery path |
+| P2-R2-04 / governance | PASS; actual production SHA and actual final readiness are recorded |
+
+Specification findings: **Critical 0 / High 0 / Medium 0 / Low 0**. External contract limitations
+remain deferred and do not become implementation claims.
+
 This first review remains as historical evidence of the initial Phase 2 invocation. The corrective review reopens the six static findings P2-C01–P2-C06, closes the implementation findings, and changes the governance outcome to progression **YES** for independent Phase 3 work once Critical/High are zero. External contract gaps remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION` and Release-ready remains **NO**.

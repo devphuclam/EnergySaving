@@ -104,4 +104,34 @@ No package manifest or lockfile, backend/API/Worker, database/migration, authent
 
 ## Superseding corrective decision
 
+## Superseding post-merge corrective round 2 verification
+
+| Item | Result |
+|---|---|
+| Authoritative starting main | `9b5b56926844398c002674e318a13781ade7cda1` |
+| Branch | `fix/004-phase-02-corrective-round-2` |
+| Production corrective commit | `c219f45` |
+| Scope | P2-R2-01 through P2-R2-04; T028-T036 only |
+| T037-T071 | NOT EXECUTED; remain pending |
+| Backend/API/Worker/database/migrations | NOT CHANGED |
+| Package/lockfile changes | NOT CHANGED |
+
+The post-merge review explicitly reopened P2-R2-01 through P2-R2-04. The round-2 review is
+[phase-02-corrective-review-round-2.md](phase-02-corrective-review-round-2.md).
+
+| Verification | Result | Detail |
+|---|---|---|
+| `npm run lint` | PASS | Existing non-blocking Fast Refresh/hooks warnings only |
+| `npm run build` | PASS | TypeScript/Vite production build |
+| Fast harness | PASS=11 | Failures=0 |
+| Source-visible checks | TYPE-CHECKED | Runtime frontend runner is not installed/authorized |
+| Runtime frontend | BLOCKED_BY_PACKAGE_POLICY | No approved executor |
+| Browser/visual | NOT_RUN | No approved visual evidence in this corrective scope |
+| Accessibility automation | BLOCKED_BY_PACKAGE_POLICY | No approved browser/axe package |
+| Full harness | NOT_RUN | Explicitly outside this corrective invocation |
+
+Final round-2 decision: **Critical 0 / High 0 / Medium 0; Phase-2-complete YES; progression to
+Phase 3 YES; Full Feature 004 NO; Release-ready NO**. External coverage, cutoff, Dashboard source
+timestamp/reason and historical-series limitations remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
+
 P2-C01–P2-C06 are evaluated in [phase-02-corrective-review.md](phase-02-corrective-review.md). Coverage, cutoff, Dashboard source timestamp/quality reason, historical series and missing intervals remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`; they are not implementation PASS and do not authorize backend work. After the corrective High findings close, this limitation does not block independent Phase 3 Configuration Management work.

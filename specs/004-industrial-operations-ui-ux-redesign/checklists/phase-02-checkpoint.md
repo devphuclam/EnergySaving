@@ -74,3 +74,47 @@ Stop `/speckit.implement` after T036. Do not execute T037 or any Phase 3 task in
 | Next command | `/speckit.implement — Phase 3 only` |
 
 The original checkpoint above remains recognizable as the first invocation. This superseding section records the corrective governance outcome and does not mark external contract fields resolved.
+
+## Final superseding checkpoint: post-merge corrective round 2
+
+| Item | Result |
+|---|---|
+| Starting main SHA | `9b5b56926844398c002674e318a13781ade7cda1` |
+| Working branch | `fix/004-phase-02-corrective-round-2` |
+| Production corrective commit | `c219f45` |
+| Evidence checkpoint commit | This evidence commit; its SHA is recorded in the final task report after creation |
+| Reopened findings | P2-R2-01 through P2-R2-04 |
+| Completed task range | T028-T036 |
+| Pending task range | T037-T071 |
+| T037 / Phase 3 | NOT EXECUTED |
+
+### Actual verification and decision
+
+| Evidence | Result |
+|---|---|
+| Lint | PASS |
+| Build | PASS |
+| Fast harness | PASS=11; failures=0 |
+| Source-visible checks | TYPE-CHECKED |
+| Runtime frontend | BLOCKED_BY_PACKAGE_POLICY |
+| Browser/visual | NOT_RUN |
+| Accessibility automation | BLOCKED_BY_PACKAGE_POLICY |
+| Full harness | NOT_RUN for this corrective scope |
+| Critical findings | 0 |
+| High findings | 0 |
+| Medium findings | 0 |
+
+The actual final decision is **Phase-2-complete YES** and **Progression to Phase 3 YES**. Full
+Feature 004 completion is **NO**, Release-ready is **NO**, and external coverage/cutoff/source
+timestamp/reason/historical-series limitations remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
+
+## Explicit final stop
+
+- T037 executed: NO.
+- Phase 3 executed: NO.
+- Backend/API/Worker/database/migrations changed: NO.
+- Package installed: NO.
+- PostgreSQL 5432 touched: NO.
+- Merge performed: NO.
+- Release created: NO.
+- Next command: `/speckit.implement` — Phase 3 only when separately authorized.

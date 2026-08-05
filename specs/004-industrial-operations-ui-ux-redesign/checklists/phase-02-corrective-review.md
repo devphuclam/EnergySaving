@@ -118,3 +118,17 @@ These are not implementation PASS and do not authorize backend/API/database work
 - Release-ready: NO.
 - T037 executed: NO.
 - Next command: `/speckit.implement — Phase 3 only`.
+
+## Superseding post-merge corrective round 2
+
+Post-merge review reopened P2-R2-01 through P2-R2-04 from the authoritative main baseline
+`9b5b56926844398c002674e318a13781ade7cda1`. The production correction is `c219f45`
+(`fix(feature-004): close remaining phase two state gaps`) on
+`fix/004-phase-02-corrective-round-2`. The detailed finding table and actual evidence are in
+[phase-02-corrective-review-round-2.md](phase-02-corrective-review-round-2.md).
+
+Round-2 result: **Critical 0 / High 0 / Medium 0**. The Dashboard exception pipeline now classifies
+all authorized records before a presentation cap, and Telemetry retains only legitimate current
+evidence during retryable failures. Expired responses have a direct session-recovery action and
+stop selected refresh. T028-T036 remain complete; T037-T071 remain pending. This section is the
+actual final decision for the round and supersedes the earlier expected-readiness wording.
