@@ -132,12 +132,15 @@ export function classifyTelemetryState({ gatewayState, dataState, snapshot, prev
   if (gatewayState === 'forbidden') return 'forbidden'
   if (gatewayState === 'not-found') return 'not-found'
   if (gatewayState === 'conflict' || gatewayState === 'validation' || resolvedDataState === 'Ambiguous' || resolvedDataState === 'HierarchyConflict') return 'conflict'
-  if (resolvedDataState === 'NotConfigured') return 'not-configured'
-  if (resolvedDataState === 'NoData' || gatewayState === 'no-data') return 'no-data'
-  if (retryableRefresh && ['dependency', 'runtime-error', 'error'].includes(gatewayState) &&
-    isRetainableTelemetrySnapshot(previousSnapshot ?? snapshot ?? noSelectionSnapshot, selectedPointId)) return 'retryable-stale'
+  const retryableFailure = retryableRefresh && ['dependency', 'runtime-error', 'error'].includes(gatewayState)
+  if (retryableFailure) {
+    if (isRetainableTelemetrySnapshot(previousSnapshot ?? snapshot ?? noSelectionSnapshot, selectedPointId)) return 'retryable-stale'
+    return gatewayState === 'dependency' ? 'dependency' : 'runtime-error'
+  }
   if (gatewayState === 'dependency') return 'dependency'
   if (gatewayState === 'runtime-error' || gatewayState === 'error') return 'runtime-error'
+  if (resolvedDataState === 'NotConfigured') return 'not-configured'
+  if (resolvedDataState === 'NoData' || gatewayState === 'no-data') return 'no-data'
   if (gatewayState === 'ready' && resolvedDataState === 'Data' && hasNumericTelemetryData(snapshot ?? noSelectionSnapshot, selectedPointId)) return 'data'
   return 'runtime-error'
 }
@@ -335,11 +338,12 @@ export function PointCurrentRoute({ onSessionRecovery }: { onSessionRecovery?: (
     requestPending: Boolean(selected && snapshot.state === 'loading' && !lastError),
     retryableRefresh: Boolean(lastError),
   })
+  const showExpiredRecovery = sessionExpired || options.state === 'expired' || presentation === 'expired'
   const retry = <button type="button" className="button button-secondary" disabled={refreshing} onClick={() => refreshCoordinator.current?.refresh()}>Thử lại</button>
 
   const renderError = (state: LatestSnapshot['state']) => {
     if (state === 'forbidden' || state === 'not-found') return <ForbiddenState message={failureMessage(state)} action={retry} />
-    if (state === 'expired') return <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage(state)} action={<button type="button" className="button button-secondary" onClick={() => onSessionRecovery?.()}>Tải lại phiên đăng nhập</button>} live />
+    if (state === 'expired') return null
     if (state === 'conflict' || state === 'validation') return <ConflictState message={failureMessage(state)} action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại hierarchy</button>} />
     if (state === 'dependency') return <BlockedState message={failureMessage(state)} nextAction={retry} />
     return <ErrorState message={failureMessage(state)} action={retry} />
@@ -347,7 +351,7 @@ export function PointCurrentRoute({ onSessionRecovery }: { onSessionRecovery?: (
 
   const renderOptionsState = () => {
     if (options.state === 'forbidden' || options.state === 'not-found') return <ForbiddenState message={failureMessage(options.state)} action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại hierarchy</button>} />
-    if (options.state === 'expired') return <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage(options.state)} action={<button type="button" className="button button-secondary" onClick={() => onSessionRecovery?.()}>Tải lại phiên đăng nhập</button>} live />
+    if (options.state === 'expired') return null
     if (options.state === 'dependency') return <BlockedState message="Dịch vụ hierarchy tạm thời chưa sẵn sàng." nextAction={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button>} />
     if (options.state === 'conflict' || options.state === 'validation') return <ConflictState message="Hierarchy đã thay đổi; hãy tải lại rồi chọn lại phạm vi." action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại hierarchy</button>} />
     return <ErrorState message="Không thể tải hierarchy được cấp quyền." action={<button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Thử lại</button>} />
@@ -357,7 +361,7 @@ export function PointCurrentRoute({ onSessionRecovery }: { onSessionRecovery?: (
     <section className="page" aria-labelledby="telemetry-title">
       <PageHeader titleId="telemetry-title" eyebrow="Giám sát đo lường" title="Dữ liệu mới nhất & sức khỏe nguồn" description="Chọn rõ Site, Area, Asset và điểm đo để xem dữ liệu được cấp quyền." />
        <article className="card telemetry-selector" aria-label="Bộ chọn phân cấp đo lường">
-         <div className="card-header"><div><p className="card-kicker">Phạm vi được cấp quyền</p><h2>Chọn phân cấp</h2></div>{!sessionExpired && <button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại lựa chọn</button>}</div>
+         <div className="card-header"><div><p className="card-kicker">Phạm vi được cấp quyền</p><h2>Chọn phân cấp</h2></div>{!showExpiredRecovery && <button type="button" className="button button-secondary" onClick={() => void loadOptions()}>Tải lại lựa chọn</button>}</div>
         {options.state === 'loading' && <LoadingState message="Đang tải hierarchy được cấp quyền…" />}
         {options.state !== 'loading' && options.state !== 'ready' && renderOptionsState()}
         {options.state === 'ready' && options.sites.length === 0 && <EmptyState title="Chưa có hierarchy" message="Không có Site nào trong phạm vi được cấp quyền." />}
@@ -369,7 +373,8 @@ export function PointCurrentRoute({ onSessionRecovery }: { onSessionRecovery?: (
         </div>}
         {options.state === 'ready' && selection.assetId && <div className="toolbar" role="group" aria-label="Tìm và phân trang điểm đo"><label>Tìm điểm đo<input value={pointSearchDraft} maxLength={100} onChange={event => setPointSearchDraft(event.target.value)} /></label><button type="button" className="button button-secondary" onClick={() => { setPointPage(1); setPointSearch(pointSearchDraft.trim()) }}>Tìm</button><button type="button" className="button button-secondary" disabled={pointPage <= 1} onClick={() => setPointPage(value => Math.max(1, value - 1))}>Trang trước</button><span>{`Trang ${pointPage} / ${totalPointPages} · ${options.scopedCount ?? 0} điểm`}</span><button type="button" className="button button-secondary" disabled={pointPage >= totalPointPages} onClick={() => setPointPage(value => value + 1)}>Trang sau</button></div>}
       </article>
-      {selected && !sessionExpired && <div className="telemetry-refresh" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => refreshCoordinator.current?.refresh()}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
+      {showExpiredRecovery && <FeedbackBanner tone="warning" title="Phiên đăng nhập hết hạn" message={failureMessage('expired')} action={<button type="button" className="button button-secondary" onClick={() => onSessionRecovery?.()}>Tải lại phiên đăng nhập</button>} live />}
+      {selected && !showExpiredRecovery && <div className="telemetry-refresh" role="group" aria-label="Bộ điều khiển làm mới"><label><input type="checkbox" checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} /> Tự động làm mới mỗi 10 giây</label><button type="button" className="button button-secondary" disabled={refreshing} onClick={() => refreshCoordinator.current?.refresh()}>Làm mới ngay</button>{refreshing && <span role="status">Đang làm mới…</span>}</div>}
       {presentation === 'retryable-stale' && <RetryState message="Đang hiển thị bằng chứng nhận được gần nhất; lần làm mới mới nhất chưa thành công." onRetry={() => refreshCoordinator.current?.refresh()} />}
       {['forbidden', 'not-found', 'expired', 'conflict', 'dependency', 'runtime-error'].includes(presentation) && renderError(currentGatewayState)}
       {!selected && <EmptyState title="Chưa chọn điểm đo" message="Chọn đầy đủ Site, Area, Asset và điểm đo để xem dữ liệu mới nhất." />}

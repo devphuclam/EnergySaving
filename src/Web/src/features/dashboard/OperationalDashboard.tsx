@@ -58,7 +58,7 @@ function pointIdOf(item: Record<string, unknown>): string | undefined {
 }
 
 export const DASHBOARD_QUALITY_REASON_UNAVAILABLE = 'Dashboard contract không cung cấp quality reason.'
-export const DASHBOARD_QUALITY_UNRECOGNIZED = 'Dashboard contract did not provide a recognized quality.'
+export const DASHBOARD_QUALITY_UNRECOGNIZED = 'Dashboard không cung cấp trạng thái chất lượng được nhận diện.'
 
 function pointLabel(snapshot: OperationalDashboardSnapshot, item: Record<string, unknown>): string {
   const pointId = pointIdOf(item)
@@ -78,15 +78,15 @@ export type DashboardQualityPresentation = {
   status: OperationalStatus
   isException: boolean
   priority: number
-  reasonAvailability: 'authoritative' | 'absent'
+  qualityRecognition: 'recognized' | 'unrecognized'
 }
 
 export function dashboardQualityPresentation(value: unknown): DashboardQualityPresentation {
   const quality = qualityOf(value)
-  if (!quality) return { status: 'Unavailable', isException: true, priority: 6, reasonAvailability: 'absent' }
-  if (quality === 'Good') return { quality, status: 'Good', isException: false, priority: 0, reasonAvailability: 'authoritative' }
+  if (!quality) return { status: 'Unavailable', isException: true, priority: 6, qualityRecognition: 'unrecognized' }
+  if (quality === 'Good') return { quality, status: 'Good', isException: false, priority: 0, qualityRecognition: 'recognized' }
   const priority = quality === 'Bad' ? 1 : quality === 'Missing' ? 3 : 5
-  return { quality, status: quality, isException: true, priority, reasonAvailability: 'authoritative' }
+  return { quality, status: quality, isException: true, priority, qualityRecognition: 'recognized' }
 }
 
 function dashboardRecordTotal(record: { count: number; items: unknown[] }): number {
@@ -163,8 +163,8 @@ export function collectDashboardExceptions(snapshot: OperationalDashboardSnapsho
     const presentation = dashboardQualityPresentation(rawQuality)
     if (presentation.isException) items.push({
       key: `quality:${stableExceptionIdentity(snapshot, item)}:${rawQuality === undefined ? 'absent' : String(rawQuality)}`, kind: 'quality', priority: presentation.priority, status: presentation.status, title: `Chất lượng dữ liệu: ${pointLabel(snapshot, item)}`,
-      observed: presentation.reasonAvailability === 'authoritative' ? `Bản ghi hiện tại có trạng thái ${presentation.quality}.` : DASHBOARD_QUALITY_UNRECOGNIZED,
-      evidence: presentation.reasonAvailability === 'authoritative' ? 'Quality được lấy trực tiếp từ Operational Dashboard response; lý do chi tiết không có trong contract này.' : DASHBOARD_QUALITY_UNRECOGNIZED,
+      observed: presentation.qualityRecognition === 'recognized' ? `Bản ghi hiện tại có trạng thái ${presentation.quality}.` : DASHBOARD_QUALITY_UNRECOGNIZED,
+      evidence: presentation.qualityRecognition === 'recognized' ? 'Quality được lấy trực tiếp từ Operational Dashboard response; lý do chi tiết không có trong contract này.' : DASHBOARD_QUALITY_UNRECOGNIZED,
       nextAction: 'Mở Measurement để xem timestamp, nguồn và chi tiết chất lượng.', tone: presentation.status === 'Bad' ? 'danger' : 'warning',
     })
   }
