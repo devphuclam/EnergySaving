@@ -174,7 +174,7 @@ h2 { font-size: 1.125rem; margin: 0 0 .5rem; }
 .chart-metadata dt { color: var(--muted); font-size: .7rem; font-weight: 750; text-transform: uppercase; }
 .chart-metadata dd { font-size: .8rem; margin: .15rem 0 0; overflow-wrap: anywhere; }
 .evidence-chart { margin: .5rem 0 0; }
-.evidence-chart svg { background: #fbfcfe; border: 1px solid var(--color-border); border-radius: .3rem; display: block; height: auto; max-width: 100%; }
+.evidence-chart svg { background: #fbfcfe; border: 1px solid var(--color-border); border-radius: .3rem; display: block; height: auto; max-width: 100%; width: 100%; }
 .chart-axis { stroke: #9aa9b8; stroke-width: 1; }.chart-line { stroke: var(--color-primary-action); stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }.chart-threshold { stroke: var(--color-warning); stroke-width: 2; }.chart-point { stroke: white; stroke-width: 2; }.chart-point-good { fill: var(--color-success); }.chart-point-uncertain { fill: var(--color-warning); }.chart-point-bad { fill: var(--color-danger); }.chart-point-missing { fill: var(--color-text-secondary); }
 .evidence-chart figcaption { color: var(--muted); font-size: .75rem; margin-top: .5rem; }
 .chart-alternative { margin-top: .75rem; }.chart-alternative summary { color: var(--color-primary-action); cursor: pointer; font-size: .8rem; font-weight: 700; }.chart-alt-table { margin-top: .6rem; }

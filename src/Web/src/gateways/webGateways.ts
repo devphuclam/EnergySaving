@@ -683,8 +683,8 @@ export const webGateways: WebGateways = {
           queriedAtUtc?: string
           errorCode?: string
         }>(`/api/v1/telemetry/workspace/current?${query}`, { signal })
-        const noData = current.dataState === 'NoData' || current.dataState === 'NotConfigured'
-        const state: GatewayState = current.dataState === 'Data' ? 'ready' : noData ? 'no-data' : 'conflict'
+        const noData = current.dataState === 'NoData'
+        const state: GatewayState = current.dataState === 'Data' || current.dataState === 'NotConfigured' ? 'ready' : noData ? 'no-data' : 'conflict'
         return {
           state,
           value: current.value ?? null,

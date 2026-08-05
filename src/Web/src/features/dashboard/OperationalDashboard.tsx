@@ -3,7 +3,7 @@ import { ChartContainer } from '../../components/charts/ChartContainer'
 import { PageHeader } from '../../components/context/PageHeader'
 import { DataQualityIndicator, type DataQuality } from '../../components/status/DataQualityIndicator'
 import { FreshnessIndicator, type Freshness } from '../../components/status/FreshnessIndicator'
-import { OperationalStatusBadge } from '../../components/status/OperationalStatusBadge'
+import { OperationalStatusBadge, type OperationalStatus } from '../../components/status/OperationalStatusBadge'
 import { BlockedState } from '../../components/feedback/BlockedState'
 import { EmptyState } from '../../components/feedback/EmptyState'
 import { ErrorState } from '../../components/feedback/ErrorState'
@@ -42,12 +42,39 @@ function textOf(item: Record<string, unknown>, ...keys: string[]): string | unde
   return value === undefined ? undefined : String(value)
 }
 
-function itemLabel(item: Record<string, unknown>): string {
-  return textOf(item, 'name', 'code', 'description', 'status', 'id', 'pointId') ?? 'Không xác định'
+function pointIdOf(item: Record<string, unknown>): string | undefined {
+  return textOf(item, 'pointId', 'PointId', 'id', 'Id')
+}
+
+export const DASHBOARD_QUALITY_REASON_UNAVAILABLE = 'Dashboard contract không cung cấp quality reason.'
+
+function pointLabel(snapshot: OperationalDashboardSnapshot, item: Record<string, unknown>): string {
+  const pointId = pointIdOf(item)
+  const point = snapshot.points.items.find(candidate => pointId !== undefined && pointIdOf(candidate) === pointId)
+  return textOf(point ?? {}, 'code', 'description', 'name')
+    ?? textOf(item, 'code', 'description', 'name')
+    ?? pointId
+    ?? 'Không xác định'
 }
 
 function qualityOf(value: unknown): DataQuality | undefined {
   return value === 'Good' || value === 'Uncertain' || value === 'Bad' || value === 'Missing' ? value : undefined
+}
+
+export type DashboardHealthPresentation = {
+  status: OperationalStatus
+  freshness: Freshness
+}
+
+export function dashboardHealthPresentation(value: unknown): DashboardHealthPresentation {
+  switch (value) {
+    case 'Online': return { status: 'Good', freshness: 'Live' }
+    case 'Stale': return { status: 'Stale', freshness: 'Stale' }
+    case 'NoData': return { status: 'Missing', freshness: 'Degraded' }
+    case 'Suspended': return { status: 'Blocked', freshness: 'Degraded' }
+    case 'Decommissioned': return { status: 'Unavailable', freshness: 'Degraded' }
+    default: return { status: 'Unavailable', freshness: 'Unavailable' }
+  }
 }
 
 export function dashboardExceptionItems(snapshot: OperationalDashboardSnapshot): DashboardException[] {
@@ -60,18 +87,19 @@ export function dashboardExceptionItems(snapshot: OperationalDashboardSnapshot):
     nextAction: 'Mở Setup để xem bước được phép tiếp theo.', tone: 'warning',
   })
   for (const [index, item] of snapshot.health.items.slice(0, 8).entries()) {
-    const status = textOf(item, 'status', 'Status') ?? 'Unavailable'
-    if (!['Online', 'Good', 'Available'].includes(status)) items.push({
-      key: `health-${index}`, title: `Sức khỏe nguồn: ${itemLabel(item)}`,
-      observed: `Nguồn đang ở trạng thái ${status}.`,
+    const status = textOf(item, 'status', 'Status')
+    const presentation = dashboardHealthPresentation(status)
+    if (status !== 'Online') items.push({
+      key: `health-${index}`, title: `Sức khỏe nguồn: ${pointLabel(snapshot, item)}`,
+      observed: `Nguồn đang ở trạng thái ${status ?? 'Unknown'}.`,
       evidence: textOf(item, 'lastReceivedAtUtc', 'LastReceivedAtUtc') ? `Lần nhận cuối: ${textOf(item, 'lastReceivedAtUtc', 'LastReceivedAtUtc')}.` : 'Hợp đồng không trả lần nhận cuối cho bản ghi này.',
-      nextAction: 'Mở Measurement để kiểm tra nguồn và dữ liệu hiện tại.', tone: status === 'Decommissioned' ? 'danger' : 'warning',
+      nextAction: 'Mở Measurement để kiểm tra nguồn và dữ liệu hiện tại.', tone: presentation.status === 'Unavailable' ? 'danger' : 'warning',
     })
   }
   for (const [index, item] of snapshot.latest.items.slice(0, 8).entries()) {
     const quality = qualityOf(valueOf(item, 'quality', 'Quality'))
     if (quality === 'Bad' || quality === 'Uncertain' || quality === 'Missing') items.push({
-      key: `quality-${index}`, title: `Chất lượng dữ liệu: ${itemLabel(item)}`,
+      key: `quality-${index}`, title: `Chất lượng dữ liệu: ${pointLabel(snapshot, item)}`,
       observed: `Bản ghi hiện tại có trạng thái ${quality}.`,
       evidence: 'Quality được lấy trực tiếp từ Operational Dashboard response; lý do chi tiết không có trong contract này.',
       nextAction: 'Mở Measurement để xem timestamp, nguồn và chi tiết chất lượng.', tone: quality === 'Bad' ? 'danger' : 'warning',
@@ -87,9 +115,11 @@ export function dashboardExceptionItems(snapshot: OperationalDashboardSnapshot):
 }
 
 export function dashboardFreshness(snapshot: OperationalDashboardSnapshot): Freshness {
-  const statuses = snapshot.health.items.map(item => textOf(item, 'status', 'Status'))
-  if (statuses.some(status => status === 'Stale')) return 'Stale'
-  if (statuses.some(status => ['NoData', 'Suspended', 'Decommissioned'].includes(status ?? ''))) return 'Degraded'
+  if (snapshot.health.items.length === 0) return 'Unavailable'
+  const presentations = snapshot.health.items.map(item => dashboardHealthPresentation(textOf(item, 'status', 'Status')))
+  if (presentations.some(presentation => presentation.freshness === 'Degraded')) return 'Degraded'
+  if (presentations.some(presentation => presentation.freshness === 'Stale')) return 'Stale'
+  if (presentations.every(presentation => presentation.freshness === 'Live')) return 'Live'
   return 'Unavailable'
 }
 
@@ -116,11 +146,11 @@ function DashboardReady({ snapshot, onNewSetup, onContinueSetup, onNavigate }: {
   const runtime = dashboardRuntimePresentation(snapshot)
   const runtimeStatus = snapshot.runtime.status === 'Available' ? 'Available' : 'Unavailable'
   return <>
-    <section className="dashboard-scope-strip" aria-label="Bằng chứng ngữ cảnh dashboard"><div><span className="context-label">Scope</span><strong>Phạm vi được cấp</strong></div><div><span className="context-label">Múi giờ</span><strong>Asia/Ho_Chi_Minh</strong></div><div><span className="context-label">Cutoff</span><strong>Chưa có cutoff trong endpoint</strong></div><div><span className="context-label">Freshness</span><FreshnessIndicator freshness={freshness} cutoff="Chưa có cutoff" /></div></section>
+    <section className="dashboard-scope-strip" aria-label="Bằng chứng ngữ cảnh dashboard"><div><span className="context-label">Scope</span><strong>Phạm vi được cấp</strong></div><div><span className="context-label">Múi giờ</span><strong>Asia/Ho_Chi_Minh</strong></div><div><span className="context-label">Cutoff</span><strong>Chưa có cutoff trong contract</strong></div><div><span className="context-label">Freshness</span><FreshnessIndicator freshness={freshness} /><span className="metadata">Cutoff chưa có trong contract</span></div></section>
     <ExceptionList items={exceptions} onNavigate={onNavigate} />
     <DashboardSummary snapshot={snapshot} onNavigate={onNavigate} />
-    <div className="dashboard-evidence-grid"><section className="evidence-panel" aria-labelledby="dashboard-health-title"><div className="section-heading"><div><p className="card-kicker">Source health</p><h2 id="dashboard-health-title">Tình trạng nguồn</h2></div><button className="button button-secondary" type="button" onClick={() => onNavigate('telemetry')}>Mở Measurement</button></div>{snapshot.health.items.length === 0 ? <EmptyState title="Chưa có source health" message="Response hiện tại không trả bản ghi source health trong phạm vi này." /> : <ul className="evidence-list">{snapshot.health.items.slice(0, 8).map((item, index) => <li key={`${itemLabel(item)}-${index}`}><strong>{itemLabel(item)}</strong><OperationalStatusBadge status={textOf(item, 'status', 'Status') === 'Online' ? 'Good' : 'Unavailable'} detail={textOf(item, 'status', 'Status') ?? 'Unavailable'} /><span className="metadata">{textOf(item, 'lastReceivedAtUtc', 'LastReceivedAtUtc') ?? 'Lần nhận cuối: chưa có'}</span></li>)}</ul>}</section>
-      <section className="evidence-panel" aria-labelledby="dashboard-quality-title"><div className="section-heading"><div><p className="card-kicker">Data quality</p><h2 id="dashboard-quality-title">Chất lượng giá trị mới nhất</h2></div><span className="metadata">Lý do chi tiết chỉ có ở Measurement</span></div>{snapshot.latest.items.length === 0 ? <EmptyState title="Chưa có giá trị mới nhất" message="Không có bản ghi hiện tại trong response; đây không phải giá trị zero." /> : <ul className="evidence-list">{snapshot.latest.items.slice(0, 8).map((item, index) => { const quality = qualityOf(valueOf(item, 'quality', 'Quality')); return <li key={`${itemLabel(item)}-${index}`}><strong>{itemLabel(item)}</strong>{quality ? <DataQualityIndicator quality={quality} reason="Chi tiết reason không có trong dashboard contract" /> : <OperationalStatusBadge status="Unavailable" detail="Quality chưa có" />}<span className="numeric">{String(valueOf(item, 'value', 'Value') ?? 'Missing')} {String(valueOf(item, 'unit', 'Unit') ?? '')}</span></li> })}</ul>}</section></div>
+    <div className="dashboard-evidence-grid"><section className="evidence-panel" aria-labelledby="dashboard-health-title"><div className="section-heading"><div><p className="card-kicker">Source health</p><h2 id="dashboard-health-title">Tình trạng nguồn</h2></div><button className="button button-secondary" type="button" onClick={() => onNavigate('telemetry')}>Mở Measurement</button></div>{snapshot.health.items.length === 0 ? <EmptyState title="Chưa có source health" message="Response hiện tại không trả bản ghi source health trong phạm vi này." /> : <ul className="evidence-list">{snapshot.health.items.slice(0, 8).map((item, index) => { const status = textOf(item, 'status', 'Status'); const presentation = dashboardHealthPresentation(status); const received = textOf(item, 'lastReceivedAtUtc', 'LastReceivedAtUtc'); return <li key={`${pointLabel(snapshot, item)}-${index}`}><strong>{pointLabel(snapshot, item)}</strong><OperationalStatusBadge status={presentation.status} detail={status ?? 'Unknown'} /><span className="metadata">{received ? `Lần nhận cuối: ${received}` : 'Lần nhận cuối: chưa có'}</span></li> })}</ul>}</section>
+      <section className="evidence-panel" aria-labelledby="dashboard-quality-title"><div className="section-heading"><div><p className="card-kicker">Data quality</p><h2 id="dashboard-quality-title">Chất lượng giá trị mới nhất</h2></div><span className="metadata">{DASHBOARD_QUALITY_REASON_UNAVAILABLE}</span></div>{snapshot.latest.items.length === 0 ? <EmptyState title="Chưa có giá trị mới nhất" message="Không có bản ghi hiện tại trong response; đây không phải giá trị zero." /> : <ul className="evidence-list">{snapshot.latest.items.slice(0, 8).map((item, index) => { const quality = qualityOf(valueOf(item, 'quality', 'Quality')); return <li key={`${pointLabel(snapshot, item)}-${index}`}><strong>{pointLabel(snapshot, item)}</strong>{quality ? <DataQualityIndicator quality={quality} /> : <OperationalStatusBadge status="Unavailable" detail="Quality chưa có" />}<span className="numeric">{String(valueOf(item, 'value', 'Value') ?? 'Missing')} {String(valueOf(item, 'unit', 'Unit') ?? '')}</span></li> })}</ul>}</section></div>
     <section className="card setup-runtime-panel" aria-labelledby="dashboard-setup-title"><div><p className="card-kicker">Thiết lập và runtime</p><h2 id="dashboard-setup-title">Mức sẵn sàng kích hoạt</h2><p className="muted">{snapshot.incompleteSetup.count > 0 ? `${snapshot.incompleteSetup.count} chuỗi chưa hoàn tất; bước tiếp theo ${snapshot.incompleteSetup.nextStep ?? 'chưa có trong response'}.` : 'Không có chuỗi chưa hoàn tất trong response.'}</p></div><div className="dashboard-action-row">{snapshot.incompleteSetup.count > 0 && <button className="button button-primary" type="button" onClick={onContinueSetup}>Tiếp tục Setup</button>}{snapshot.incompleteSetup.count === 0 && snapshot.roleMode === 'Administrator' && <button className="button button-secondary" type="button" onClick={onNewSetup}>Tạo cấu hình</button>}<OperationalStatusBadge status={runtimeStatus === 'Available' ? 'Available' : 'Unavailable'} detail={`Simulator ${runtime.label}`} /></div></section>
     <ChartContainer title="Xu hướng lịch sử" description="Chỉ hiển thị khi endpoint cung cấp historical series có timestamp." points={[]} metadata={{ timezone: 'Asia/Ho_Chi_Minh', coverage: 'Coverage: chưa có trong contract' }} unavailableReason="Operational Dashboard response hiện chỉ có summary/latest; không có historical series. Không dựng trend từ một giá trị hiện tại." />
   </>
@@ -147,5 +177,5 @@ export function OperationalDashboard({ onNewSetup, onContinueSetup, onNavigate }
   else if (state === 'no-data') content = <EmptyState title="Chưa có dữ liệu dashboard" message="Không có dữ liệu hợp lệ trong response hiện tại; không hiển thị zero thay thế." action={retry} />
   else content = <DashboardReady snapshot={snapshot} onNewSetup={onNewSetup} onContinueSetup={onContinueSetup} onNavigate={onNavigate} />
 
-  return <section className="page" aria-labelledby="dashboard-title"><PageHeader eyebrow="Không gian vận hành" title="Bảng vận hành" description="Exception, source health và dữ liệu hiện tại trong phạm vi được cấp; không tự động chẩn đoán hoặc điều khiển thiết bị." /><FeedbackBanner tone="info" title="Bằng chứng có giới hạn" message={`Dashboard response: ${state}. Coverage, cutoff và historical series chỉ được hiển thị khi contract cung cấp trực tiếp.`} live={false} />{content}</section>
+  return <section className="page" aria-labelledby="dashboard-title"><PageHeader titleId="dashboard-title" eyebrow="Không gian vận hành" title="Bảng vận hành" description="Exception, source health và dữ liệu hiện tại trong phạm vi được cấp; không tự động chẩn đoán hoặc điều khiển thiết bị." /><FeedbackBanner tone="info" title="Bằng chứng có giới hạn" message={`Dashboard response: ${state}. Coverage, cutoff và historical series chỉ được hiển thị khi contract cung cấp trực tiếp.`} live={false} />{content}</section>
 }

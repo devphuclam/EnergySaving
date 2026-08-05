@@ -1,5 +1,7 @@
 # Feature 004 — Phase 2 Verification
 
+> Historical record from the first Phase 2 invocation. The superseding corrective record is [phase-02-corrective-review.md](phase-02-corrective-review.md); its task meanings and dependency graph replace the original Phase 2 labels without deleting this history.
+
 ## Execution boundary
 
 | Item | Result |
@@ -11,18 +13,29 @@
 | Backend/API/Worker/database/auth/deployment/package files | NOT CHANGED |
 | PostgreSQL | NOT REQUIRED for this UI-only phase; port 5432 was not contacted |
 
-## Dependency correction
+## Historical dependency record (superseded)
 
-The task graph was corrected before implementation:
+The first implementation recorded the following graph before corrective normalization:
 
 | Task | Corrected dependency |
 |---|---|
-| T029 dashboard | T028, T031, T016, T017 |
-| T030 telemetry | T028, T031, T016, T017 |
-| T031 chart foundation | T028 |
-| T032 states | T029, T030, T031 |
+| Historical T029 dashboard | T028, T031, T016, T017 |
+| Historical T030 telemetry | T028, T031, T016, T017 |
+| Historical T031 chart foundation | T028 |
+| Historical T032 states | T029, T030, T031 |
 
-The intentional numeric edges T029→T031 and T030→T031 reflect the requested consumer-to-contract references in task text; execution remains topological: `T028 → T031 → T029/T030 → T032 → T033 → T034/T035 → T036`. No task consumes an unavailable chart component in the actual execution order and no dependency cycle exists.
+The original checkpoint called the T029→T031 and T030→T031 edges intentional. This was a governance defect under the locked no-forward-dependency rule and is corrected in `tasks.md` as `T028 → T029 → T030/T031 → T032 → T033 → T034/T035 → T036`.
+
+### Superseding task meanings
+
+| Task | Corrective meaning |
+|---|---|
+| T028 | Red evidence |
+| T029 | C-17 chart foundation |
+| T030 | Dashboard semantics |
+| T031 | Telemetry semantics |
+| T032 | Non-happy-path states |
+| T033–T036 | Verification, Standards review, Specification review, checkpoint |
 
 ## UI UX Pro Max evidence
 
@@ -38,18 +51,18 @@ $py='C:\Users\TD-999\.cache\codex-runtimes\codex-primary-runtime\dependencies\py
 
 Applied: light evidence-first hierarchy, compact operational lists, visible focus/semantic headings, non-color status cues, reduced-motion-safe behavior, SVG chart with text/table alternative, explicit Missing gaps and no zero coercion. Rejected: marketing/hero recommendations, dark theme, external fonts, GSAP, chart libraries, and any package/dependency change because DOC-08 and repository policy prohibit them.
 
-## T028 red evidence
+## Historical T028 red evidence
 
 `src/Web/src/test/dashboard-telemetry-red-evidence.test.tsx` was created as the planned source-visible red fixture and now asserts dashboard/telemetry imports, exception-first stale/missing evidence, zero preservation, and chart gaps. `src/Web/src/test/chart-container.test.tsx` and `src/Web/src/test/dashboard-telemetry-states.test.tsx` provide the companion source-visible checks. There is no installed frontend runtime test runner in `src/Web/package.json`; runtime execution is `BLOCKED_BY_PACKAGE_POLICY`, not PASS. TypeScript compilation is covered by the build below.
 
-## T029 dashboard evidence
+## Historical T029 dashboard evidence
 
 - `OperationalDashboard.tsx` now presents scope, context timezone, cutoff limitation, freshness, exception list, source health, quality, summary evidence, setup/runtime status, and safe next actions.
 - Exception items are derived only from existing `health`, `latest`, `points`, and `incompleteSetup` fields.
 - Coverage and historical series are explicitly unavailable; no trend is built from a single latest value.
 - No root-cause, savings, automatic decision, equipment-control, or out-of-scope metadata claim is added.
 
-## T030 telemetry evidence
+## Historical T030 telemetry evidence
 
 - `PointCurrentRoute.tsx` keeps hierarchy selection and refresh coordination while presenting latest value, unit, quality/reason, source/receipt/query timestamps, freshness, source health, run counters, and no-data threshold.
 - Numeric zero remains `0`; absent data is rendered as `No Data`/Missing.
@@ -57,7 +70,7 @@ Applied: light evidence-first hierarchy, compact operational lists, visible focu
 - `webGateways.ts` maps `lastRefreshAt` only from authoritative `queriedAtUtc`; it no longer invents a browser timestamp.
 - Coverage, cutoff, and historical points are unavailable when absent from the current response contract.
 
-## T031 / C-17 chart evidence
+## Historical T031 / C-17 chart evidence
 
 | Requirement | Evidence |
 |---|---|
@@ -70,7 +83,7 @@ Applied: light evidence-first hierarchy, compact operational lists, visible focu
 | Motion | no chart animation; reduced-motion CSS remains active |
 | Production history | no historical series is fabricated; empty state is explicit |
 
-## T032 state evidence
+## Historical T032 state evidence
 
 The dashboard and telemetry routes use the shared state owners: LoadingState, EmptyState, ErrorState, ForbiddenState, BlockedState, RetryState, FeedbackBanner, DataQualityIndicator, FreshnessIndicator and OperationalStatusBadge. Configuration absence, no received data, numeric zero, stale evidence, degraded health, forbidden scope, dependency block and retryable failure are represented by different text/status treatments.
 
@@ -88,3 +101,7 @@ The dashboard and telemetry routes use the shared state owners: LoadingState, Em
 ## Scope and safety
 
 No package manifest or lockfile, backend/API/Worker, database/migration, authentication, deployment, Docker, or 5432-targeting change was made. No secret was read, printed, or persisted. All unavailable contract fields are labelled rather than invented.
+
+## Superseding corrective decision
+
+P2-C01–P2-C06 are evaluated in [phase-02-corrective-review.md](phase-02-corrective-review.md). Coverage, cutoff, Dashboard source timestamp/quality reason, historical series and missing intervals remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`; they are not implementation PASS and do not authorize backend work. After the corrective High findings close, this limitation does not block independent Phase 3 Configuration Management work.

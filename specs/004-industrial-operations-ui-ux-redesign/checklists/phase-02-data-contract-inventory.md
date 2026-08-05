@@ -18,9 +18,9 @@ Scope: T028–T036 only; read-only inventory, no API/backend/database changes.
 | Receipt timestamp | `latest[].receivedAtUtc` | `receivedAtUtc` | AVAILABLE_DIRECTLY |
 | Freshness/cutoff | Health status and last-received can support safe freshness mapping; no cutoff | Health status, expected interval, no-data-after; no cutoff | AVAILABLE_BY_SAFE_MAPPING for freshness; cutoff ABSENT_FROM_EXISTING_CONTRACT |
 | Source health | `health[].status`, `lastReceivedAtUtc` | `health.status` and run fields | AVAILABLE_DIRECTLY |
-| Coverage | ABSENT | ABSENT | BLOCKED_BY_EXISTING_CONTRACT; never render a fabricated numerator/denominator |
-| Historical points | ABSENT (summary/latest only) | ABSENT | BLOCKED_BY_EXISTING_CONTRACT; chart is truthful Unavailable |
-| Missing intervals/gaps | ABSENT | ABSENT | BLOCKED_BY_EXISTING_CONTRACT; SVG fixture semantics only |
+| Coverage | ABSENT | ABSENT | DEFERRED_EXTERNAL_CONTRACT_LIMITATION; never render a fabricated numerator/denominator |
+| Historical points | ABSENT (summary/latest only) | ABSENT | DEFERRED_EXTERNAL_CONTRACT_LIMITATION; chart is truthful Unavailable |
+| Missing intervals/gaps | ABSENT | ABSENT | DEFERRED_EXTERNAL_CONTRACT_LIMITATION; SVG fixture semantics only |
 | Timezone | Not returned; existing context contract uses `Asia/Ho_Chi_Minh` | Not returned; existing context contract uses `Asia/Ho_Chi_Minh` | AVAILABLE_BY_SAFE_MAPPING, explicitly labelled context |
 | Scope | Server-scoped snapshot and authenticated session scope | Server-scoped hierarchy options and selected scope | AVAILABLE_BY_SAFE_MAPPING/direct selection; no out-of-scope metadata is derived |
 
@@ -36,7 +36,7 @@ Scope: T028–T036 only; read-only inventory, no API/backend/database changes.
 
 ## Boundary decisions
 
-No value, timestamp, quality reason, cutoff, coverage, or historical point is invented. Run counters are not coverage. The Phase 2 UI therefore exposes `Unavailable`/`No Data` when the existing contract cannot support the requested evidence. A future contract extension is outside T028–T036 and must be planned before a production coverage or historical-series claim can be made.
+No value, timestamp, quality reason, cutoff, coverage, or historical point is invented. Run counters are not coverage. The Phase 2 UI therefore exposes `Unavailable`/`No Data` when the existing contract cannot support the requested evidence. These fields remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION`; a future contract extension is outside T028–T036 and must be planned before a production coverage or historical-series claim can be made.
 
 ## Verification commands
 

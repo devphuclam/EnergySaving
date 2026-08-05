@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
 import { Breadcrumbs, type Breadcrumb } from './Breadcrumbs'
 
-export function PageHeader({ eyebrow, title, description, breadcrumbs, primaryAction, secondaryActions }: {
+export function PageHeader({ eyebrow, title, titleId, description, breadcrumbs, primaryAction, secondaryActions }: {
   eyebrow?: string
   title: string
+  titleId?: string
   description?: string
   breadcrumbs?: readonly Breadcrumb[]
   primaryAction?: ReactNode
@@ -13,7 +14,7 @@ export function PageHeader({ eyebrow, title, description, breadcrumbs, primaryAc
     {breadcrumbs && <Breadcrumbs items={breadcrumbs} />}
     <div className="page-header-row"><div>
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-      <h1 data-route-title tabIndex={-1}>{title}</h1>
+      <h1 id={titleId} data-route-title tabIndex={-1}>{title}</h1>
       {description && <p className="lede">{description}</p>}
     </div><div className="page-actions">{secondaryActions}{primaryAction}</div></div>
   </header>

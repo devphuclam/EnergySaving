@@ -61,17 +61,17 @@ below repeats the paths it owns so the ledger remains executable without opening
 
 ## Phase 2 — Dashboard and Measurement visibility
 
-**Goal**: Deliver exception-first operational visibility for US2 and US5 without unsupported diagnosis or savings claims. Chart foundation T031 is created before dashboard/telemetry consumers T029/T030.
+**Goal**: Correct Phase 2 evidence semantics for US2 and US5 without unsupported diagnosis or savings claims. The locked task order is red evidence → chart foundation → dashboard/telemetry consumers → state coverage.
 
-- [x] T028 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Create the planned red-evidence test `src/Web/src/test/dashboard-telemetry-red-evidence.test.tsx` for dashboard exceptions, source health, coverage/freshness, zero-versus-No Data, quality states, missing chart gaps, and textual chart alternatives. Depends: T027; Verify: record the pre-implementation red result in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md`.
-- [x] T029 [US2] [RUNNABLE_NOW] Phase 2 — Modify the existing route owner `src/Web/src/features/dashboard/OperationalDashboard.tsx` and consume the exact shared owners `src/Web/src/components/status/DataQualityIndicator.tsx`, `src/Web/src/components/status/FreshnessIndicator.tsx`, `src/Web/src/components/feedback/FeedbackBanner.tsx`, `src/Web/src/components/feedback/EmptyState.tsx`, and `src/Web/src/components/charts/ChartContainer.tsx` for an exception-first hierarchy with Missing/No Data, source health, coverage, freshness, trend drill-down, and human next actions. Depends: T028, T031, T016, T017; Verify: record US2 and FR-006/018 evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md`, including absence of root-cause, savings, automatic decision, or equipment-control claims.
-- [x] T030 [US5] [RUNNABLE_NOW] Phase 2 — Modify `src/Web/src/features/telemetry/PointCurrentRoute.tsx` and `src/Web/src/features/telemetry/telemetryRefreshCoordinator.ts`; consume `src/Web/src/components/status/DataQualityIndicator.tsx`, `src/Web/src/components/status/FreshnessIndicator.tsx`, and `src/Web/src/components/charts/ChartContainer.tsx` for zero, No Data/Missing, Good/Uncertain/Bad, stale/unavailable, source/receipt timestamps, cutoff, coverage, and quality reasons. Depends: T028, T031, T016, T017; Verify: record US5 and FR-011/012 fixture evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md` without color-only status.
-- [x] T031 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Create `src/Web/src/components/charts/ChartContainer.tsx` and `src/Web/src/components/charts/ChartTextAlternative.tsx` for C-17 self-authored SVG, visible Missing gaps, threshold/marker semantics, metric/unit/timezone/cutoff/quality/coverage metadata, and textual/table alternative. Consume them from the exact route owners `src/Web/src/features/dashboard/OperationalDashboard.tsx` and `src/Web/src/features/telemetry/PointCurrentRoute.tsx`. Create `src/Web/src/test/chart-container.test.tsx`. Depends: T028; Verify: record chart evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md` for FR-012, FR-018, FR-020, SC-003, and SC-011 without a chart dependency.
-- [x] T032 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Modify the exact route owners `src/Web/src/features/dashboard/OperationalDashboard.tsx` and `src/Web/src/features/telemetry/PointCurrentRoute.tsx`; consume the exact state owners `src/Web/src/components/feedback/FeedbackBanner.tsx`, `src/Web/src/components/feedback/LoadingState.tsx`, `src/Web/src/components/feedback/EmptyState.tsx`, `src/Web/src/components/feedback/ErrorState.tsx`, `src/Web/src/components/feedback/ForbiddenState.tsx`, `src/Web/src/components/feedback/ConflictState.tsx`, `src/Web/src/components/feedback/BlockedState.tsx`, and `src/Web/src/components/feedback/RetryState.tsx` for loading, empty, stale/partial, error, forbidden, blocked, and retry states. Create `src/Web/src/test/dashboard-telemetry-states.test.tsx`. Depends: T029, T030, T031; Verify: record SC-004 and FR-004 state evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md`, distinguishing configuration absence, no received data, and degraded evidence.
-- [x] T033 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Run the exact test sources `src/Web/src/test/dashboard-telemetry-red-evidence.test.tsx`, `src/Web/src/test/chart-container.test.tsx`, and `src/Web/src/test/dashboard-telemetry-states.test.tsx`, installed-tree `npm run lint`, `npm run build`, and `scripts/harness.ps1 -Mode Fast -Feature 004-industrial-operations-ui-ux-redesign`; record actual results in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md` and do not claim visual PASS without approved rendering evidence. Depends: T032; Verify: evidence owner `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-verification.md` records explicit PASS/FAIL/BLOCKED/NOT_RUN.
-- [x] T034 [RUNNABLE_NOW] Phase 2 — Perform the Standards review for dashboard and measurement in `checklists/phase-02-review.md`; Depends: T033; Verify: evidence owner `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-review.md` records accessibility, status semantics, data trust, and no-unsupported-claim findings with no unresolved Critical/High issue.
-- [x] T035 [RUNNABLE_NOW] Phase 2 — Perform the Specification review for dashboard and measurement in `checklists/phase-02-review.md`; Depends: T033; Verify: evidence owner `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-review.md` traces US2/US5, FR-006, FR-011, FR-012, FR-018, FR-020, SC-002, SC-003, SC-009, and SC-011.
-- [x] T036 [RUNNABLE_NOW] Phase 2 — Create the Phase 2 checkpoint and explicit stop in `checklists/phase-02-checkpoint.md`; Depends: T034, T035; Verify: evidence owner `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-checkpoint.md` records evidence counts, capability completeness, progression decision, release decision, and next-phase boundary.
+- [x] T028 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Create the planned red-evidence test `src/Web/src/test/dashboard-telemetry-red-evidence.test.tsx` for dashboard health/freshness, point identity, telemetry state classification, zero-versus-No Data, quality states, missing chart gaps, and textual chart alternatives. Depends: T027; Verify: record corrective red evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-corrective-review.md`.
+- [x] T029 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Create/repair `src/Web/src/components/charts/ChartContainer.tsx` and `src/Web/src/components/charts/ChartTextAlternative.tsx` for C-17 fail-closed quality, visible Missing gaps, constant-series domains, unique component-local IDs, responsive SVG, metadata and table alternative. Create/extend `src/Web/src/test/chart-container.test.tsx`. Depends: T028; Verify: record P2-C01/P2-C05 chart evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-corrective-review.md`.
+- [x] T030 [US2] [RUNNABLE_NOW] Phase 2 — Correct the exact route owner `src/Web/src/features/dashboard/OperationalDashboard.tsx` for deterministic source-health/freshness mapping, point identity joins, truthful quality-reason availability, explicit timestamp/cutoff labels and exception-first actions. Depends: T028, T029, T016, T017; Verify: record P2-C02 evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-corrective-review.md`.
+- [x] T031 [US5] [RUNNABLE_NOW] Phase 2 — Correct the exact route owner `src/Web/src/features/telemetry/PointCurrentRoute.tsx` and existing gateway mapping for NotConfigured versus NoData, conflict/forbidden/dependency/expired states, retryable stale retention, interval formatting, zero/quality semantics and chart context. Depends: T028, T029, T016, T017; Verify: record P2-C03 evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-corrective-review.md`.
+- [x] T032 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Correct the exact state owners and extend `src/Web/src/test/dashboard-telemetry-states.test.tsx` for loading, no selection, configuration absence, No Data, data zero, conflict, forbidden, expired, blocked, runtime error, stale and retryable recovery semantics. Depends: T030, T031, T029; Verify: record SC-004/FR-004 state evidence in `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-02-corrective-review.md`.
+- [x] T033 [US2] [US5] [RUNNABLE_NOW] Phase 2 — Run the exact source-visible checks, installed-tree `npm run lint`, `npm run build`, and `scripts/harness.ps1 -Mode Fast -Feature 004-industrial-operations-ui-ux-redesign`; record each actual PASS/FAIL/BLOCKED/NOT_RUN in `checklists/phase-02-corrective-review.md` and do not claim visual PASS without approved rendering evidence. Depends: T032; Verify: evidence owner `checklists/phase-02-corrective-review.md`.
+- [x] T034 [RUNNABLE_NOW] Phase 2 — Perform the corrective Standards review for dashboard and measurement in `checklists/phase-02-corrective-review.md`; Depends: T033; Verify: record accessibility, status semantics, data trust and no-unsupported-claim findings with no unresolved Critical/High issue.
+- [x] T035 [RUNNABLE_NOW] Phase 2 — Perform the corrective Specification review in `checklists/phase-02-corrective-review.md`; Depends: T033; Verify: trace US2/US5, FR-006, FR-011, FR-012, FR-018, FR-020, SC-002, SC-003, SC-009 and SC-011 without marking external contract gaps resolved.
+- [x] T036 [RUNNABLE_NOW] Phase 2 — Create the superseding corrective checkpoint and explicit stop in `checklists/phase-02-checkpoint.md`; Depends: T034, T035; Verify: record P2-C01–P2-C06, normalized task graph, evidence counts, progression decision, release decision and next-phase boundary.
 
 **Phase 2 stop**: `/speckit.implement` for Phase 2 stops after T036.
 
@@ -157,10 +157,10 @@ T010 → Phase 1 T011–T027 → Phase 2 T028–T036 → Phase 3 T037–T047
 | Requirements | Tasks |
 |---|---|
 | FR-001–FR-005, FR-025 | T013–T015, T022–T023 |
-| FR-006 | T029, T032, T035 |
+| FR-006 | T030, T032, T035 |
 | FR-007–FR-009, FR-014 | T038–T043, T046 |
 | FR-010 | T049–T050, T056 |
-| FR-011–FR-012 | T030–T032, T031, T035 |
+| FR-011–FR-012 | T029, T031–T032, T035 |
 | FR-013 | T018, T038, T051 |
 | FR-015 | T018, T051–T052 |
 | FR-016–FR-018 | T012, T016–T017, T029–T031, T060 |
@@ -176,8 +176,8 @@ T010 → Phase 1 T011–T027 → Phase 2 T028–T036 → Phase 3 T037–T047
 | Criteria | Tasks |
 |---|---|
 | SC-001 | T013–T015, T023, T025–T027 |
-| SC-002 | T029, T049–T050, T062, T064, T068 |
-| SC-003 | T030–T031, T060, T068 |
+| SC-002 | T030, T049–T050, T062, T064, T068 |
+| SC-003 | T029, T031, T060, T068 |
 | SC-004 | T017, T032, T043, T050, T068 |
 | SC-005 | T011, T014, T018–T021, T059 |
 | SC-006 | T014, T018, T023, T058 |
@@ -200,8 +200,8 @@ T010 → Phase 1 T011–T027 → Phase 2 T028–T036 → Phase 3 T037–T047
 | C-02 Sidebar/Rail/Drawer | T014, T022–T023, T058–T059 |
 | C-03 Top/Context Bar | T015, T023, T025–T027 |
 | C-04 Page Header/Breadcrumb | T015, T023, T059 |
-| C-05 Operational Status Badge | T016, T029–T032, T060 |
-| C-06 Data Quality Indicator | T016, T030–T032, T060 |
+| C-05 Operational Status Badge | T016, T030–T032, T060 |
+| C-06 Data Quality Indicator | T016, T031–T032, T060 |
 | C-07 Freshness Indicator | T016, T029–T032, T060 |
 | C-08 Feedback Banner/Notice | T017, T023, T032, T050 |
 | C-09 Non-happy-path state set | T017, T032, T043, T050, T068 |
@@ -212,7 +212,7 @@ T010 → Phase 1 T011–T027 → Phase 2 T028–T036 → Phase 3 T037–T047
 | C-14 ConfirmDialog/ReasonDialog | T020, T042, T059 |
 | C-15 Drawer/DetailPanel | T021, T049, T052, T059 |
 | C-16 Tabs | T021, T030, T052, T059 |
-| C-17 ChartContainer/text alternative | T031, T060, T068 |
+| C-17 ChartContainer/text alternative | T029, T060, T068 |
 
 ### Included route coverage
 
@@ -220,8 +220,8 @@ T010 → Phase 1 T011–T027 → Phase 2 T028–T036 → Phase 3 T037–T047
 |---|---|---|
 | `/` landing | T022 | T011, T024, T062, T068 |
 | `/setup` | T023 | T024, T062, T068 |
-| `/dashboard` | T023, T029, T032 | T033, T062, T068 |
-| `/telemetry` | T023, T030–T032 | T033, T062, T068 |
+| `/dashboard` | T023, T030, T032 | T033, T062, T068 |
+| `/telemetry` | T023, T029, T031–T032 | T033, T062, T068 |
 | `/configuration` and seven entities | T023, T038–T043 | T044, T062, T068 |
 | `/simulator` | T023, T049–T050 | T053–T054, T062, T068 |
 | `/audit` | T023, T051–T052 | T053–T054, T062, T068 |

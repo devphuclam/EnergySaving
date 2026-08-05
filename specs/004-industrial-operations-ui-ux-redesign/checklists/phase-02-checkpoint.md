@@ -50,3 +50,27 @@ Coverage, cutoff, dashboard source timestamp/quality reason, historical series a
 ## Explicit stop
 
 Stop `/speckit.implement` after T036. Do not execute T037 or any Phase 3 task in this run. The next permitted action is a separately authorized `/speckit.implement — Phase 3 only` after the contract limitation is resolved and the user explicitly requests it.
+
+## Superseding corrective checkpoint
+
+| Item | Corrective result |
+|---|---|
+| Starting baseline | `24265cd0252be94032f790655edfcf21f4776eee` |
+| Corrective branch | `fix/004-phase-02-evidence-corrections` |
+| Corrective task order | `T028 → T029 → T030/T031 → T032 → T033 → T034/T035 → T036` |
+| P2-C01–P2-C05 | Corrected; Critical 0 / High 0 |
+| P2-C06 | Evidence strengthened; source-visible checks remain type-checked only |
+| External contract limitation | `DEFERRED_EXTERNAL_CONTRACT_LIMITATION` |
+| Lint / build / Fast | Recorded in corrective review |
+| Full harness | `BLOCKED_BY_COMPANY_APPROVAL` (PASS=14; 2 approval blocks) |
+| Runtime frontend | `BLOCKED_BY_PACKAGE_POLICY` |
+| Browser/visual | `NOT_RUN` |
+| Accessibility automation | `BLOCKED_BY_PACKAGE_POLICY` |
+| Phase-2-complete | YES after corrective verification |
+| Progression to Phase 3 | YES once Critical/High remain zero; no backend contract work is required |
+| Full Feature 004 completion | NO |
+| Release-ready | NO |
+| T037 / Phase 3 executed | NO |
+| Next command | `/speckit.implement — Phase 3 only` |
+
+The original checkpoint above remains recognizable as the first invocation. This superseding section records the corrective governance outcome and does not mark external contract fields resolved.

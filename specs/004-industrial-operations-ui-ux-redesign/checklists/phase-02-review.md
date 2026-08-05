@@ -38,3 +38,7 @@ Specification finding count: **Critical 0 / High 0 / Medium 1 (combined contract
 - Phase 2 implementation/evidence is complete for its runnable UI boundary.
 - Progression to Phase 3: **NO** until the coverage/historical-series contract gap has an approved follow-up boundary; continuing would risk treating an essential evidence outcome as complete.
 - Release readiness: **NO**. This checkpoint is not a release or merge decision.
+
+## Superseded by corrective remediation
+
+This first review remains as historical evidence of the initial Phase 2 invocation. The corrective review reopens the six static findings P2-C01–P2-C06, closes the implementation findings, and changes the governance outcome to progression **YES** for independent Phase 3 work once Critical/High are zero. External contract gaps remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION` and Release-ready remains **NO**.
