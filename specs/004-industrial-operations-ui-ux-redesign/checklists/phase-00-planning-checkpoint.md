@@ -2,8 +2,8 @@
 
 **Feature**: 004 Industrial Operations UI/UX Redesign
 **Constitution**: 1.1.0
-**Baseline**: `9d10fb6510863418f7871c4bdc05d1cf0a7ade4c` (authoritative merged `main`; verified)
-**Branch**: `fix/004-phase-00-governance-remediation`
+**Baseline**: `62fb117b1faa3216d40accb1f695ab79126cb4ae` (authoritative merged `main`; verified)
+**Branch**: `fix/004-exact-task-ownership`
 **Date**: 2026-08-05
 **Status**: PHASE 0 GOVERNANCE REMEDIATION — no implementation performed.
 
@@ -24,9 +24,10 @@
 - Post-planning integration truth: planning commits `df73c2893fa6b936120ff5742000d0b25e180e4c` and
   `26b7443f7f88cb84dfbaf2fb3ffddaa6c32fcbd3` are integrated into `main`. The historical planning
   invocation itself did not merge; that integration occurred afterward and is recorded separately.
-- Remediation entry gate: `git status --short --branch`, `git rev-parse HEAD`, and ancestry check
-  confirmed a clean `main` baseline at `9d10fb6510863418f7871c4bdc05d1cf0a7ade4c`; work then moved
-  to the neutral branch shown above without reset, stash, force, or production-source changes.
+- Remediation entry gate: `git status --short`, `git branch --show-current`, `git rev-parse HEAD`,
+  `git log -8 --oneline`, and `git merge-base --is-ancestor 62fb117b1faa3216d40accb1f695ab79126cb4ae HEAD`
+  confirmed a clean `main` baseline at `62fb117b1faa3216d40accb1f695ab79126cb4ae`; work then moved
+  to `fix/004-exact-task-ownership` without reset, stash, force, or production-source changes.
 - Original cross-artifact analysis: **YES — run before this remediation** and delivered as the
   baseline report with findings F-001–F-013. A fresh analysis has **not** run after the edits;
   `Analyze-clean` therefore remains **NO** until the next `/speckit.analyze` invocation.
@@ -109,6 +110,8 @@ decorative charts, color-only status, unsupported packages/fonts, dark theme (de
 - `checklists/phase-00-planning-checkpoint.md` (this file)
 - `checklists/phase-00-analysis-remediation.md` (original findings, changes, and remaining gate)
 - `checklists/phase-05-usability-evidence.md` (SC-002 protocol; execution remains NOT_RUN)
+- `contracts/implementation-file-map.md` (exact C-01–C-17 source/test/evidence ownership map;
+  planned paths are labeled and no files were created)
 - `tasks.md` (canonical 71-task dependency-ordered ledger)
 
 ## 8. Frontend architecture
@@ -206,7 +209,10 @@ Feature 004 governance/design artifacts and records the changes in
 - F-009 Feature 003 preservation: exact acceptance/checklist paths and permitted commands are owned
   by T062 and the test strategy.
 - F-010 scope/count: six screen routes plus root landing are explicit; `App.tsx` is composition-only.
-- F-011 ownership: vague feature-local/shared ownership is narrowed to named test/component paths.
+- F-011 ownership: affected tasks now list exact existing owners, exact planned create paths, bounded
+  file groups, and exact test/evidence artifacts; the implementation file map indexes C-01–C-17 and
+  all seven route owners. Read-only validation found zero broad-directory/open-ended ownership phrases
+  and zero missing evidence-owner paths.
 - F-012/F-013: the mobile traceability row is labeled and the requirements checklist records current
   lifecycle state rather than stale next-step guidance.
 
@@ -214,7 +220,17 @@ Remaining governance gate: fresh `/speckit.analyze`, post-remediation Standards/
 and final T010 checkpoint are **NOT_RUN**. Critical/High remaining count is therefore not asserted
 clean until that fresh analysis completes.
 
-## 19. Readiness
+## 19. Targeted F-011 remediation truth
+
+- Fresh analysis baseline: `62fb117b1faa3216d40accb1f695ab79126cb4ae`.
+- Critical: `0`; High: `0`; Medium before this remediation: `1` (F-011).
+- Exact ownership validation: **PASS** for the task-ledger checks (71 sequential tasks, no missing/
+  duplicate/unknown/forward dependency, no cycle, only T011/T012 `[P]`, zero broad/open-ended owners,
+  and zero missing evidence-owner paths).
+- T008 remains pending; Analyze-clean remains **NO** until another fresh `/speckit.analyze`.
+- Implementation-ready remains **NO**; Release-ready remains **NO**.
+
+## 20. Readiness
 
 | State | Result |
 |---|---|
@@ -225,11 +241,11 @@ clean until that fresh analysis completes.
 | Implementation-ready | NO (requires fresh clean analysis, post-remediation reviews, and T010) |
 | Release-ready | NO |
 
-## 20. Next command
+## 21. Next command
 
 `/speckit.analyze`
 
-## 21. Explicit stop
+## 22. Explicit stop
 
 - Production source changed: NO.
 - Package installed: NO.
@@ -238,5 +254,5 @@ clean until that fresh analysis completes.
 - Analyze-clean: NO; Implementation-ready: NO; Release-ready: NO.
 - `/speckit.implement` executed: NO.
 - Feature 003 reopened: NO.
-- Merge/PR/release performed: NO; this remediation is committed and pushed only to the neutral
-  branch, and must not be merged by this task.
+- Merge/PR/release performed: NO; this remediation is scoped to `fix/004-exact-task-ownership` and
+  must not be merged by this task.

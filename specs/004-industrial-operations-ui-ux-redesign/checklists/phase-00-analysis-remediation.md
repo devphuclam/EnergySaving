@@ -2,11 +2,12 @@
 
 **Feature**: 004 Industrial Operations UI/UX Redesign
 **Date**: 2026-08-05
-**Entry baseline**: `9d10fb6510863418f7871c4bdc05d1cf0a7ade4c` (merged `main`)
-**Branch**: `fix/004-phase-00-governance-remediation`
+**Entry baseline**: `62fb117b1faa3216d40accb1f695ab79126cb4ae` (authoritative merged `main`)
+**Branch**: `fix/004-exact-task-ownership`
 **Scope**: governance/design artifacts only; no production source, package, database, or service
 changes.
-**Status**: remediation edits recorded; fresh `/speckit.analyze` **NOT_RUN**.
+**Status**: targeted F-011 ownership remediation edits recorded; fresh `/speckit.analyze`
+**NOT_RUN**.
 
 ## Original analysis baseline
 
@@ -22,7 +23,8 @@ not reclassified as clean until the next fresh analysis.
 - `contracts/information-architecture.md`, `contracts/route-and-permission-matrix.md`, and
   `contracts/test-strategy.md` — permission-safe landing and concrete Feature 003 evidence paths.
 - `tasks.md` — Phase 0 gate, completed-task truth, 71 sequential tasks, SC-002 evidence task,
-  blocked-leaf isolation, dependency graph, and corrected parallel markers.
+-  blocked-leaf isolation, dependency graph, corrected parallel markers, and exact file ownership.
+- `contracts/implementation-file-map.md` — canonical C-01–C-17 source/test/evidence ownership map.
 - `checklists/phase-00-planning-checkpoint.md` — current baseline, historical analysis truth,
   remediation evidence, readiness states, and next command.
 - `checklists/phase-05-usability-evidence.md` — SC-002 evidence protocol (execution remains NOT_RUN).
@@ -52,8 +54,20 @@ contained under `specs/004-industrial-operations-ui-ux-redesign/`.
 | F-008 | Tasks, original analysis, fresh-analysis status, and readiness states are explicit in the checkpoint and plan. |
 | F-009 | T062 and test strategy name Feature 003 acceptance/checklist paths and permitted commands. |
 | F-010 | Plan and checkpoint state six screen routes plus root landing; App.tsx is composition/landing presentation only. |
-| F-011 | T011 and T014 use named test/navigation component paths; remaining task ownership is file-scoped. |
+| F-011 | T011–T060 affected implementation/red-evidence tasks now list exact existing owners, exact planned create paths, bounded file groups, and exact test/evidence artifacts; `contracts/implementation-file-map.md` indexes C-01–C-17 and route owners. Read-only validation: 71 tasks, sequential IDs, no missing/duplicate/unknown/forward dependency, no cycle, only T011/T012 `[P]`, zero broad-directory/open-ended ownership phrases, and zero missing evidence-owner paths. |
 | F-012/F-013 | FR-019 mobile row is labeled; requirements checklist notes distinguish historical and current lifecycle state. |
+
+## Targeted F-011 validation
+
+- Fresh analysis baseline for this remediation: `62fb117b1faa3216d40accb1f695ab79126cb4ae`.
+- Critical findings: **0** (this documentation pass does not promote Analyze-clean).
+- High findings: **0** (this documentation pass does not promote Analyze-clean).
+- Medium findings before this remediation: **1** — F-011 exact task ownership.
+- Exact ownership validation: **PASS** for task-ledger checks; all affected tasks name exact source
+  owners and exact evidence owners, and every planned new file is explicitly labeled planned.
+- Production source/test source changed: **NO**; no implementation file was created.
+- T008 remains **PENDING**; `Analyze-clean` remains **NO** until another fresh `/speckit.analyze`.
+- Implementation-ready remains **NO**; Release-ready remains **NO**.
 
 ## Remaining gate and next command
 
