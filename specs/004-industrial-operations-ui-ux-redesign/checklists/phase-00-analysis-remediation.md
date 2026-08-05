@@ -7,7 +7,7 @@
 **Scope**: governance/design artifacts only; no production source, package, database, or service
 changes.
 **Status**: targeted F-011 ownership remediation edits recorded; fresh `/speckit.analyze`
-**NOT_RUN**.
+**COMPLETED** with `Analyze-clean: YES` (recorded by T008 in this Phase 0 closure).
 
 ## Original analysis baseline
 
@@ -69,12 +69,42 @@ contained under `specs/004-industrial-operations-ui-ux-redesign/`.
 - T008 remains **PENDING**; `Analyze-clean` remains **NO** until another fresh `/speckit.analyze`.
 - Implementation-ready remains **NO**; Release-ready remains **NO**.
 
+> Historical record of the remediation pass. SUPERSEDED by the fresh post-remediation analysis
+> below (T008): `Analyze-clean: YES`, T008–T010 completed, Implementation-ready YES (Phase 0 gate
+> passed). History is preserved, not rewritten.
+
+## Fresh post-remediation analysis (T008)
+
+A fresh cross-artifact `/speckit.analyze` ran after the T002/T005/T006/T007 remediation
+(remediation commits `62fb117b1faa3216d40accb1f695ab79126cb4ae` and
+`d7f3543d4269c14688448334b94e7a549f1c03cd` are integrated into `main`).
+
+- Fresh analysis baseline: `d7f3543d4269c14688448334b94e7a549f1c03cd` (authoritative `main`; in
+  HEAD ancestry).
+- Task ledger: **71** unique sequential IDs `T001`–`T071`; missing **0**; duplicates **0**;
+  forward dependencies **0**; cycles **0**; invalid parallel markers **0** (only `T011` and
+  `T012` carry `[P]`); broad-directory/open-ended ownership phrases **0**; missing
+  evidence-owner paths **0**.
+- Original analysis findings F-001–F-013: **all RESOLVED** by the planning/ownership
+  remediation; the remediation evidence map above is the disposition record.
+- Finding counts: Critical **0**; High **0**; Medium **0**; Low **0**.
+- Constitution conflict: **0** unresolved.
+- `Analyze-clean`: **YES**.
+- The fresh analysis was read-only: files modified **NO**; production code changed **NO**;
+  packages installed **NO**.
+- Planning-ready: **YES**; Tasks-ready: **YES**; Implementation-ready before this closure:
+  **NO**; Release-ready: **NO**.
+
 ## Remaining gate and next command
 
-- Fresh `/speckit.analyze`: **NOT_RUN**.
-- Analyze-clean: **NO** until the fresh analysis confirms zero Critical/High findings and disposes
-  Medium/Low findings.
-- Post-remediation Standards/Specification review (T009): **NOT_RUN**.
-- Final Phase 0 checkpoint (T010): **NOT_RUN**.
-- Planning-ready: **YES**; Tasks-ready: **YES**; Implementation-ready: **NO**; Release-ready: **NO**.
-- Next command: `/speckit.analyze`.
+- Fresh `/speckit.analyze`: **COMPLETED** — `Analyze-clean: YES` with zero Critical/High/Medium/
+  Low findings and zero unresolved constitution conflict.
+- Post-remediation Standards/Specification review (T009): **COMPLETED** — recorded in
+  `checklists/phase-00-planning-checkpoint.md`; no unresolved Critical/High governance or
+  spec finding.
+- Final Phase 0 checkpoint (T010): **COMPLETED** — recorded in
+  `checklists/phase-00-planning-checkpoint.md`.
+- Planning-ready: **YES**; Tasks-ready: **YES**; Analyze-clean: **YES**; Implementation-ready:
+  **YES** (Phase 0 gate passed; only permits Phase 1 selection by a new invocation); Release-ready:
+  **NO**.
+- Next command: `/speckit.implement — Phase 1 only`.
