@@ -21,6 +21,7 @@ import {
   selectedSetupPath,
   workspaceStatusRequestFromSearch,
 } from '../features/setup/setupTypes'
+import { resolveLanding } from '../components/navigation/NavigationModel'
 
 type FakeObservations = {
   credentials?: { username: string; password: string }
@@ -237,5 +238,9 @@ export function runAppShellChecks(): string[] {
   const selectedPath = selectedSetupPath('site-created-by-server')
   if (selectedPath !== '/setup?selectedSiteId=site-created-by-server')
     failures.push('Site creation must select the server-returned Site identity')
+  if (resolveLanding({ deepLink: '/audit', enabledRoutes: ['dashboard', 'configuration'], dashboardPermitted: true }).kind !== 'safe-forbidden')
+    failures.push('AppShell landing must not render an unauthorized deep link')
+  if (resolveLanding({ enabledRoutes: ['configuration', 'dashboard'], dashboardPermitted: true }).kind !== 'route')
+    failures.push('AppShell landing must select the first permitted capability')
   return failures
 }

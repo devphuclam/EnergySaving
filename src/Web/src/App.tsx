@@ -9,13 +9,15 @@ import './App.css'
 import { SetupWizard } from './features/setup/SetupWizard'
 
 function App() {
-  return <GatewayProvider><AppShell>{(route, navigate, session, locationKey) => route === 'setup'
-    ? <SetupWizard key={locationKey} onSimulator={() => navigate('simulator')} />
-    : route === 'dashboard'
-      ? <OperationalDashboard session={session} onNewSetup={() => navigate('setup', { mode: 'new' })} onContinueSetup={() => navigate('setup')} onNavigate={navigate} />
-      : route === 'configuration' ? <ConfigurationRoutes />
-        : route === 'simulator' ? <SimulatorRoute />
-          : route === 'telemetry' ? <PointCurrentRoute /> : <AuditRoute />}</AppShell></GatewayProvider>
+  return <GatewayProvider><AppShell>{(route, navigate, session, locationKey) => <div className="route-frame" data-route={route}>
+    {route === 'setup'
+      ? <SetupWizard key={locationKey} onSimulator={() => navigate('simulator')} />
+      : route === 'dashboard'
+        ? <OperationalDashboard session={session} onNewSetup={() => navigate('setup', { mode: 'new' })} onContinueSetup={() => navigate('setup')} onNavigate={navigate} />
+        : route === 'configuration' ? <ConfigurationRoutes />
+          : route === 'simulator' ? <SimulatorRoute />
+            : route === 'telemetry' ? <PointCurrentRoute /> : <AuditRoute />}
+  </div>}</AppShell></GatewayProvider>
 }
 
 export default App

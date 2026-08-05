@@ -1,17 +1,23 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useWebGateways } from '../gateways/GatewayContext'
 import type { AuthSession } from '../gateways/webGateways'
 import type { WorkspaceStatusRequest } from '../features/setup/setupTypes'
 import { workspaceStatusRequestFromSearch } from '../features/setup/setupTypes'
+import { ContextBar } from '../components/context/ContextBar'
+import { ForbiddenState } from '../components/feedback/ForbiddenState'
+import { NavigationDrawer } from '../components/navigation/NavigationDrawer'
+import { Rail } from '../components/navigation/Rail'
+import { Sidebar } from '../components/navigation/Sidebar'
+import {
+  resolveLanding,
+  routeFromPath as navigationRouteFromPath,
+  visibleNavigationItems,
+  type LandingResolution,
+  type NavigationRoute,
+} from '../components/navigation/NavigationModel'
 
-export type WebRoute = 'setup' | 'dashboard' | 'configuration' | 'simulator' | 'telemetry' | 'audit'
-
-const webRoutes: WebRoute[] = ['setup', 'dashboard', 'configuration', 'simulator', 'telemetry', 'audit']
-
-function routeFromPath(pathname: string): WebRoute {
-  const route = pathname.slice(1) as WebRoute
-  return webRoutes.includes(route) ? route : 'configuration'
-}
+export type WebRoute = NavigationRoute
+export type NavigationMode = 'expanded' | 'rail' | 'drawer-open'
 
 export type AppShellProps = {
   children: (
@@ -27,6 +33,9 @@ export type AppShellState = {
   session: AuthSession
   feedback: string
   submitting: boolean
+  navMode: NavigationMode
+  landingResolved: boolean
+  landingPresentation?: LandingResolution
 }
 
 export type AppShellTransition =
@@ -35,12 +44,16 @@ export type AppShellTransition =
   | { type: 'signed-in'; session: AuthSession }
   | { type: 'signed-out' }
   | { type: 'navigate'; route: WebRoute }
+  | { type: 'nav-mode'; mode: NavigationMode }
+  | { type: 'landing'; resolution: LandingResolution }
 
 export const initialAppShellState: AppShellState = {
   route: 'configuration',
   session: { state: 'loading' },
   feedback: '',
   submitting: false,
+  navMode: 'expanded',
+  landingResolved: false,
 }
 
 /** The component and the package-policy-blocked behavior source share this exact state contract. */
@@ -51,6 +64,8 @@ export function transitionAppShell(state: AppShellState, event: AppShellTransiti
     ...state,
     session: event.session,
     submitting: false,
+    landingResolved: false,
+    landingPresentation: undefined,
     feedback: event.session.state === 'ready'
       ? 'Đăng nhập thành công. Phạm vi được cấp đã sẵn sàng.'
       : event.session.state === 'invalid-credentials'
@@ -61,31 +76,55 @@ export function transitionAppShell(state: AppShellState, event: AppShellTransiti
     ...state,
     session: { state: 'expired' },
     submitting: false,
+    landingResolved: false,
+    landingPresentation: undefined,
     feedback: 'Đã đăng xuất.',
   }
-  return { ...state, route: event.route }
+  if (event.type === 'nav-mode') return { ...state, navMode: event.mode }
+  if (event.type === 'landing') return {
+    ...state,
+    route: event.resolution.kind === 'route' ? event.resolution.route : state.route,
+    landingResolved: true,
+    landingPresentation: event.resolution,
+  }
+  return { ...state, route: event.route, landingPresentation: undefined }
+}
+
+function viewportNavigationMode(): NavigationMode {
+  return window.innerWidth >= 1280 ? 'expanded' : 'rail'
 }
 
 export function AppShell({ children }: AppShellProps) {
   const gateways = useWebGateways()
-  const [state, setState] = useState(() => ({
+  const [state, setState] = useState<AppShellState>(() => ({
     ...initialAppShellState,
-    route: routeFromPath(window.location.pathname),
+    route: navigationRouteFromPath(window.location.pathname) ?? 'configuration',
+    navMode: viewportNavigationMode(),
   }))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [locationKey, setLocationKey] = useState(() => window.location.href)
+  const visibleItems = useMemo(() => visibleNavigationItems(state.session), [state.session])
+
+  useEffect(() => { document.documentElement.lang = 'vi' }, [])
 
   useEffect(() => {
     function handlePopState() {
       setLocationKey(window.location.href)
-      setState(current => transitionAppShell(current, {
-        type: 'navigate',
-        route: routeFromPath(window.location.pathname),
-      }))
+      const route = navigationRouteFromPath(window.location.pathname)
+      if (route) setState(current => transitionAppShell(current, { type: 'navigate', route }))
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    function handleResize() {
+      const next = viewportNavigationMode()
+      setState(current => transitionAppShell(current, { type: 'nav-mode', mode: next }))
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   useEffect(() => {
@@ -95,35 +134,49 @@ export function AppShell({ children }: AppShellProps) {
   }, [gateways.auth])
 
   useEffect(() => {
-    if (state.session.state !== 'ready') return
+    if (state.session.state !== 'ready' || state.landingResolved) return
     const pathname = window.location.pathname
-    const resolveInitialLanding = pathname === '/' || pathname === ''
-    if (!resolveInitialLanding) return
     const request = workspaceStatusRequestFromSearch(window.location.search)
-    void gateways.workspace.getStatus(request).then(workspace => {
-      if (resolveInitialLanding) {
-        const route: WebRoute = request || workspace.landing !== 'Dashboard'
-          ? 'setup'
-          : 'dashboard'
-        setState(current => transitionAppShell(current, { type: 'navigate', route }))
+    const isRoot = pathname === '/' || pathname === ''
+    const requestedRoute = isRoot && request && !('invalidSearch' in request) ? '/setup' : pathname
+    const enabledRoutes = visibleItems.map(item => item.route)
+    const resolve = (setupRequired: boolean) => {
+      const resolution = resolveLanding({
+        deepLink: isRoot ? (requestedRoute === '/setup' ? requestedRoute : undefined) : requestedRoute,
+        enabledRoutes,
+        dashboardPermitted: enabledRoutes.includes('dashboard'),
+        setupRequired,
+      })
+      setState(current => transitionAppShell(current, { type: 'landing', resolution }))
+      if (isRoot && resolution.kind === 'route') {
+        const suffix = requestedRoute === '/setup' && request && !('invalidSearch' in request) ? window.location.search : ''
+        window.history.replaceState({}, '', `/${resolution.route}${suffix}`)
+        setLocationKey(window.location.href)
       }
-    }).catch(() => {
-      if (resolveInitialLanding) setState(current => transitionAppShell(current, { type: 'navigate', route: 'setup' }))
-    })
-  }, [gateways.workspace, state.session.state, locationKey])
+    }
+    if (!isRoot) { resolve(false); return }
+    void gateways.workspace.getStatus(request).then(workspace => {
+      resolve(workspace.landing === 'SetupWizard' || workspace.landing === 'ContinueSetup')
+    }).catch(() => resolve(false))
+  }, [gateways.workspace, locationKey, state.landingResolved, state.session.state, visibleItems])
 
   useEffect(() => {
-    if (state.session.state === 'invalid-credentials') {
-      document.getElementById('sign-in-username')?.focus()
-    }
+    if (state.session.state === 'invalid-credentials') document.getElementById('sign-in-username')?.focus()
   }, [state.session.state])
+
+  useEffect(() => {
+    if (state.session.state !== 'ready' || !state.landingResolved) return
+    const handle = window.requestAnimationFrame(() => {
+      const heading = document.querySelector<HTMLElement>('[data-route-title], main h1')
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }) }
+      else document.getElementById('main-content')?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(handle)
+  }, [locationKey, state.landingResolved, state.route, state.session.state])
 
   async function signIn() {
     if (!username.trim() || !password) {
-      setState(current => transitionAppShell(current, {
-        type: 'signed-in',
-        session: { state: 'invalid-credentials' },
-      }))
+      setState(current => transitionAppShell(current, { type: 'signed-in', session: { state: 'invalid-credentials' } }))
       return
     }
     setState(current => transitionAppShell(current, { type: 'submitting' }))
@@ -150,67 +203,39 @@ export function AppShell({ children }: AppShellProps) {
   }
 
   const authenticated = state.session.state === 'ready'
-  const scope = authenticated
-    ? state.session.scopeLabel ?? 'Phạm vi được cấp'
-    : state.session.state === 'loading' ? 'Đang tải phạm vi' : 'Chưa có phạm vi'
+  const scope = authenticated ? state.session.scopeLabel ?? 'Phạm vi được cấp' : state.session.state === 'loading' ? 'Đang tải phạm vi' : 'Chưa có phạm vi'
+  const activeRoute = state.route
+  const forbiddenNextRoute = state.landingPresentation?.kind === 'safe-forbidden' ? state.landingPresentation.nextRoute : undefined
+  const closeDrawer = () => setState(current => transitionAppShell(current, { type: 'nav-mode', mode: 'rail' }))
+  const openDrawer = () => setState(current => transitionAppShell(current, { type: 'nav-mode', mode: 'drawer-open' }))
 
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#configuration" onClick={() => navigate('configuration')}>
-          <span className="brand-mark" aria-hidden="true">I</span>
-          <span>IDEA Utility Monitoring</span>
-        </a>
-        <div className="session-controls">
-          <span className="scope-pill" aria-label="Phạm vi hiện tại">{scope}</span>
-          {authenticated ? <>
-            <span className="session-user" aria-label="Người dùng đã đăng nhập">
-              {state.session.username ?? 'Người dùng'} · {state.session.scopeLabel ?? 'phạm vi'}
-              {state.session.isAdministrator ? ' · Admin' : ''}
-            </span>
-            <button className="button button-quiet" type="button" onClick={() => void signOut()}>Đăng xuất</button>
-          </> : <div className="sign-in-form" aria-label="Biểu mẫu đăng nhập">
-            <label className="sign-in-label" htmlFor="sign-in-username">Tên đăng nhập</label>
-            <input id="sign-in-username" className="text-input sign-in-input" type="text" placeholder="Tên đăng nhập" value={username}
-              onChange={event => setUsername(event.target.value)} aria-label="Tên đăng nhập"
-              aria-describedby={state.session.state === 'invalid-credentials' ? 'sign-in-error' : undefined} />
-            <label className="sign-in-label" htmlFor="sign-in-password">Mật khẩu</label>
-            <input id="sign-in-password" className="text-input sign-in-input" type="password" placeholder="Mật khẩu" value={password}
-              onChange={event => setPassword(event.target.value)} aria-label="Mật khẩu"
-              aria-describedby={state.session.state === 'invalid-credentials' ? 'sign-in-error' : undefined} />
-            <button className="button button-primary" type="button" onClick={() => void signIn()}
-              disabled={state.session.state === 'loading' || state.submitting}>
-              {state.submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
-            </button>
-          </div>}
-        </div>
-      </header>
-      <div className="layout">
-        <nav className="sidebar" aria-label="Điều hướng chính">
-          <p className="nav-heading">Không gian làm việc</p>
-          {(['setup', 'dashboard', 'configuration', 'simulator', 'telemetry', 'audit'] as WebRoute[]).map(item =>
-            <button className={`nav-link${state.route === item ? ' active' : ''}`} type="button" key={item}
-              aria-current={state.route === item ? 'page' : undefined} onClick={() => navigate(item)}>
-              {item === 'setup' ? 'Thiết lập' : item === 'dashboard' ? 'Vận hành' : item === 'configuration' ? 'Cấu hình' : item === 'simulator' ? 'Mô phỏng' : item === 'telemetry' ? 'Dữ liệu & tình trạng' : 'Nhật ký'}
-            </button>)}
-          <div className="sidebar-note"><span className="status-dot" aria-hidden="true" /><span>Chế độ độc lập nhà cung cấp</span></div>
-        </nav>
-        <main className="content" id="main-content">
-          <div className="feedback" role="status" aria-live="polite">{state.feedback}</div>
-          {!authenticated && <section className="notice notice-info" aria-label="Thông báo xác thực">
-            <strong>{state.session.state === 'loading' ? 'Đang tải phiên làm việc.'
-              : state.session.state === 'submitting' ? 'Đang đăng nhập.'
-                : state.session.state === 'error' ? 'Không thể kết nối máy chủ.'
-                  : 'Đăng nhập để quản lý không gian làm việc.'}</strong>
-            <span>Mọi truy vấn và thay đổi đều được kiểm tra phạm vi tại máy chủ.</span>
-          </section>}
-          {state.session.state === 'invalid-credentials' && <section id="sign-in-error" className="notice notice-warning" role="alert">Tên đăng nhập hoặc mật khẩu không đúng.</section>}
-          {state.session.state === 'forbidden' && <section className="notice notice-warning" role="alert">Phiên không được phép. Hãy đăng nhập lại.</section>}
-          {state.session.state === 'expired' && <section className="notice notice-warning" role="alert">Phiên đã hết hạn. Hãy đăng nhập lại.</section>}
-          {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Lỗi phiên. Kiểm tra kết nối rồi đăng nhập lại.</section>}
-          {authenticated ? children(state.route, navigate, state.session, locationKey) : null}
-        </main>
+  return <div className="app-shell">
+    <a className="skip-link" href="#main-content">Bỏ qua điều hướng, đến nội dung chính</a>
+    <header className="topbar">
+      <a className="brand" href="/" onClick={event => { event.preventDefault(); navigate('dashboard') }}><span className="brand-mark" aria-hidden="true">I</span><span>IDEA Utility Monitoring</span></a>
+      <div className="session-controls"><span className="scope-pill" aria-label="Phạm vi hiện tại">{scope}</span>
+        {authenticated ? <><span className="session-user" aria-label="Người dùng đã đăng nhập">{state.session.username ?? 'Người dùng'}</span><button className="button button-quiet" type="button" onClick={() => void signOut()}>Đăng xuất</button></> : <div className="sign-in-form" aria-label="Biểu mẫu đăng nhập">
+          <label className="sign-in-label" htmlFor="sign-in-username">Tên đăng nhập</label><input id="sign-in-username" className="text-input sign-in-input" type="text" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} aria-describedby={state.session.state === 'invalid-credentials' ? 'sign-in-error' : undefined} />
+          <label className="sign-in-label" htmlFor="sign-in-password">Mật khẩu</label><input id="sign-in-password" className="text-input sign-in-input" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} aria-describedby={state.session.state === 'invalid-credentials' ? 'sign-in-error' : undefined} />
+          <button className="button button-primary" type="button" onClick={() => void signIn()} disabled={state.session.state === 'loading' || state.submitting}>{state.submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}</button>
+        </div>}
       </div>
+    </header>
+    {authenticated && <ContextBar session={state.session} />}
+    <div className="layout">
+      {state.navMode === 'expanded' ? <Sidebar items={visibleItems} activeRoute={activeRoute} onNavigate={navigate} onCollapse={() => setState(current => transitionAppShell(current, { type: 'nav-mode', mode: 'rail' }))} /> : <Rail items={visibleItems} activeRoute={activeRoute} onNavigate={navigate} onExpand={openDrawer} />}
+      <NavigationDrawer open={state.navMode === 'drawer-open'} items={visibleItems} activeRoute={activeRoute} onNavigate={navigate} onClose={closeDrawer} />
+      <main className="content" id="main-content" tabIndex={-1}>
+        <div className="feedback" role="status" aria-live="polite">{state.feedback}</div>
+        {!authenticated && <section className="notice notice-info" aria-label="Thông báo xác thực"><strong>{state.session.state === 'loading' ? 'Đang tải phiên làm việc.' : state.session.state === 'submitting' ? 'Đang đăng nhập.' : state.session.state === 'error' ? 'Không thể kết nối máy chủ.' : 'Đăng nhập để quản lý không gian làm việc.'}</strong><span>Mọi truy vấn và thay đổi đều được kiểm tra phạm vi tại máy chủ.</span></section>}
+        {state.session.state === 'invalid-credentials' && <section id="sign-in-error" className="notice notice-warning" role="alert">Tên đăng nhập hoặc mật khẩu không đúng.</section>}
+        {state.session.state === 'forbidden' && <section className="notice notice-warning" role="alert">Phiên không được phép. Hãy đăng nhập lại.</section>}
+        {state.session.state === 'expired' && <section className="notice notice-warning" role="alert">Phiên đã hết hạn. Hãy đăng nhập lại.</section>}
+        {state.session.state === 'error' && <section className="notice notice-warning" role="alert">Lỗi phiên. Kiểm tra kết nối rồi đăng nhập lại.</section>}
+        {authenticated && state.landingResolved && state.landingPresentation?.kind === 'safe-forbidden' && <ForbiddenState message="Đường dẫn không còn được phép trong phạm vi hiện tại." action={forbiddenNextRoute ? <button className="button button-secondary" type="button" onClick={() => navigate(forbiddenNextRoute)}>Tiếp tục trong phạm vi được cấp</button> : undefined} />}
+        {authenticated && state.landingResolved && state.landingPresentation?.kind === 'safe-no-authorized-capability' && <ForbiddenState title="Chưa có phạm vi được cấp" message="Không có capability nào trong phiên này được phép hiển thị." />}
+        {authenticated && (!state.landingPresentation || state.landingPresentation.kind === 'route') ? children(state.route, navigate, state.session, locationKey) : null}
+      </main>
     </div>
-  )
+  </div>
 }

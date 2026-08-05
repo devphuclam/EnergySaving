@@ -13,6 +13,8 @@ export type AuthSession = {
   username?: string
   scopeLabel?: string
   isAdministrator?: boolean
+  /** Effective capability codes returned by the server; never inferred from a role name. */
+  capabilities?: string[]
 }
 
 export type ConfigurationSummary = {
@@ -529,8 +531,8 @@ export const webGateways: WebGateways = {
   auth: {
     getSession: async () => {
       try {
-        const me = await request<{ username?: string; scopes?: string[]; roles?: string[] }>('/api/v1/me')
-        return { state: 'ready', username: me.username, scopeLabel: me.scopes?.join(', ') ?? 'Authorized scope', isAdministrator: me.roles?.includes('Administrator') }
+        const me = await request<{ username?: string; scopes?: string[]; roles?: string[]; capabilities?: string[] }>('/api/v1/me')
+        return { state: 'ready', username: me.username, scopeLabel: me.scopes?.join(', ') ?? 'Authorized scope', isAdministrator: me.roles?.includes('Administrator'), capabilities: me.capabilities }
       } catch (error) { return { state: stateFromError(error) } }
     },
     signIn: async (credentials) => {
