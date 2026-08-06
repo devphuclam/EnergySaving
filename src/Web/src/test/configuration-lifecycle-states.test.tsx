@@ -1,28 +1,33 @@
 import { ConfirmDialog } from '../components/dialogs/ConfirmDialog'
 import { FeedbackBanner } from '../components/feedback/FeedbackBanner'
 import { ConflictState } from '../components/feedback/ConflictState'
-import { BlockedState } from '../components/feedback/BlockedState'
 import { ErrorState } from '../components/feedback/ErrorState'
 import { OperationalStatusBadge } from '../components/status/OperationalStatusBadge'
-import { actionLabelFor, canDeleteResource, configurationLifecyclePresentation, lifecycleActionsFor, managementStateMessage, simulatorActivationReadiness } from '../features/configuration/ConfigurationManagementComponents'
+import { actionLabelFor, canDeleteResource, configurationLifecyclePresentation, lifecycleActionsFor, managementMutationDisposition, managementStateMessage, simulatorActivationReadiness } from '../features/configuration/ConfigurationManagementComponents'
 
 export const CONFIGURATION_LIFECYCLE_EXPECTED_FAILURES = 0
 export function configurationLifecycleStateFailures(): string[] {
   const failures: string[] = []
-  if (typeof ConfirmDialog !== 'function' || typeof FeedbackBanner !== 'function' || typeof ConflictState !== 'function' || typeof BlockedState !== 'function' || typeof OperationalStatusBadge !== 'function' || typeof ErrorState !== 'function') failures.push('lifecycle feedback must use shared states and dialogs')
+  if (typeof ConfirmDialog !== 'function' || typeof FeedbackBanner !== 'function' || typeof ConflictState !== 'function' || typeof ErrorState !== 'function' || typeof OperationalStatusBadge !== 'function') failures.push('lifecycle feedback must use shared states and dialogs')
   if (configurationLifecyclePresentation('Draft').cue === '') failures.push('lifecycle status must include a non-color cue')
 
   if (!lifecycleActionsFor('data-sources', 'Draft').includes('decommission')) failures.push('a Draft Data Source must offer safe lifecycle actions including decommission')
   if (!lifecycleActionsFor('source-point-mappings', 'Active').includes('supersede')) failures.push('an Active Source Mapping must offer supersede')
   if (lifecycleActionsFor('sites', 'Suspended').length !== 0) failures.push('no lifecycle action may be offered for unsupported statuses')
+  if (lifecycleActionsFor('simulator-configurations', 'Draft').length !== 0) failures.push('Simulator activation must never use the generic lifecycle path')
+  if (lifecycleActionsFor('simulator-configurations', 'Active').length !== 0) failures.push('Simulator configurations must never offer generic lifecycle actions')
   if (!actionLabelFor('decommission') || !actionLabelFor('supersede') || !actionLabelFor('inactivate')) failures.push('every lifecycle action must have a Vietnamese label')
   if (!canDeleteResource('data-sources', 'Draft') || !canDeleteResource('source-point-mappings', 'Draft')) failures.push('only safe Draft resources may be deleted')
   if (canDeleteResource('sites', 'Draft') || canDeleteResource('data-sources', 'Active')) failures.push('delete must be refused outside the safe Draft set')
 
-  const draftReady = { configurationId: 'sim-cfg-1', status: 'Draft', draftConfigurationVersion: 2, currentConfigurationVersion: 1, relationshipReviewed: true, relationshipReceiptStale: false, validationRecorded: true, validationReceiptStale: false }
+  const draftReady = { configurationId: 'sim-cfg-1', draftConfigurationVersion: 2, currentConfigurationVersion: 1, relationshipReviewed: true, relationshipReceiptStale: false, validationRecorded: true, validationReceiptStale: false }
   if (!simulatorActivationReadiness(draftReady).ready) failures.push('confirmed review and validation receipts must allow activation')
   if (simulatorActivationReadiness({ ...draftReady, relationshipReceiptStale: true }).ready) failures.push('a stale review receipt must block activation')
   if (simulatorActivationReadiness({ ...draftReady, validationReceiptStale: true }).ready) failures.push('a stale validation receipt must block activation')
+
+  if (managementMutationDisposition({ ok: false, status: 401, errorCode: 'expired' }) !== 'expired') failures.push('an expired mutation must be classified as expired, never retried')
+  if (managementMutationDisposition({ ok: false, status: 403 }) !== 'definitive') failures.push('a forbidden mutation must never be retried with the same key')
+  if (managementMutationDisposition({ ok: false, status: 503, errorCode: 'RUNTIME_FAILURE' }) !== 'retryable') failures.push('a runtime failure must retain the pending intent')
 
   if (managementStateMessage('expired', 'sites', 'x')?.title !== 'Phiên đã hết hạn') failures.push('an expired session must present a distinct recovery state')
   if (managementStateMessage('ready', 'sites', 'x') !== null) failures.push('a ready list must not render a state message')
