@@ -14,7 +14,7 @@ function App() {
       ? <SetupWizard key={locationKey} onSimulator={() => navigate('simulator')} />
       : route === 'dashboard'
         ? <OperationalDashboard session={session} onNewSetup={() => navigate('setup', { mode: 'new' })} onContinueSetup={() => navigate('setup')} onNavigate={navigate} />
-        : route === 'configuration' ? <ConfigurationRoutes />
+        : route === 'configuration' ? <ConfigurationRoutes onSessionRecovery={() => window.location.reload()} />
           : route === 'simulator' ? <SimulatorRoute />
             : route === 'telemetry' ? <PointCurrentRoute onSessionRecovery={() => window.location.reload()} /> : <AuditRoute />}
   </div>}</AppShell></GatewayProvider>
