@@ -88,3 +88,16 @@ Production corrections are in commit `218e802fee7017575d8db197a33a8f90e19b71c3`
 superseding verification table are recorded in `phase-03-corrective-review.md`. The T037 red
 evidence, contract inventory, and runtime classification in this file remain historical and are
 not rewritten.
+
+## Superseded by the Phase 3 final consistency review (2026-08-06)
+
+The final consistency round (branch `fix/004-phase-03-final-consistency`, baseline
+`1dc2ec3c596bf9aee88f750eaf5e04752fcf84bd`) corrected the Source Mapping write contract, inverted
+compile-visible evidence, the retry workflow state machine with retry-key reuse, antiforgery
+session-expiry classification, Point required fields, stale retry UI, and checkpoint honesty
+(P3-FC-01–P3-FC-07; production `29985b392dd5a5eebd21c5fd735d94e00b2bdb1f`, evidence in
+`phase-03-final-consistency-review.md`). Verification for that round: `npx tsc -b` PASS, `npm run
+lint` PASS, `npm run build` PASS, Fast harness `PASS=11` PASS, `git diff --check` PASS; exported
+evidence checks remain TYPE_CHECKED/NOT_RUN and browser evidence remains
+NOT_RUN/BLOCKED_BY_PACKAGE_POLICY, never promoted to PASS. The T037–T047 ledgers and earlier
+superseding notes in this file remain historical and are not rewritten.

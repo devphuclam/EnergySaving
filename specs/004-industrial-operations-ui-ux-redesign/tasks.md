@@ -266,7 +266,12 @@ verified by T017, T022, T032, T041–T043, T050, T052, T058–T060, and T068.
 Phase 3 (T037–T047, Configuration management) is implemented (`8e740d0`), checkpointed
 (`f69c7b8`), corrected in round 1 (`218e802` production, `ae02aac` evidence), and corrected in
 round 2 (`fix/004-phase-03-corrective-round-2` — findings P3-R2-01–P3-R2-08, evidence in
-`checklists/phase-03-corrective-review-round-2.md`). The Phase 3 task ledger and the
-verification/review/checkpoint documents above remain historical; the round-2 corrective review
+`checklists/phase-03-corrective-review-round-2.md`), and received a final consistency correction
+(`fix/004-phase-03-final-consistency` — P3-FC-01–P3-FC-07: Source Mapping write contract,
+inverted evidence, retry flight state machine with retry-key reuse, antiforgery
+session-expiry classification, Point required IDs, stale retry UI, checkpoint honesty; production
+`29985b392dd5a5eebd21c5fd735d94e00b2bdb1f`, evidence in
+`checklists/phase-03-final-consistency-review.md`). The Phase 3 task ledger and the
+verification/review/checkpoint documents above remain historical; the final consistency review
 supersedes them for current-state results (0 Critical / 0 High / 0 actionable Medium). Phase 4 and
 T048 are not started; the next permitted command is a new explicit `/speckit.implement` invocation.

@@ -55,3 +55,17 @@ TYPE_CHECKED/NOT_RUN and browser evidence BLOCKED_BY_PACKAGE_POLICY, never promo
 After round-2 closure: Critical=0, High=0, Medium=0; progression to Phase 4 remains **YES, only
 after a new explicit `/speckit.implement` invocation**; Release-ready remains **NO**. The historical
 ledgers above are not rewritten.
+
+## Final superseding note: Phase 3 final consistency review (2026-08-06)
+
+The final consistency round on `fix/004-phase-03-final-consistency` (baseline
+`1dc2ec3c596bf9aee88f750eaf5e04752fcf84bd`) corrected contract and evidence inversions that the
+round-2 closure above had recorded as resolved: Source Mapping write contract
+(`effectiveFromUtc`/`effectiveToUtc`, `null`-clear semantics, no legacy aliases), inverted
+source-mapping/forms assertions, the retry flight state machine with retry-key reuse, antiforgery
+session-expiry classification, Point required IDs, stale retry UI, and checkpoint honesty
+(P3-FC-01–P3-FC-07; production `29985b392dd5a5eebd21c5fd735d94e00b2bdb1f`; evidence in
+`phase-03-final-consistency-review.md`). Current state: Critical=0, High=0, Medium=0; Phase 3
+completeness remains **YES for source-visible implementation**; progression to Phase 4 remains
+**YES, only after a new explicit `/speckit.implement` invocation**; Release-ready remains **NO**
+(Full/runtime/browser evidence never promoted). The historical ledgers above are not rewritten.

@@ -71,3 +71,18 @@ Docker change. `webGateways.ts` was not modified. No merge, no T048, no Phase 4.
 - Release-ready: **NO**. Historical Full evidence retains its known environment/company approval
   blockers; this corrective round does not rerun Full or promote blocked/runtime evidence.
 - Explicit stop: the corrective round ends here. No T048+ work was started.
+
+## Superseded by the Phase 3 final consistency review (2026-08-06)
+
+A final consistency round on `fix/004-phase-03-final-consistency` (baseline
+`1dc2ec3c596bf9aee88f750eaf5e04752fcf84bd`) reopened the closure statements above where the round-2
+evidence itself was inverted or contract-invalid. Findings P3-FC-01–P3-FC-07 (Source Mapping write
+contract `effectiveFromUtc`/`effectiveToUtc` and `null`-clear semantics; inverted source-mapping
+and forms assertions; retry flight state machine and `retryKeyFor` reuse; antiforgery
+session-expiry classification in `webGateways.ts`; Point required IDs; stale retry intent
+invalidation; checkpoint honesty) were closed in production commit
+`29985b392dd5a5eebd21c5fd735d94e00b2bdb1f`; the detailed table and verification are in
+[phase-03-final-consistency-review.md](phase-03-final-consistency-review.md). The round-2 finding
+table above remains historical evidence as performed; the final consistency review supersedes it
+for current-state results: **0 Critical / 0 High / 0 actionable Medium**. Round-2 verification
+statements are not amended in place and remain historical.

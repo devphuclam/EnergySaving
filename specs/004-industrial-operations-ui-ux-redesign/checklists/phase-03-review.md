@@ -43,3 +43,14 @@ reopened findings P3-R2-01–P3-R2-08. The statements above remain historical ev
 T045/T046 reviews as performed; the round-2 review supersedes them for current-state review
 results: **0 Critical / 0 High / 0 actionable Medium** after round-2 closure.
 
+## Superseded by the Phase 3 final consistency review (2026-08-06)
+
+The final consistency round (branch `fix/004-phase-03-final-consistency`, baseline
+`1dc2ec3c596bf9aee88f750eaf5e04752fcf84bd`) closed P3-FC-01–P3-FC-07 (Source Mapping write
+contract, inverted evidence, retry workflow and retry-key reuse, antiforgery classification,
+Point required fields, stale retry UI, checkpoint honesty); production
+`29985b392dd5a5eebd21c5fd735d94e00b2bdb1f`, evidence in
+`phase-03-final-consistency-review.md`. The statements above remain historical evidence of the
+T045/T046 reviews and round-2 closure as performed; this review supersedes them for current-state
+results: **0 Critical / 0 High / 0 actionable Medium** after final consistency closure.
+
