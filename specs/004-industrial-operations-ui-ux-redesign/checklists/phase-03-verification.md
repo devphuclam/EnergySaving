@@ -70,8 +70,15 @@ exports. Runtime execution is `NOT_RUN` because no approved frontend behavior ru
 | T046 | PASS | Specification review: all seven entities and the requested FR/SC trace are represented. |
 | T047 | PASS | Checkpoint records completeness, limitations, readiness and explicit stop before T048. |
 
-Frontend runtime behavior, automated browser/a11y and visual rendering remain `BLOCKED_BY_PACKAGE_POLICY`
-or `NOT_RUN` unless actual approved evidence is available; they are never promoted to PASS.
+## Superseded by the Phase 3 corrective review round 2 (2026-08-06)
+
+A second corrective review (`phase-03-corrective-review-round-2.md`, branch
+`fix/004-phase-03-corrective-round-2`, baseline `ae02aacb2ce476f07ae8b6eb6491406c749cae9b`) closed
+reopened findings P3-R2-01–P3-R2-08 in the corrective implementation above. Round-2 verification:
+`npx tsc -b` PASS, `npm run lint` PASS, `npm run build` PASS, Fast harness `PASS=11` PASS,
+`git diff --check` PASS; exported evidence checks remain TYPE_CHECKED/NOT_RUN and browser evidence
+remains BLOCKED_BY_PACKAGE_POLICY, never promoted to PASS. The T037–T047 ledgers in this file
+remain historical and are not rewritten.
 
 ## Superseded by the Phase 3 corrective review (2026-08-06)
 

@@ -69,3 +69,15 @@ Docker change. No merge, no T048, no Phase 4.
 - Release-ready: **NO**. Historical Full evidence retains its known environment/company approval
   blockers; this corrective round does not rerun Full or promote blocked/runtime evidence.
 - Explicit stop: the corrective round ends here. No T048+ work was started.
+
+## Superseded by the Phase 3 corrective review round 2 (2026-08-06)
+
+A second corrective review (`phase-03-corrective-review-round-2.md`, branch
+`fix/004-phase-03-corrective-round-2`, baseline `ae02aacb2ce476f07ae8b6eb6491406c749cae9b`) closed
+reopened findings P3-R2-01–P3-R2-08: descriptor-based mutation intents with a persisted retry key,
+versioned/targeted intent identity and invalidation rules, Simulator activation readiness against
+the real contract (no `Status` field), corrected evidence assertions, explicit detail request
+owners, contract-typed numeric/date normalization, expiry/recovery paths, and removal of the `code`
+alias and fabricated relationship context. The rows above remain historical evidence of the round-1
+review as performed; the round-2 review supersedes them for current-state results:
+**0 Critical / 0 High / 0 actionable Medium** after round-2 closure.
