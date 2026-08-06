@@ -126,19 +126,24 @@ export type TelemetryClassificationInput = {
 
 export function classifyTelemetryState({ gatewayState, dataState, snapshot, previousSnapshot, selectedPointId, requestPending = false, retryableRefresh = false }: TelemetryClassificationInput): TelemetryPresentation {
   const resolvedDataState = dataState ?? snapshot?.dataState
-  if (gatewayState === 'no-selection' || resolvedDataState === 'NoSelection') return 'no-selection'
+
+  if (gatewayState === 'no-selection') return 'no-selection'
   if (requestPending || gatewayState === 'loading') return 'loading'
   if (gatewayState === 'expired') return 'expired'
   if (gatewayState === 'forbidden') return 'forbidden'
   if (gatewayState === 'not-found') return 'not-found'
   if (gatewayState === 'conflict' || gatewayState === 'validation' || resolvedDataState === 'Ambiguous' || resolvedDataState === 'HierarchyConflict') return 'conflict'
+
   const retryableFailure = retryableRefresh && ['dependency', 'runtime-error', 'error'].includes(gatewayState)
   if (retryableFailure) {
     if (isRetainableTelemetrySnapshot(previousSnapshot ?? snapshot ?? noSelectionSnapshot, selectedPointId)) return 'retryable-stale'
     return gatewayState === 'dependency' ? 'dependency' : 'runtime-error'
   }
+
   if (gatewayState === 'dependency') return 'dependency'
   if (gatewayState === 'runtime-error' || gatewayState === 'error') return 'runtime-error'
+
+  if (resolvedDataState === 'NoSelection') return 'no-selection'
   if (resolvedDataState === 'NotConfigured') return 'not-configured'
   if (resolvedDataState === 'NoData' || gatewayState === 'no-data') return 'no-data'
   if (gatewayState === 'ready' && resolvedDataState === 'Data' && hasNumericTelemetryData(snapshot ?? noSelectionSnapshot, selectedPointId)) return 'data'

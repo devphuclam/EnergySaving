@@ -20,6 +20,28 @@ export function runDashboardTelemetryRedEvidence(): string[] {
   if (typeof OperationalDashboard !== 'function' || typeof PointCurrentRoute !== 'function') failures.push('dashboard and telemetry routes must be importable')
   if (typeof ChartContainer !== 'function') failures.push('ChartContainer must be importable')
   if (DASHBOARD_TELEMETRY_RED_EVIDENCE_EXPECTED_FAILURES !== 0) failures.push('red evidence is expected to return an empty failure array')
+  const noSelection = { state: 'no-selection' as const, value: null, health: 'NoSelection', dataState: 'NoSelection' as const }
+  const notConfigured = { state: 'ready' as const, value: null, health: 'Unavailable', pointId: 'p-1', dataState: 'NotConfigured' as const }
+  const noData = { state: 'no-data' as const, value: null, health: 'NoData', pointId: 'p-1', dataState: 'NoData' as const }
+  const retainedData = { state: 'ready' as const, value: 0, health: 'Online', pointId: 'p-1', dataState: 'Data' as const }
+  const classifierMatrix: Array<[string, Parameters<typeof classifyTelemetryState>[0], ReturnType<typeof classifyTelemetryState>]> = [
+    ['gateway no-selection', { gatewayState: 'no-selection', dataState: 'NoSelection', snapshot: noSelection, previousSnapshot: noSelection }, 'no-selection'],
+    ['successful NoSelection', { gatewayState: 'ready', dataState: 'NoSelection', snapshot: noSelection, previousSnapshot: noSelection }, 'no-selection'],
+    ['dependency with NoSelection', { gatewayState: 'dependency', dataState: 'NoSelection', snapshot: noSelection, previousSnapshot: noSelection, retryableRefresh: true }, 'dependency'],
+    ['runtime error with NoSelection', { gatewayState: 'runtime-error', dataState: 'NoSelection', snapshot: noSelection, previousSnapshot: noSelection, retryableRefresh: true }, 'runtime-error'],
+    ['dependency with NotConfigured', { gatewayState: 'dependency', dataState: 'NotConfigured', snapshot: notConfigured, previousSnapshot: notConfigured, selectedPointId: 'p-1', retryableRefresh: true }, 'dependency'],
+    ['dependency with NoData', { gatewayState: 'dependency', dataState: 'NoData', snapshot: noData, previousSnapshot: noData, selectedPointId: 'p-1', retryableRefresh: true }, 'retryable-stale'],
+    ['runtime error with NoData', { gatewayState: 'runtime-error', dataState: 'NoData', snapshot: noData, previousSnapshot: noData, selectedPointId: 'p-1', retryableRefresh: true }, 'retryable-stale'],
+    ['dependency with finite zero', { gatewayState: 'dependency', dataState: 'Data', snapshot: retainedData, previousSnapshot: retainedData, selectedPointId: 'p-1', retryableRefresh: true }, 'retryable-stale'],
+    ['forbidden with retained Data', { gatewayState: 'forbidden', dataState: 'Data', snapshot: retainedData, previousSnapshot: retainedData, selectedPointId: 'p-1', retryableRefresh: true }, 'forbidden'],
+    ['expired with retained Data', { gatewayState: 'expired', dataState: 'Data', snapshot: retainedData, previousSnapshot: retainedData, selectedPointId: 'p-1', retryableRefresh: true }, 'expired'],
+    ['conflict with retained Data', { gatewayState: 'conflict', dataState: 'Data', snapshot: retainedData, previousSnapshot: retainedData, selectedPointId: 'p-1', retryableRefresh: true }, 'conflict'],
+    ['successful NoData', { gatewayState: 'ready', dataState: 'NoData', snapshot: noData, previousSnapshot: noData, selectedPointId: 'p-1' }, 'no-data'],
+    ['successful finite Data', { gatewayState: 'ready', dataState: 'Data', snapshot: retainedData, previousSnapshot: retainedData, selectedPointId: 'p-1' }, 'data'],
+  ]
+  for (const [label, input, expected] of classifierMatrix) {
+    if (classifyTelemetryState(input) !== expected) failures.push(`${label} must classify as ${expected}`)
+  }
   const exceptions = dashboardExceptionItems(fixture)
   if (!exceptions.some(item => item.kind === 'health' && item.status === 'Stale')) failures.push('stale source health must surface before summary')
   if (!exceptions.some(item => item.key === 'missing-latest')) failures.push('points without latest evidence must remain visible')
@@ -34,18 +56,15 @@ export function runDashboardTelemetryRedEvidence(): string[] {
   if (classifyTelemetryState({ gatewayState: 'no-data', dataState: 'NoData' }) !== 'no-data') failures.push('NoData must remain distinct from configuration absence')
   if (classifyTelemetryState({ gatewayState: 'conflict', dataState: 'HierarchyConflict' }) !== 'conflict') failures.push('HierarchyConflict must use ConflictState')
   if (classifyTelemetryState({ gatewayState: 'expired' }) !== 'expired') failures.push('expired must have explicit session presentation')
-  const retainedData = { state: 'ready' as const, value: 0, health: 'Online', pointId: 'p-1', dataState: 'Data' as const }
   if (!hasNumericTelemetryData(retainedData, 'p-1') || !isRetainableTelemetrySnapshot(retainedData, 'p-1')) failures.push('finite Data with matching point identity must be numeric and retainable')
   if (!hasNumericTelemetryData({ ...retainedData, value: 12 }, 'p-1')) failures.push('positive finite Data must remain numeric')
   if (classifyTelemetryState({ gatewayState: 'dependency', dataState: undefined, snapshot: retainedData, previousSnapshot: retainedData, selectedPointId: 'p-1', retryableRefresh: true }) !== 'retryable-stale') failures.push('retryable refresh must retain only legitimate previous Data evidence')
-  const notConfigured = { state: 'ready' as const, value: null, health: 'Unavailable', pointId: 'p-1', dataState: 'NotConfigured' as const }
   if (hasNumericTelemetryData(notConfigured, 'p-1') || isRetainableTelemetrySnapshot(notConfigured, 'p-1')) failures.push('NotConfigured must be neither numeric nor retainable')
   if (classifyTelemetryState({ gatewayState: 'dependency', dataState: undefined, snapshot: notConfigured, previousSnapshot: notConfigured, selectedPointId: 'p-1', retryableRefresh: true }) !== 'dependency') failures.push('NotConfigured plus dependency must not become retryable-stale')
-  const noData = { state: 'no-data' as const, value: null, health: 'NoData', pointId: 'p-1', dataState: 'NoData' as const }
   if (hasNumericTelemetryData(noData, 'p-1') || !isRetainableTelemetrySnapshot(noData, 'p-1')) failures.push('NoData must be retainable but never numeric')
   if (classifyTelemetryState({ gatewayState: 'dependency', dataState: undefined, snapshot: noData, previousSnapshot: noData, selectedPointId: 'p-1', retryableRefresh: true }) !== 'retryable-stale') failures.push('NoData plus dependency must remain retryable-stale Missing evidence')
   if (classifyTelemetryState({ gatewayState: 'runtime-error', dataState: undefined, snapshot: noData, previousSnapshot: noData, selectedPointId: 'p-1', retryableRefresh: true }) !== 'retryable-stale') failures.push('NoData plus runtime error must remain retryable-stale Missing evidence')
-  if (classifyTelemetryState({ gatewayState: 'dependency', dataState: undefined, snapshot: { state: 'no-selection', value: null, health: 'NoSelection', dataState: 'NoSelection' }, previousSnapshot: { state: 'no-selection', value: null, health: 'NoSelection', dataState: 'NoSelection' }, retryableRefresh: true }) !== 'dependency') failures.push('NoSelection plus dependency must remain dependency')
+  if (classifyTelemetryState({ gatewayState: 'dependency', dataState: undefined, snapshot: noSelection, previousSnapshot: noSelection, retryableRefresh: true }) !== 'dependency') failures.push('NoSelection plus dependency must remain dependency')
   for (const value of [null, NaN, Infinity]) {
     const malformed = { state: 'ready' as const, value, health: 'Online', pointId: 'p-1', dataState: 'Data' as const }
     if (hasNumericTelemetryData(malformed, 'p-1') || isRetainableTelemetrySnapshot(malformed, 'p-1')) failures.push('null/NaN/Infinity Data must be neither numeric nor retainable')
