@@ -99,3 +99,17 @@ totals and hidden counts.
 - Merge performed: NO.
 - Release created: NO.
 - Evidence commit: this checkpoint commit/HEAD; its SHA is recorded after evidence commit creation.
+
+## Minimal superseding reference: classifier consistency correction
+
+The prior classifier closure is superseded by the narrow correction on
+`fix/004-phase-02-classifier-consistency`. It closes High finding P2-CC-F01: explicit gateway
+dependency/runtime/error precedence now runs before successful `NoSelection` snapshot handling, so
+an active failure cannot be masked. Production corrective commit:
+`d1f226e43b9ff1281d03f0c1952c0f61debf2172`.
+
+The exact 13-case static matrix, actual lint/build/Fast outcomes, and the superseding checkpoint
+are recorded in [phase-02-classifier-consistency-review.md](phase-02-classifier-consistency-review.md),
+[phase-02-verification.md](phase-02-verification.md), and [phase-02-checkpoint.md](phase-02-checkpoint.md).
+T037-T071 remain pending; T037 and Phase 3 were not executed. Final classifier decision:
+**Phase-2-complete YES; progression to Phase 3 YES; Full Feature 004 NO; Release-ready NO**.

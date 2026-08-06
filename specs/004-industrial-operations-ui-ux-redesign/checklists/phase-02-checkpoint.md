@@ -119,6 +119,76 @@ timestamp/reason/historical-series limitations remain `DEFERRED_EXTERNAL_CONTRAC
 - Release created: NO.
 - Next command: `/speckit.implement` — Phase 3 only when separately authorized.
 
+## Phase 2 classifier consistency checkpoint (supersedes classifier closure)
+
+| Item | Result |
+|---|---|
+| Starting main SHA | `ab95dbb78794946a021d2f3a6768b57a5dc5cff8` |
+| Working branch | `fix/004-phase-02-classifier-consistency` |
+| Production corrective commit | `d1f226e43b9ff1281d03f0c1952c0f61debf2172` |
+| Evidence commit | This evidence commit; SHA is recorded by Git after creation |
+| Finding | P2-CC-F01 High — CLOSED |
+| Completed task range | T001-T036 |
+| Pending task range | T037-T071 |
+| T037 / Phase 3 | NOT EXECUTED |
+| Backend/API/Worker/database/migrations | NOT CHANGED |
+| Package/lockfile changes | NOT CHANGED |
+| Merge/release | NOT PERFORMED |
+
+### Static classifier evidence
+
+| Gateway | Snapshot | Retryable | Result |
+|---|---|---:|---|
+| no-selection | NoSelection | NO | `no-selection` |
+| ready | NoSelection | NO | `no-selection` |
+| dependency | NoSelection | YES | `dependency` |
+| runtime-error | NoSelection | YES | `runtime-error` |
+| dependency | NotConfigured | YES | `dependency` |
+| dependency | NoData | YES | `retryable-stale` |
+| runtime-error | NoData | YES | `retryable-stale` |
+| dependency | finite Data zero | YES | `retryable-stale` |
+| forbidden | retained Data | YES | `forbidden` |
+| expired | retained Data | YES | `expired` |
+| conflict | retained Data | YES | `conflict` |
+| ready | NoData | NO | `no-data` |
+| ready | finite Data | NO | `data` |
+
+The source-visible matrices supply both `snapshot` and `previousSnapshot`, pass the route's exact
+`dataState`, and include `selectedPointId` for point-bound cases. They are **TYPE_CHECKED +
+STATIC_REVIEW**, not runtime frontend PASS.
+
+### Actual verification and decision
+
+| Evidence | Result |
+|---|---|
+| Lint | PASS; exit 0, existing warnings only |
+| Build | PASS; exit 0 |
+| Fast harness | PASS=11; failures=0 |
+| Source-visible checks | TYPE_CHECKED + STATIC_REVIEW |
+| Runtime frontend | BLOCKED_BY_PACKAGE_POLICY |
+| Browser/visual | NOT_RUN |
+| Accessibility automation | BLOCKED_BY_PACKAGE_POLICY |
+| Full harness | FAIL; exit 1 — backend-build/frontend PASS; database `DATABASE_CONNECTION_RUNTIME_FAILURE` at approved 127.0.0.1:5433; CI/deployment `BLOCKED_BY_COMPANY_APPROVAL` |
+| `git diff --check` | PASS |
+| Critical findings | 0 |
+| High findings | 0 |
+| Medium findings | 0 |
+
+The final decision is **Phase-2-complete YES** and **Progression to Phase 3 YES**. Full Feature 004
+completion remains **NO**, Release-ready remains **NO** because the fresh Full environment check
+failed, and external contract limitations remain
+`DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
+
+## Explicit classifier consistency stop
+
+- T037 executed: NO.
+- Phase 3 executed: NO.
+- Backend/API/Worker/database/migrations changed: NO.
+- Package installed: NO.
+- PostgreSQL 5432 touched: NO.
+- Merge/release created: NO.
+- Next command: `/speckit.implement` — Phase 3 only when separately authorized.
+
 ## Phase 2 classifier closure checkpoint
 
 | Item | Result |

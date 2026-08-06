@@ -74,6 +74,43 @@ remain deferred and do not become implementation claims.
 
 This first review remains as historical evidence of the initial Phase 2 invocation. The corrective review reopens the six static findings P2-C01–P2-C06, closes the implementation findings, and changes the governance outcome to progression **YES** for independent Phase 3 work once Critical/High are zero. External contract gaps remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION` and Release-ready remains **NO**.
 
+## Classifier consistency review (supersedes the prior classifier closure)
+
+Baseline: `ab95dbb78794946a021d2f3a6768b57a5dc5cff8`
+Branch: `fix/004-phase-02-classifier-consistency`
+Production corrective commit: `d1f226e43b9ff1281d03f0c1952c0f61debf2172`
+Scope: P2-CC-F01; T028-T036 only. T037-T071 remain pending.
+
+### Standards review
+
+| Area | Result |
+|---|---|
+| Failure precedence | PASS; explicit gateway no-selection no longer masks dependency/runtime/error failures. |
+| Retryable retention | PASS; only identity-matched finite Data or legitimate NoData becomes `retryable-stale`; NotConfigured and NoSelection remain active failures. |
+| Terminal state precedence | PASS; forbidden, expired, and conflict override retained evidence. |
+| Scope and safety | PASS; only the classifier, its two source-visible evidence files, and Phase 2 governance artifacts changed. |
+
+Standards findings: **Critical 0 / High 0 / Medium 0 / Low 0**.
+
+### Specification review
+
+| Trace | Result |
+|---|---|
+| FR-004 / FR-011 | PASS; NoSelection, NotConfigured, NoData, zero Data, and finite Data remain distinct. |
+| FR-006 / FR-012 | PASS; dependency/runtime failures remain visible even when a NoSelection snapshot is present; retryable stale evidence is explicit. |
+| FR-020 / FR-023 | PASS; terminal session/permission/conflict states remain authoritative over retained evidence. |
+| T028-T033 evidence | PASS; both source-visible matrices contain the exact 13 required cases with production-like route inputs. |
+| Governance | PASS; actual production SHA and actual command outcomes are recorded; no Phase 3 task was started. |
+
+Specification findings: **Critical 0 / High 0 / Medium 0 / Low 0**. External contract limitations
+remain `DEFERRED_EXTERNAL_CONTRACT_LIMITATION` and are not treated as resolved.
+
+Final classifier consistency decision: **Phase-2-complete YES; progression to Phase 3 YES; Full
+Feature 004 NO; Release-ready NO**. A fresh Full harness was also run: backend-build and frontend
+passed, while the database check failed with `DATABASE_CONNECTION_RUNTIME_FAILURE` at the approved
+127.0.0.1:5433 target and CI/deployment remained `BLOCKED_BY_COMPANY_APPROVAL`; this environment
+blocker does not alter the classifier-only review scope.
+
 ## Final Phase 2 closure review
 
 Baseline: `9b6aca799f738b44ec9d75a34338abeaf4d0d167`

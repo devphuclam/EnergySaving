@@ -215,3 +215,51 @@ Phase 3 YES; Full Feature 004 NO; Release-ready NO**. External contract limitati
 
 Evidence artifact identity is the checkpoint commit/HEAD created after production commit
 `7e9e1230fd69a33b0c7138765aea326f30a0aaca`; its SHA is recorded after that evidence commit.
+
+## Phase 2 classifier consistency correction (supersedes classifier closure)
+
+| Item | Result |
+|---|---|
+| Authoritative starting main | `ab95dbb78794946a021d2f3a6768b57a5dc5cff8` |
+| Branch | `fix/004-phase-02-classifier-consistency` |
+| Production corrective commit | `d1f226e43b9ff1281d03f0c1952c0f61debf2172` |
+| Scope | P2-CC-F01; Phase 2 classifier consistency only |
+| T001-T036 | COMPLETE |
+| T037-T071 | NOT EXECUTED; remain pending |
+| Backend/API/Worker/database/migrations | NOT CHANGED |
+| Package/lockfile changes | NOT CHANGED |
+
+The classifier now checks explicit gateway no-selection first, then loading and terminal
+session/permission/conflict states, then active retryable dependency/runtime/error failures before
+successful snapshot states. Therefore retained `NoSelection` cannot mask an active dependency or
+runtime failure. The exact 13-case matrix is recorded in
+[phase-02-classifier-consistency-review.md](phase-02-classifier-consistency-review.md) and is
+present in both source-visible evidence files.
+
+| Verification | Result | Detail |
+|---|---|---|
+| `npm run lint` | PASS | Exit 0; existing non-blocking Fast Refresh/hooks warnings only |
+| `npm run build` | PASS | Exit 0; TypeScript/Vite production build |
+| Fast harness | PASS=11 | Failures=0 |
+| Source-visible checks | TYPE_CHECKED + STATIC_REVIEW | Matrix covers snapshot, previousSnapshot, exact dataState, and selectedPointId where applicable |
+| Runtime frontend | BLOCKED_BY_PACKAGE_POLICY | No approved executor |
+| Browser/visual | NOT_RUN | No approved visual evidence |
+| Accessibility automation | BLOCKED_BY_PACKAGE_POLICY | No approved browser/axe package |
+| Full harness | FAIL | Exit 1; backend-build/frontend PASS, database `DATABASE_CONNECTION_RUNTIME_FAILURE` at approved 127.0.0.1:5433, CI/deployment `BLOCKED_BY_COMPANY_APPROVAL` |
+| `git diff --check` | PASS | No whitespace errors |
+
+Final classifier consistency decision: **Critical 0 / High 0 / Medium 0; Phase-2-complete YES;
+progression to Phase 3 YES; Full Feature 004 NO; Release-ready NO**. Fresh Full remains a failed
+environment verification because the approved database target refused the connection; this does
+not change the UI-only classifier scope. T037 and all Phase 3 work remain outside this invocation.
+External contract limitations remain
+`DEFERRED_EXTERNAL_CONTRACT_LIMITATION`.
+
+## Explicit classifier consistency stop
+
+- T037 executed: NO.
+- Phase 3 executed: NO.
+- Backend/API/Worker/database/migrations changed: NO.
+- Package installed: NO.
+- PostgreSQL 5432 touched: NO.
+- Merge/release created: NO.
