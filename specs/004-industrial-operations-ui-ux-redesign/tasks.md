@@ -93,6 +93,21 @@ below repeats the paths it owns so the ledger remains executable without opening
 
 **Phase 3 stop**: `/speckit.implement` for Phase 3 stops after T047.
 
+### Phase 3 corrective closure (superseding evidence, post-`f69c7b8`)
+
+- [x] P3-C01–P3-C08 [RUNNABLE_NOW] Phase 3 corrective remediation — Production corrections in
+  `src/Web/src/features/configuration/ConfigurationManagementRoutes.tsx`,
+  `src/Web/src/features/configuration/ConfigurationManagementComponents.tsx`,
+  `src/Web/src/features/configuration/ConfigurationRoutes.tsx`, and `src/Web/src/App.tsx`
+  (session-recovery wiring only); commit `218e802fee7017575d8db197a33a8f90e19b71c3`
+  (`fix(feature-004): correct phase three configuration workflows`) on branch
+  `fix/004-phase-03-corrective-remediation`; Depends: T047; Verify: evidence owner
+  `specs/004-industrial-operations-ui-ux-redesign/checklists/phase-03-corrective-review.md`
+  records the eight-finding table, superseding notes in the phase-03 verification/review/checkpoint
+  files, and corrected PASS results for lint/build/Fast harness (`PASS=11`); exported evidence
+  remains TYPE_CHECKED with runtime NOT_RUN/BLOCKED_BY_PACKAGE_POLICY; no merge, no T048,
+  no Phase 4. The historical T037–T047 ledger above is not rewritten.
+
 ## Phase 4 — Simulator and Audit
 
 **Goal**: Deliver reproducible Simulator and investigation-oriented Audit workspaces for US4 and US6.

@@ -44,3 +44,14 @@ Release-ready: **NO**. Historical Full evidence still carries its known environm
 approval blockers; this phase does not rerun Full or promote blocked/runtime evidence.
 
 Explicit stop: Phase 3 ends here. No T048+ work was started.
+
+## Superseded by the Phase 3 corrective review (2026-08-06)
+
+A post-merge corrective round closed P3-C01–P3-C08 (production commit
+`218e802fee7017575d8db197a33a8f90e19b71c3`; evidence in `phase-03-corrective-review.md`).
+Corrective verification: `npm run lint` PASS, `npm run build` PASS, Fast harness
+`PASS=11` PASS; exported evidence checks remain TYPE_CHECKED/NOT_RUN and browser evidence
+BLOCKED_BY_PACKAGE_POLICY, never promoted to PASS. After closure: Critical=0, High=0;
+progression to Phase 4 remains **YES, only after a new explicit `/speckit.implement` invocation**;
+Release-ready remains **NO**. This file's historical ledger (PASS 11 / FAIL 0 / pending 24) is not
+rewritten.

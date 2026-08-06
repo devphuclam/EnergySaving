@@ -35,3 +35,11 @@ External contract limits remain explicit: lifecycle reason persistence is deferr
 absent from the existing contract, and sort is current-page only because no server-wide sort field
 exists. These limits do not change backend authorization or lifecycle semantics.
 
+## Superseded by the Phase 3 corrective review (2026-08-06)
+
+A post-merge corrective review (`phase-03-corrective-review.md`) identified and closed eight
+findings (P3-C01–P3-C08) with production corrections in commit
+`218e802fee7017575d8db197a33a8f90e19b71c3`. The statements above remain historical evidence of the
+T045/T046 reviews as performed; the corrective review supersedes them for current-state review
+results: **0 Critical / 0 High / 0 actionable Medium** after closure.
+

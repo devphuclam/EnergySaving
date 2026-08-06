@@ -72,3 +72,12 @@ exports. Runtime execution is `NOT_RUN` because no approved frontend behavior ru
 
 Frontend runtime behavior, automated browser/a11y and visual rendering remain `BLOCKED_BY_PACKAGE_POLICY`
 or `NOT_RUN` unless actual approved evidence is available; they are never promoted to PASS.
+
+## Superseded by the Phase 3 corrective review (2026-08-06)
+
+The post-merge corrective round found P3-C01 (Critical) through P3-C08 in the implementation above.
+Production corrections are in commit `218e802fee7017575d8db197a33a8f90e19b71c3`
+(`fix(feature-004): correct phase three configuration workflows`); corrective evidence and the
+superseding verification table are recorded in `phase-03-corrective-review.md`. The T037 red
+evidence, contract inventory, and runtime classification in this file remain historical and are
+not rewritten.
