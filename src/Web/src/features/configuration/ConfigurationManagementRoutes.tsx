@@ -23,21 +23,28 @@ import {
   DuplicateButton,
   ManagementActionButton,
   actionLabelFor,
+  beginManagementMutation,
   canDeleteResource,
   configurationFormDirty,
   configurationLifecyclePresentation,
   detailFieldsFor,
   detailRequestOwner,
   detailResponseApplies,
+  discardRetryIntent,
   duplicateIdentityFromResult,
   effectiveConfigurationSort,
+  isManagementMutationInFlight,
   lifecycleActionsFor,
   managementMutationDisposition,
+  managementRetryIntent,
   managementStateMessage,
   mutationActionLabel,
   normalizeConfigurationForm,
+  requiredFieldsFor,
   resourceLabel,
+  retryKeyFor,
   safeConfigurationDate,
+  settleManagementMutation,
   simulatorActivationReadiness,
   sortManagementItems,
   statusesForResource,
@@ -46,6 +53,7 @@ import {
   type ManagementColumn,
   type ManagementFeedback,
   type ManagementItem,
+  type ManagementMutationFlight,
   type ManagementState,
   type OptionName,
   type OptionState,
@@ -169,8 +177,8 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
   const [optionRetryNonce, setOptionRetryNonce] = useState(0)
   const [busyItem, setBusyItem] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<ManagementFeedback>(null)
-  const [pendingMutation, setPendingMutation] = useState<PendingManagementMutation | null>(null)
-  const pendingMutationRef = useRef<PendingManagementMutation | null>(null)
+  const [flight, setFlight] = useState<ManagementMutationFlight>({ kind: 'idle' })
+  const flightRef = useRef<ManagementMutationFlight>({ kind: 'idle' })
   const latestResourceRef = useRef(resource)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [detailRecord, setDetailRecord] = useState<ManagementItem | null>(null)
@@ -215,7 +223,7 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
   }, [gateways.management, optionRetryNonce, refreshNonce])
 
   const reloadCurrent = () => { setRefreshNonce(value => value + 1) }
-  const mutationPending = pendingMutation !== null
+  const mutationInFlight = isManagementMutationInFlight(flight)
   const formDirty = editorMode !== null && configurationFormDirty(form, initialForm)
   const columns = columnsFor(resource)
   const effectiveSort = effectiveConfigurationSort(resource, sort)
@@ -225,22 +233,27 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
     ? `Không có ${resourceLabel(resource).toLocaleLowerCase('vi')} nào khớp bộ lọc hiện tại trong phạm vi được cấp quyền.`
     : `Chưa có ${resourceLabel(resource).toLocaleLowerCase('vi')} nào trong phạm vi hiện tại.`
 
-  const storePendingMutation = (descriptor: PendingManagementMutation | null) => {
-    pendingMutationRef.current = descriptor
-    setPendingMutation(descriptor)
+  const setFlightBoth = (next: ManagementMutationFlight) => {
+    flightRef.current = next
+    setFlight(next)
   }
 
   const invalidateDetailOwner = () => { detailOwnerRef.current = null }
 
-  function handleSessionRecovery() { invalidateDetailOwner(); onSessionRecovery?.() }
+  const discardRetryMode = () => {
+    setFlightBoth(discardRetryIntent(flightRef.current))
+    setFeedback(null)
+  }
+
+  function handleSessionRecovery() { invalidateDetailOwner(); setFlightBoth({ kind: 'idle' }); onSessionRecovery?.() }
 
   function openEditor(mode: 'create' | 'edit', next: Record<string, string>, record: ManagementItem | null) {
-    setForm(next); setInitialForm(next); setEditorMode(mode); setEditingRecord(record); setInvalidField(null); setSubmitAttempt(0); setFeedback(null); storePendingMutation(null)
+    setForm(next); setInitialForm(next); setEditorMode(mode); setEditingRecord(record); setInvalidField(null); setSubmitAttempt(0); setFeedback(null); setFlightBoth({ kind: 'idle' })
   }
 
   function performTransition(transition: ConfigurationTransition) {
     setDiscardChangesOpen(false); setPendingTransition(null)
-    storePendingMutation(null)
+    setFlightBoth({ kind: 'idle' })
     if (transition.kind === 'tab') {
       const next = transition.resource
       latestResourceRef.current = next
@@ -259,7 +272,7 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
   }
 
   function requestConfigurationTransition(transition: ConfigurationTransition) {
-    if (pendingMutationRef.current) return
+    if (flightRef.current.kind === 'in-flight') return
     if (!editorMode || !configurationFormDirty(form, initialForm)) { performTransition(transition); return }
     setPendingTransition(transition); setDiscardChangesOpen(true)
   }
@@ -334,6 +347,7 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
 
   async function executeManagementMutation(descriptor: PendingManagementMutation): Promise<ManagementMutation | null> {
     setBusyItem(descriptor.entityId ?? descriptor.resource)
+    setFlightBoth(beginManagementMutation(descriptor))
     const retryKey = descriptor.retryKey
     const run = () => {
       switch (descriptor.kind) {
@@ -349,26 +363,29 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
     }
     const result = await run()
     setBusyItem(null)
+    const settled = settleManagementMutation({ kind: 'in-flight', descriptor }, result)
+    setFlightBoth(settled)
+    if (settled.kind === 'retry-intent') {
+      setFeedback({
+        tone: 'error',
+        message: `${messageFor(result, mutationActionLabel(descriptor.kind))} Yêu cầu có thể đã được ghi nhận ở máy chủ; bỏ chế độ thử lại không chứng minh yêu cầu thất bại và không hủy lệnh có thể đã được xử lý.`,
+        action: <div className="actions-stack"><ManagementActionButton label="Thử lại cùng yêu cầu" tone="quiet" onClick={() => { const intent = managementRetryIntent(flightRef.current); if (intent) void executeManagementMutation(intent) }} /><ManagementActionButton label="Bỏ chế độ thử lại" tone="quiet" onClick={discardRetryMode} /></div>,
+      })
+      return null
+    }
     const disposition = managementMutationDisposition(result)
-    if (disposition === 'success') { storePendingMutation(null); completeMutation(descriptor, result); return result }
+    if (disposition === 'success') { completeMutation(descriptor, result); return result }
     if (disposition === 'expired') {
-      storePendingMutation(null)
       setFeedback({ tone: 'error', message: 'Phiên đã hết hạn. Vui lòng đăng nhập lại để tiếp tục.', action: onSessionRecovery ? <ManagementActionButton label="Đăng nhập lại" tone="primary" onClick={() => handleSessionRecovery()} /> : undefined })
       return null
     }
-    if (disposition === 'retryable') {
-      storePendingMutation(descriptor)
-      setFeedback({ tone: 'error', message: messageFor(result, mutationActionLabel(descriptor.kind)), action: <ManagementActionButton label="Thử lại cùng yêu cầu" tone="quiet" onClick={() => { const pending = pendingMutationRef.current; if (pending) void executeManagementMutation(pending) }} /> })
-      return null
-    }
-    storePendingMutation(null)
     setFeedback({ tone: 'error', message: messageFor(result, mutationActionLabel(descriptor.kind)) })
     return null
   }
 
   async function submitEditor() {
-    if (!editorMode || pendingMutationRef.current) return
-    const normalized = normalizeConfigurationForm(resource, editorMode, form)
+    if (!editorMode || flightRef.current.kind === 'in-flight') return
+    const normalized = normalizeConfigurationForm(resource, editorMode, form, initialForm)
     setSubmitAttempt(value => value + 1)
     if (normalized.errors.length) { setInvalidField(normalized.errors[0].key); setFeedback({ tone: 'warning', message: normalized.errors[0].message }); return }
     const kind = editorMode === 'create' ? 'create' : 'update'
@@ -378,51 +395,51 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
       resource, kind, entityId,
       expectedVersion: editorMode === 'edit' ? Number(editingRecord?.version ?? 0) : undefined,
       payload: normalized.body,
-      retryKey: crypto.randomUUID(),
+      retryKey: '',
     }
-    storePendingMutation(descriptor)
+    descriptor.retryKey = retryKeyFor(managementRetryIntent(flightRef.current), descriptor)
     await executeManagementMutation(descriptor)
   }
 
   async function duplicate(item: ManagementItem) {
-    if (pendingMutationRef.current) return
+    if (flightRef.current.kind === 'in-flight') return
     const id = idOf(item); if (!id) return
     if (resource === 'simulator-configurations' && (!duplicateSourceId || duplicateSourceId === textValue(item.sourceId))) { setFeedback({ tone: 'warning', message: 'Hãy chọn một Nguồn dữ liệu đích khác với nguồn hiện tại.' }); return }
     const target = resource === 'simulator-configurations' ? duplicateSourceId : undefined
-    const descriptor: PendingManagementMutation = { resource, kind: 'duplicate', entityId: id, payload: { targetSourceId: target ?? null }, targetSourceId: target, retryKey: crypto.randomUUID() }
-    storePendingMutation(descriptor)
+    const descriptor: PendingManagementMutation = { resource, kind: 'duplicate', entityId: id, payload: { targetSourceId: target ?? null }, targetSourceId: target, retryKey: '' }
+    descriptor.retryKey = retryKeyFor(managementRetryIntent(flightRef.current), descriptor)
     await executeManagementMutation(descriptor)
   }
 
   async function reviewRelationships(target: ReviewState | null) {
-    if (!target || pendingMutationRef.current) return
-    const descriptor: PendingManagementMutation = { resource: 'simulator-configurations', kind: 'review', entityId: target.id, draftVersion: target.draftVersion, payload: { draftVersion: target.draftVersion }, retryKey: crypto.randomUUID() }
-    storePendingMutation(descriptor)
+    if (!target || flightRef.current.kind === 'in-flight') return
+    const descriptor: PendingManagementMutation = { resource: 'simulator-configurations', kind: 'review', entityId: target.id, draftVersion: target.draftVersion, payload: { draftVersion: target.draftVersion }, retryKey: '' }
+    descriptor.retryKey = retryKeyFor(managementRetryIntent(flightRef.current), descriptor)
     await executeManagementMutation(descriptor)
   }
 
   async function validate(item: ManagementItem) {
-    if (pendingMutationRef.current) return
+    if (flightRef.current.kind === 'in-flight') return
     const id = idOf(item); if (!id) return
     if (resource === 'simulator-configurations' && !reviewFromItem(item)?.reviewed) { setFeedback({ tone: 'warning', message: 'Cần xem xét quan hệ trên máy chủ trước khi kiểm tra bản nháp.' }); return }
-    const descriptor: PendingManagementMutation = { resource, kind: 'validate', entityId: id, payload: {}, retryKey: crypto.randomUUID() }
-    storePendingMutation(descriptor)
+    const descriptor: PendingManagementMutation = { resource, kind: 'validate', entityId: id, payload: {}, retryKey: '' }
+    descriptor.retryKey = retryKeyFor(managementRetryIntent(flightRef.current), descriptor)
     await executeManagementMutation(descriptor)
   }
 
   function lifecycle(item: ManagementItem, action: string) {
-    if (pendingMutationRef.current) return
+    if (flightRef.current.kind === 'in-flight') return
     if (resource === 'simulator-configurations') { setFeedback({ tone: 'warning', message: 'Kích hoạt cấu hình mô phỏng phải dùng hành động Kích hoạt bản nháp riêng, không dùng thao tác vòng đời chung.' }); return }
     setPendingAction({ kind: 'lifecycle', item, action })
   }
 
   function remove(item: ManagementItem) {
-    if (pendingMutationRef.current) return
+    if (flightRef.current.kind === 'in-flight') return
     setPendingAction({ kind: 'remove', item })
   }
 
   async function confirmPendingAction() {
-    const pending = pendingAction; if (!pending || pendingMutationRef.current) return
+    const pending = pendingAction; if (!pending || flightRef.current.kind === 'in-flight') return
     setPendingAction(null)
     const id = idOf(pending.item)
     const action = pending.kind === 'remove' ? '' : pending.action ?? ''
@@ -430,14 +447,14 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
       resource, kind: pending.kind === 'remove' ? 'remove' : 'lifecycle', entityId: id,
       expectedVersion: Number(pending.item.version ?? 0),
       payload: { action: pending.kind === 'remove' ? null : action },
-      retryKey: crypto.randomUUID(),
+      retryKey: '',
     }
-    storePendingMutation(descriptor)
+    descriptor.retryKey = retryKeyFor(managementRetryIntent(flightRef.current), descriptor)
     await executeManagementMutation(descriptor)
   }
 
   async function activate(item: ManagementItem) {
-    if (pendingMutationRef.current) return
+    if (flightRef.current.kind === 'in-flight') return
     const id = textValue(item.configurationId); if (!id) return
     const readiness = simulatorActivationReadiness(item)
     if (!readiness.ready) { setFeedback({ tone: 'warning', message: readiness.reason ?? 'Cần xem xét quan hệ và kiểm tra bản nháp trước khi kích hoạt.' }); return }
@@ -446,38 +463,38 @@ export function ConfigurationManagementRoutes({ onSessionRecovery }: { onSession
       resource: 'simulator-configurations', kind: 'activate', entityId: id,
       expectedVersion: Number(item.version ?? 0), draftVersion: draft,
       payload: { expectedHeadVersion: Number(item.version ?? 0), draftConfigurationVersion: draft },
-      retryKey: crypto.randomUUID(),
+      retryKey: '',
     }
-    storePendingMutation(descriptor)
+    descriptor.retryKey = retryKeyFor(managementRetryIntent(flightRef.current), descriptor)
     await executeManagementMutation(descriptor)
   }
 
   const optionLists = options
   const createOptionNames: OptionName[] = resource === 'areas' || resource === 'data-sources' ? ['sites'] : resource === 'assets' ? ['areas'] : resource === 'points' ? ['assets'] : resource === 'source-point-mappings' ? ['sources', 'points'] : resource === 'simulator-configurations' ? ['sources'] : []
   const unavailable = createOptionNames.find(name => optionStates[name] !== 'ready')
-  const errors: FieldError[] = editorMode ? normalizeConfigurationForm(resource, editorMode, form).errors.map(error => ({ id: `configuration-field-${error.key}`, label: error.label, message: error.message })) : []
+  const errors: FieldError[] = editorMode ? normalizeConfigurationForm(resource, editorMode, form, initialForm).errors.map(error => ({ id: `configuration-field-${error.key}`, label: error.label, message: error.message })) : []
 
   return <section className="page configuration-page" aria-labelledby="configuration-management-title">
-    <div className="page-heading"><div><p className="eyebrow">Quản lý cấu hình</p><h1 id="configuration-management-title">Cấu hình vận hành</h1><p className="lede">Quản lý bảy nhóm cấu hình trong phạm vi được cấp quyền, với trạng thái, phiên bản và hành động có thể truy xuất.</p></div><div className="actions-stack"><span className="badge badge-neutral">{resourceLabel(resource)}</span><ManagementActionButton label="Tạo mới" tone="primary" onClick={() => requestConfigurationTransition({ kind: 'create' })} disabled={Boolean(unavailable) || mutationPending} title={mutationPending ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : unavailable ? optionMessage(unavailable, optionStates[unavailable]) : undefined} /></div></div>
-    <nav className="tabs entity-tabs" aria-label="Loại cấu hình">{RESOURCE_KEYS.map(value => <button key={value} type="button" className={`tab ${resource === value ? 'tab-active' : ''}`} aria-current={resource === value ? 'page' : undefined} disabled={mutationPending} title={mutationPending ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : undefined} onClick={() => requestConfigurationTransition({ kind: 'tab', resource: value })}>{resourceLabel(value)}</button>)}</nav>
+    <div className="page-heading"><div><p className="eyebrow">Quản lý cấu hình</p><h1 id="configuration-management-title">Cấu hình vận hành</h1><p className="lede">Quản lý bảy nhóm cấu hình trong phạm vi được cấp quyền, với trạng thái, phiên bản và hành động có thể truy xuất.</p></div><div className="actions-stack"><span className="badge badge-neutral">{resourceLabel(resource)}</span><ManagementActionButton label="Tạo mới" tone="primary" onClick={() => requestConfigurationTransition({ kind: 'create' })} disabled={Boolean(unavailable) || mutationInFlight} title={mutationInFlight ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : unavailable ? optionMessage(unavailable, optionStates[unavailable]) : undefined} /></div></div>
+    <nav className="tabs entity-tabs" aria-label="Loại cấu hình">{RESOURCE_KEYS.map(value => <button key={value} type="button" className={`tab ${resource === value ? 'tab-active' : ''}`} aria-current={resource === value ? 'page' : undefined} disabled={mutationInFlight} title={mutationInFlight ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : undefined} onClick={() => requestConfigurationTransition({ kind: 'tab', resource: value })}>{resourceLabel(value)}</button>)}</nav>
     <FilterBar fields={[{ id: 'search', label: 'Tìm kiếm', value: draftFilter.search ?? '', placeholder: 'Mã, tên hoặc định danh…', type: 'search' }]} onChange={(id, value) => { if (id === 'search') setDraftFilter(current => ({ ...current, search: value || undefined })) }} onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setAppliedFilter(current => ({ ...current, ...draftFilter, page: 1 })) }} onReset={() => { setDraftFilter(current => ({ ...current, search: undefined, status: undefined, siteId: undefined, areaId: undefined })); setAppliedFilter(current => ({ ...current, search: undefined, status: undefined, siteId: undefined, areaId: undefined, page: 1 })) }} resultCount={totalCount}>
       <label className="field compact-filter"><span>Trạng thái</span><select className="input" value={draftFilter.status ?? ''} onChange={event => setDraftFilter(current => ({ ...current, status: event.target.value || undefined }))}><option value="">Tất cả</option>{statusesForResource(resource).map(value => <option key={value}>{value}</option>)}</select></label>
       <label className="field compact-filter"><span>Địa điểm</span><select className="input" value={draftFilter.siteId ?? ''} onChange={event => setDraftFilter(current => ({ ...current, siteId: event.target.value || undefined }))}><option value="">Tất cả</option>{optionLists.sites.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
       <label className="field compact-filter"><span>Khu vực</span><select className="input" value={draftFilter.areaId ?? ''} onChange={event => setDraftFilter(current => ({ ...current, areaId: event.target.value || undefined }))}><option value="">Tất cả</option>{optionLists.areas.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
     </FilterBar>
-    {resource === 'simulator-configurations' && <label className="field inline-control"><span>Nguồn đích nhân bản</span><select className="input" value={duplicateSourceId} disabled={optionStates.sources !== 'ready' || mutationPending} title={mutationPending ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : undefined} onChange={event => { const next = event.target.value; setDuplicateSourceId(next); if (pendingMutationRef.current?.kind === 'duplicate') storePendingMutation(null) }}><option value="">Chọn nguồn đích</option>{optionLists.sources.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select><small className="muted">Bản nháp phải gắn với một Source được cấp quyền; không tự chọn phần tử đầu tiên.</small></label>}
+    {resource === 'simulator-configurations' && <label className="field inline-control"><span>Nguồn đích nhân bản</span><select className="input" value={duplicateSourceId} disabled={optionStates.sources !== 'ready' || mutationInFlight} title={mutationInFlight ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : undefined} onChange={event => { const next = event.target.value; setDuplicateSourceId(next); const currentFlight = flightRef.current; if (currentFlight.kind === 'retry-intent' && currentFlight.descriptor.kind === 'duplicate') { setFlightBoth({ kind: 'idle' }); setFeedback(null) } }}><option value="">Chọn nguồn đích</option>{optionLists.sources.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select><small className="muted">Bản nháp phải gắn với một Source được cấp quyền; không tự chọn phần tử đầu tiên.</small></label>}
     {feedback && <FeedbackBanner tone={feedback.tone === 'error' ? 'danger' : feedback.tone} message={feedback.message} action={feedback.action} />}
-    {review && <RelationshipReview review={review} mutationPending={mutationPending} onReviewed={() => void reviewRelationships(review)} />}
-    {editorMode && <UnsavedChangesGuard when={formDirty}><EditorPanel resource={resource} mode={editorMode} form={form} onFieldChange={(key, value) => { setForm(current => ({ ...current, [key]: value })); if (invalidField === key) setInvalidField(null); if (pendingMutationRef.current && (pendingMutationRef.current.kind === 'create' || pendingMutationRef.current.kind === 'update')) storePendingMutation(null) }} invalidField={invalidField} errors={errors} activationKey={submitAttempt} optionLists={optionLists} optionStates={optionStates} busy={busyItem !== null} onSave={() => void submitEditor()} onCancel={closeEditor} onRetry={() => setOptionRetryNonce(value => value + 1)} onSessionRecovery={onSessionRecovery ? handleSessionRecovery : undefined} /></UnsavedChangesGuard>}
+    {review && <RelationshipReview review={review} mutationInFlight={mutationInFlight} onReviewed={() => void reviewRelationships(review)} />}
+    {editorMode && <UnsavedChangesGuard when={formDirty}><EditorPanel resource={resource} mode={editorMode} form={form} onFieldChange={(key, value) => { setForm(current => ({ ...current, [key]: value })); if (invalidField === key) setInvalidField(null); const currentFlight = flightRef.current; if (currentFlight.kind === 'retry-intent' && (currentFlight.descriptor.kind === 'create' || currentFlight.descriptor.kind === 'update')) { setFlightBoth({ kind: 'idle' }); setFeedback(null) } }} invalidField={invalidField} errors={errors} activationKey={submitAttempt} optionLists={optionLists} optionStates={optionStates} busy={busyItem !== null} onSave={() => void submitEditor()} onCancel={closeEditor} onRetry={() => setOptionRetryNonce(value => value + 1)} onSessionRecovery={onSessionRecovery ? handleSessionRecovery : undefined} /></UnsavedChangesGuard>}
     {detailState !== null && <Drawer open title={`Chi tiết ${resourceLabel(resource)}`} onClose={() => { setDetailRecord(null); setDetailState(null); invalidateDetailOwner() }}>{detailState === 'loading' ? <LoadingState message={`Đang tải chi tiết ${resourceLabel(resource)}…`} /> : detailState === 'not-found' ? <EmptyState title="Không tìm thấy" message="Thực thể không còn trong phạm vi được cấp quyền." /> : detailState === 'forbidden' ? <ForbiddenState message={`Bạn không có quyền xem chi tiết ${resourceLabel(resource)} trong phạm vi này.`} /> : detailState === 'expired' ? <ErrorState message="Phiên đã hết hạn. Vui lòng đăng nhập lại để tiếp tục." action={onSessionRecovery ? <ManagementActionButton label="Đăng nhập lại" tone="primary" onClick={() => handleSessionRecovery()} /> : undefined} /> : detailState === 'error' ? <ErrorState message={`Không thể tải chi tiết ${resourceLabel(resource)}.`} /> : detailRecord ? <DetailPanel title={`Chi tiết ${resourceLabel(resource)}`} description="Thông tin được giới hạn theo danh sách trường được phép trong phạm vi quyền hiện tại." action={<ManagementActionButton label="Đóng" onClick={() => { setDetailRecord(null); setDetailState(null); invalidateDetailOwner() }} tone="quiet" />}><dl className="detail-grid">{detailFieldsFor(resource).map(field => <div key={field.key}><dt>{field.label}</dt><dd>{field.key === 'effectiveFrom' || field.key === 'effectiveTo' ? safeConfigurationDate(detailRecord[field.key]) : textValue(detailRecord[field.key]) || '—'}</dd></div>)}</dl></DetailPanel> : <EmptyState title="Không tìm thấy" message="Thực thể không còn trong phạm vi được cấp quyền." />}</Drawer>}
     <div className="table-toolbar"><div><p className="eyebrow">Danh sách hiện tại</p><p className="muted">Bảng gọn cho thao tác dài hạn; sắp xếp chỉ áp dụng trên trang đã tải.</p></div><label className="field compact-filter"><span>Sắp xếp trang hiện tại</span><select className="input" value={`${effectiveSort.key}:${effectiveSort.direction}`} onChange={event => { const [key, direction] = event.target.value.split(':') as [string, SortDirection]; setSort(effectiveConfigurationSort(resource, { key, direction })) }}>{columns.map(column => <option key={`${column.key}:ascending`} value={`${column.key}:ascending`}>{column.label} ↑</option>)}{columns.map(column => <option key={`${column.key}:descending`} value={`${column.key}:descending`}>{column.label} ↓</option>)}</select></label></div>
-    <ConfigurationTable state={listState} resource={resource} columns={columns} items={sortedItems} totalCount={totalCount} filter={appliedFilter} busyItem={busyItem} mutationPending={mutationPending} onRetry={reloadCurrent} onPageChange={page => setAppliedFilter(current => ({ ...current, page }))} onDetail={item => void openDetail(item)} onEdit={item => requestConfigurationTransition({ kind: 'edit', item })} onDuplicate={duplicate} onValidate={validate} onLifecycle={lifecycle} onRemove={remove} onActivate={activate} onSessionRecovery={onSessionRecovery ? handleSessionRecovery : undefined} emptyMessage={emptyMessage} />
+    <ConfigurationTable state={listState} resource={resource} columns={columns} items={sortedItems} totalCount={totalCount} filter={appliedFilter} busyItem={busyItem} mutationInFlight={mutationInFlight} onRetry={reloadCurrent} onPageChange={page => setAppliedFilter(current => ({ ...current, page }))} onDetail={item => void openDetail(item)} onEdit={item => requestConfigurationTransition({ kind: 'edit', item })} onDuplicate={duplicate} onValidate={validate} onLifecycle={lifecycle} onRemove={remove} onActivate={activate} onSessionRecovery={onSessionRecovery ? handleSessionRecovery : undefined} emptyMessage={emptyMessage} />
     <ConfirmDialog open={Boolean(pendingAction)} title="Xác nhận thay đổi trạng thái" description={pendingAction?.kind === 'remove' ? 'Chỉ bản nháp an toàn mới được xóa. Không có lý do được thu thập vì hợp đồng hiện tại không lưu trường reason.' : `Thao tác ${actionLabelFor(pendingAction?.action ?? '')} sẽ được gửi với phiên bản hiện tại và có thể bị từ chối nếu dữ liệu đã thay đổi.`} onCancel={() => setPendingAction(null)} onConfirm={() => void confirmPendingAction()} confirmLabel="Xác nhận" />
     <ConfirmDialog open={discardChangesOpen} title="Bỏ thay đổi chưa lưu?" description="Các trường đã sửa sẽ bị bỏ. Bạn có thể tiếp tục chỉnh sửa hoặc hủy bỏ thay đổi." onCancel={() => setDiscardChangesOpen(false)} onConfirm={() => { if (pendingTransition) performTransition(pendingTransition) }} confirmLabel="Bỏ thay đổi" />
   </section>
 }
 
-function ConfigurationTable({ state, resource, columns, items, totalCount, filter, busyItem, mutationPending, onRetry, onPageChange, onDetail, onEdit, onDuplicate, onValidate, onLifecycle, onRemove, onActivate, onSessionRecovery, emptyMessage }: { state: ManagementState; resource: string; columns: ManagementColumn[]; items: ManagementItem[]; totalCount: number; filter: ManagementFilter; busyItem: string | null; mutationPending: boolean; onRetry?: () => void; onPageChange: (page: number) => void; onDetail: (item: ManagementItem) => void; onEdit: (item: ManagementItem) => void; onDuplicate: (item: ManagementItem) => void; onValidate: (item: ManagementItem) => void; onLifecycle: (item: ManagementItem, action: string) => void; onRemove: (item: ManagementItem) => void; onActivate: (item: ManagementItem) => void; onSessionRecovery?: () => void; emptyMessage: string }) {
+function ConfigurationTable({ state, resource, columns, items, totalCount, filter, busyItem, mutationInFlight, onRetry, onPageChange, onDetail, onEdit, onDuplicate, onValidate, onLifecycle, onRemove, onActivate, onSessionRecovery, emptyMessage }: { state: ManagementState; resource: string; columns: ManagementColumn[]; items: ManagementItem[]; totalCount: number; filter: ManagementFilter; busyItem: string | null; mutationInFlight: boolean; onRetry?: () => void; onPageChange: (page: number) => void; onDetail: (item: ManagementItem) => void; onEdit: (item: ManagementItem) => void; onDuplicate: (item: ManagementItem) => void; onValidate: (item: ManagementItem) => void; onLifecycle: (item: ManagementItem, action: string) => void; onRemove: (item: ManagementItem) => void; onActivate: (item: ManagementItem) => void; onSessionRecovery?: () => void; emptyMessage: string }) {
   const stateMessage = managementStateMessage(state, resource, emptyMessage)
   if (stateMessage?.tone === 'loading') return <LoadingState message={stateMessage.message} />
   if (stateMessage?.tone === 'empty') return <EmptyState title={stateMessage.title} message={stateMessage.message} />
@@ -487,10 +504,10 @@ function ConfigurationTable({ state, resource, columns, items, totalCount, filte
   if (stateMessage?.tone === 'error' && state === 'expired') return <ErrorState message={stateMessage.message} action={onSessionRecovery ? <ManagementActionButton label="Đăng nhập lại" tone="primary" onClick={onSessionRecovery} /> : undefined} />
   if (stateMessage) return <ErrorState message={stateMessage.message} />
   const tableColumns: DataTableColumn<ManagementItem>[] = columns.map(column => ({ key: column.key, header: column.label, render: item => column.key === 'status' ? statusBadge(textValue(item.status)) : column.render ? column.render(item) : textValue(item[column.key]) }))
-  return <><DataTable caption={`${resourceLabel(resource)} · sắp xếp trang hiện tại`} columns={tableColumns} rows={items} rowKey={(item, index) => idOf(item) || String(index)} rowAction={item => <div className="actions-stack"><ManagementActionButton label="Chi tiết" onClick={() => onDetail(item)} /><ManagementActionButton label="Sửa" onClick={() => onEdit(item)} disabled={busyItem !== null || mutationPending} /><ManagementActionButton label="Kiểm tra" onClick={() => onValidate(item)} disabled={busyItem === idOf(item) || mutationPending} /><DuplicateButton item={item} busyItem={busyItem} mutationPending={mutationPending} onDuplicate={onDuplicate} />{lifecycleActionsFor(resource, textValue(item.status)).map(action => <ManagementActionButton key={action} label={actionLabelFor(action)} onClick={() => onLifecycle(item, action)} disabled={busyItem === idOf(item) || mutationPending} tone={action === 'decommission' ? 'danger' : 'secondary'} />)}{resource === 'simulator-configurations' && <ActivateVersionButton item={item} busyItem={busyItem} mutationPending={mutationPending} onActivate={onActivate} readyForActivation={simulatorActivationReadiness(item).ready} />}{canDeleteResource(resource, textValue(item.status)) && <ManagementActionButton label="Xóa bản nháp" tone="danger" onClick={() => onRemove(item)} disabled={busyItem === idOf(item) || mutationPending} />}</div>} /><Pagination page={filter.page} pageSize={filter.pageSize} total={totalCount} onPageChange={onPageChange} /></>
+  return <><DataTable caption={`${resourceLabel(resource)} · sắp xếp trang hiện tại`} columns={tableColumns} rows={items} rowKey={(item, index) => idOf(item) || String(index)} rowAction={item => <div className="actions-stack"><ManagementActionButton label="Chi tiết" onClick={() => onDetail(item)} /><ManagementActionButton label="Sửa" onClick={() => onEdit(item)} disabled={busyItem !== null || mutationInFlight} /><ManagementActionButton label="Kiểm tra" onClick={() => onValidate(item)} disabled={busyItem === idOf(item) || mutationInFlight} /><DuplicateButton item={item} busyItem={busyItem} mutationPending={mutationInFlight} onDuplicate={onDuplicate} />{lifecycleActionsFor(resource, textValue(item.status)).map(action => <ManagementActionButton key={action} label={actionLabelFor(action)} onClick={() => onLifecycle(item, action)} disabled={busyItem === idOf(item) || mutationInFlight} tone={action === 'decommission' ? 'danger' : 'secondary'} />)}{resource === 'simulator-configurations' && <ActivateVersionButton item={item} busyItem={busyItem} mutationPending={mutationInFlight} onActivate={onActivate} readyForActivation={simulatorActivationReadiness(item).ready} />}{canDeleteResource(resource, textValue(item.status)) && <ManagementActionButton label="Xóa bản nháp" tone="danger" onClick={() => onRemove(item)} disabled={busyItem === idOf(item) || mutationInFlight} />}</div>} /><Pagination page={filter.page} pageSize={filter.pageSize} total={totalCount} onPageChange={onPageChange} /></>
 }
 
-function RelationshipReview({ review, mutationPending, onReviewed }: { review: ReviewState; mutationPending: boolean; onReviewed: () => void }) { return <section className="card form-card" aria-labelledby="relationship-review-title"><h2 id="relationship-review-title">Xem xét quan hệ bản nháp</h2><p className="muted">Bản nháp <code>{review.id}</code> phiên bản {review.draftVersion}, Source {review.sourceLabel}, chỉ được kích hoạt sau khi biên nhận quan hệ và kiểm tra được lưu trên máy chủ.</p><p><strong>Quan hệ được sao chép:</strong> {review.relationships.length ? review.relationships.join(', ') : 'Chưa có thông tin quan hệ trong contract hiện tại.'}</p><p><strong>Trường bị loại trừ:</strong> {review.excluded.length ? review.excluded.join(', ') : 'Không có dữ liệu lịch sử hoặc bí mật được sao chép.'}</p><ManagementActionButton label={review.reviewed ? 'Đã xem xét' : 'Xem xét quan hệ'} onClick={onReviewed} disabled={review.reviewed || mutationPending} title={mutationPending ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : undefined} tone="primary" /></section> }
+function RelationshipReview({ review, mutationInFlight, onReviewed }: { review: ReviewState; mutationInFlight: boolean; onReviewed: () => void }) { return <section className="card form-card" aria-labelledby="relationship-review-title"><h2 id="relationship-review-title">Xem xét quan hệ bản nháp</h2><p className="muted">Bản nháp <code>{review.id}</code> phiên bản {review.draftVersion}, Source {review.sourceLabel}, chỉ được kích hoạt sau khi biên nhận quan hệ và kiểm tra được lưu trên máy chủ.</p><p><strong>Quan hệ được sao chép:</strong> {review.relationships.length ? review.relationships.join(', ') : 'Chưa có thông tin quan hệ trong contract hiện tại.'}</p><p><strong>Trường bị loại trừ:</strong> {review.excluded.length ? review.excluded.join(', ') : 'Không có dữ liệu lịch sử hoặc bí mật được sao chép.'}</p><ManagementActionButton label={review.reviewed ? 'Đã xem xét' : 'Xem xét quan hệ'} onClick={onReviewed} disabled={review.reviewed || mutationInFlight} title={mutationInFlight ? 'Đang xử lý yêu cầu; hãy chờ hoàn tất.' : undefined} tone="primary" /></section> }
 
 function EditorPanel({ resource, mode, form, onFieldChange, invalidField, errors, activationKey, optionLists, optionStates, busy, onSave, onCancel, onRetry, onSessionRecovery }: { resource: string; mode: 'create' | 'edit'; form: Record<string, string>; onFieldChange: (key: string, value: string) => void; invalidField: string | null; errors: FieldError[]; activationKey: number; optionLists: Record<OptionName, Array<{ id: string; label: string }>>; optionStates: Record<OptionName, OptionState>; busy: boolean; onSave: () => void; onCancel: () => void; onRetry: () => void; onSessionRecovery?: () => void }) {
   const fields = editorFields(resource, mode)
@@ -502,7 +519,7 @@ function EditorPanel({ resource, mode, form, onFieldChange, invalidField, errors
     {unavailable && <div className="notice notice-warning" role="alert">{optionMessage(optionFor(unavailable.select!), optionStates[optionFor(unavailable.select!)])}{optionStates[optionFor(unavailable.select!)] === 'expired' ? (onSessionRecovery ? <ManagementActionButton label="Đăng nhập lại" onClick={onSessionRecovery} tone="quiet" /> : null) : <ManagementActionButton label="Thử lại" onClick={onRetry} tone="quiet" />}</div>}
     <div className="form-grid">{fields.map(field => {
       const fieldError = invalidField === field.key ? errors.find(error => error.id.endsWith(field.key))?.message : undefined
-      const required = field.key === 'name' || (mode === 'create' && Boolean(field.select))
+      const required = requiredFieldsFor(resource, mode).includes(field.key)
       const describedBy = fieldError ? `configuration-field-${field.key}-error` : undefined
       const inputProps = { id: `configuration-field-${field.key}`, className: 'input', 'aria-invalid': fieldError ? true : undefined, 'aria-describedby': describedBy, required }
       return <Field key={field.key} id={`configuration-field-${field.key}`} label={field.label} required={required} error={fieldError} helper={field.help}>{field.select ? <select {...inputProps} value={form[field.key] ?? ''} disabled={optionStates[optionFor(field.select)] !== 'ready'} onChange={event => onFieldChange(field.key, event.target.value)}><option value="">Chọn {field.label.toLocaleLowerCase('vi')}</option>{selectOptions[field.select].map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select> : <input {...inputProps} type={field.type ?? 'text'} value={form[field.key] ?? ''} readOnly={field.readOnly} onChange={event => onFieldChange(field.key, event.target.value)} />}</Field>

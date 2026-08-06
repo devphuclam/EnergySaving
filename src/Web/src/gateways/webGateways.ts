@@ -347,6 +347,15 @@ async function antiforgeryToken(): Promise<string> {
   return body.token
 }
 
+export function classifyAntiforgeryFailure(error: unknown): { ok: false; status: number; errorCode: string } {
+  const message = error instanceof Error ? error.message : ''
+  const status = message.startsWith('antiforgery-') ? Number(message.slice('antiforgery-'.length)) : 0
+  if (status === 401) return { ok: false, status: 401, errorCode: 'expired' }
+  if (status === 403) return { ok: false, status: 403, errorCode: 'FORBIDDEN' }
+  if (status >= 500 && status <= 599) return { ok: false, status: 503, errorCode: 'RUNTIME_FAILURE' }
+  return { ok: false, status: 503, errorCode: 'RUNTIME_FAILURE' }
+}
+
 function stateFromError(error: unknown): GatewayState {
   return error instanceof Error && error.message === 'forbidden' ? 'forbidden' : error instanceof Error && error.message === 'expired' ? 'expired' : 'error'
 }
@@ -521,8 +530,8 @@ async function managementMutation(
       body: parsed,
       errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined,
     }
-  } catch {
-    return { ok: false, status: 503, errorCode: 'RUNTIME_FAILURE' }
+  } catch (error) {
+    return classifyAntiforgeryFailure(error)
   }
 }
 

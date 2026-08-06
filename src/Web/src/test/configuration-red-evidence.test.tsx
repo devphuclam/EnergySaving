@@ -1,4 +1,6 @@
 import {
+  beginManagementMutation,
+  changedIntentCarriesNewKey,
   configurationContractChecks,
   configurationEntityKeys,
   configurationFormDirty,
@@ -7,15 +9,22 @@ import {
   detailFieldsFor,
   detailRequestOwner,
   detailResponseApplies,
+  discardRetryIntent,
   duplicateIdentityFromResult,
   effectiveConfigurationSort,
+  exactRetryReusesStoredKey,
+  isManagementMutationInFlight,
   isRetryableManagementMutationResult,
   managementMutationDisposition,
+  managementRetryIntent,
   normalizeConfigurationForm,
   pendingManagementMutationFingerprint,
+  retryKeyFor,
   safeConfigurationDate,
   samePendingManagementMutation,
+  settleManagementMutation,
 } from '../features/configuration/ConfigurationManagementComponents'
+import { classifyAntiforgeryFailure } from '../gateways/webGateways'
 
 /**
  * Phase 3 red evidence is source-visible and type-checked by the Web build. There is no
@@ -49,7 +58,7 @@ export function configurationRedEvidenceFailures(): string[] {
   const reviewA = { ...baseCreate, kind: 'review' as const, entityId: 'cfg-1', draftVersion: 2 }
   const reviewB = { ...reviewA, draftVersion: 3 }
   if (pendingManagementMutationFingerprint(baseCreate) !== pendingManagementMutationFingerprint(sameCreate)) failures.push('mutation fingerprint must be stable for the same descriptor')
-  if (pendingManagementMutationFingerprint(baseCreate) === pendingManagementMutationFingerprint({ ...sameCreate, retryKey: 'K-2' })) failures.push('the fingerprint must ignore the retry key')
+  if (pendingManagementMutationFingerprint(baseCreate) !== pendingManagementMutationFingerprint({ ...sameCreate, retryKey: 'K-2' })) failures.push('the fingerprint must ignore the retry key: two descriptors differing only in retryKey are the same intent')
   if (samePendingManagementMutation(baseCreate, differentPayload)) failures.push('a changed payload must be a different mutation intent')
   if (samePendingManagementMutation(baseCreate, differentEntity)) failures.push('a changed entity must be a different mutation intent')
   if (samePendingManagementMutation(versionedUpdate, versionBump)) failures.push('an expected version change must create a different intent')
@@ -66,18 +75,19 @@ export function configurationRedEvidenceFailures(): string[] {
   if (managementMutationDisposition({ ok: false, status: 409 }) !== 'definitive') failures.push('a version conflict must never be retried with the same key')
   if (managementMutationDisposition({ ok: false, status: 422 }) !== 'definitive') failures.push('a definitive validation rejection must not be retried with the same key')
   if (managementMutationDisposition({ ok: false, status: 401, errorCode: 'expired' }) !== 'expired') failures.push('an expired mutation must be classified as expired, never retried')
-  if (isRetryableManagementMutationResult({ ok: false, status: 503 })) failures.push('retryable classification must agree with the disposition')
+  if (!isRetryableManagementMutationResult({ ok: false, status: 503 })) failures.push('a 503 mutation result must be retryable')
   if (!isRetryableManagementMutationResult({ ok: false, status: 500, errorCode: 'DEPENDENCY_UNAVAILABLE' })) failures.push('DEPENDENCY_UNAVAILABLE must be retryable')
   if (isRetryableManagementMutationResult({ ok: true, status: 200 })) failures.push('a success must not be retried')
+  if (isRetryableManagementMutationResult({ ok: false, status: 401, errorCode: 'expired' })) failures.push('a known expired session must never receive the ordinary retry action')
 
-  const emptyNumeric = normalizeConfigurationForm('points', 'create', { name: 'P', expectedIntervalSeconds: '', noDataAfterSeconds: '' })
+  const emptyNumeric = normalizeConfigurationForm('points', 'create', { name: 'P', assetId: 'asset-1', metricId: 'm-1', unitId: 'u-1', dataOwnerUserId: 'u-1', expectedIntervalSeconds: '', noDataAfterSeconds: '' })
   if ('expectedIntervalSeconds' in emptyNumeric.body || 'noDataAfterSeconds' in emptyNumeric.body) failures.push('an empty optional numeric field must be absent from the request body')
   if (emptyNumeric.errors.length) failures.push('an empty optional numeric field must not be a validation error')
   const zeroInterval = normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: '0' })
   if (!zeroInterval.errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('a zero interval must be rejected for a positive interval field per the server domain rule')
   if ('expectedIntervalSeconds' in zeroInterval.body) failures.push('a rejected interval must never be transmitted')
-  if (normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: '-5' }).errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('a negative interval must be rejected')
-  if (normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: '1.5' }).errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('a fractional interval must be rejected as non-integer')
+  if (!normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: '-5' }).errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('a negative interval must be rejected')
+  if (!normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: '1.5' }).errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('a fractional interval must be rejected as non-integer')
   if (!normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: 'not-a-number' }).errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('non-numeric text must be rejected')
   const crossField = normalizeConfigurationForm('points', 'edit', { expectedIntervalSeconds: '60', noDataAfterSeconds: '60' })
   if (!crossField.errors.some(error => error.key === 'noDataAfterSeconds')) failures.push('noDataAfterSeconds must exceed expectedIntervalSeconds per the server domain rule')
@@ -99,6 +109,59 @@ export function configurationRedEvidenceFailures(): string[] {
   if (minMax.errors.some(error => error.key === 'minimumValue' && !/Giá trị nhỏ nhất/.test(error.message))) failures.push('numeric errors must use Vietnamese field labels, never property keys')
   if (configurationFormDirty({ name: 'Kho A' }, { name: 'Kho A' })) failures.push('restoring the original values must not count as dirty')
   if (!configurationFormDirty({ name: 'Kho B' }, { name: 'Kho A' })) failures.push('a changed value must count as dirty')
+
+  const pointEditMissing = configurationValidationErrors('points', 'edit', {})
+  if (pointEditMissing[0]?.key !== 'metricId') failures.push('the first missing required Point ID on edit must be deterministic')
+  if (!pointEditMissing.some(error => error.key === 'unitId') || !pointEditMissing.some(error => error.key === 'dataOwnerUserId')) failures.push('Point edit must require unitId and dataOwnerUserId per the server contract')
+  if (pointEditMissing.some(error => error.key === 'name')) failures.push('Point edit must not require name because the server update contract does not consume it')
+  const pointCreateMissing = configurationValidationErrors('points', 'create', { name: 'P', assetId: 'asset-1' })
+  if (pointCreateMissing[0]?.key !== 'metricId') failures.push('Point create must require metricId after name and assetId are present')
+  if (!pointCreateMissing.some(error => error.key === 'unitId') || !pointCreateMissing.some(error => error.key === 'dataOwnerUserId')) failures.push('Point create must require unitId and dataOwnerUserId')
+  const pointAllMissing = configurationValidationErrors('points', 'create', {})
+  if (!pointAllMissing.some(error => error.key === 'metricId') || !pointAllMissing.some(error => error.key === 'unitId') || !pointAllMissing.some(error => error.key === 'dataOwnerUserId')) failures.push('all three Point technical IDs must be required simultaneously')
+  if (pointAllMissing[0]?.key !== 'name') failures.push('the very first invalid Point create field must remain deterministic')
+  if (configurationValidationErrors('points', 'create', { name: 'P', assetId: 'asset-1', metricId: 'm-1', unitId: 'u-1', dataOwnerUserId: 'u-1' }).length) failures.push('valid Point required fields must not be rejected')
+  const preservedPoint = normalizeConfigurationForm('points', 'edit', { metricId: 'm-1', unitId: 'u-1', dataOwnerUserId: 'u-1', expectedIntervalSeconds: '0' })
+  if (preservedPoint.body.metricId !== 'm-1' || preservedPoint.body.unitId !== 'u-1' || preservedPoint.body.dataOwnerUserId !== 'u-1') failures.push('entered Point values must be preserved in the request after a rejection')
+  if (!preservedPoint.errors.some(error => error.key === 'expectedIntervalSeconds')) failures.push('a rejected interval must still produce its own error alongside preserved IDs')
+
+  const firstRequest = { resource: 'sites', kind: 'create' as const, entityId: '', payload: { name: 'A' }, retryKey: 'K' }
+  const submitted = beginManagementMutation(firstRequest)
+  if (!isManagementMutationInFlight(submitted)) failures.push('a submitted mutation must be in flight while the network request is running')
+  if (managementRetryIntent(submitted) !== null) failures.push('an in-flight mutation must never masquerade as a retry intent')
+  const afterRetryable = settleManagementMutation(submitted, { ok: false, status: 503 })
+  if (isManagementMutationInFlight(afterRetryable)) failures.push('a settled retryable failure must release the in-flight lock so the workspace is not permanently locked')
+  const retained = managementRetryIntent(afterRetryable)
+  if (!retained) failures.push('a retryable failure must retain the exact mutation descriptor as a retry intent')
+  if (retained && retained.retryKey !== 'K') failures.push('the retained retry intent must keep the original retry key')
+  if (retained && !exactRetryReusesStoredKey(retained, { ...retained })) failures.push('an exact retry must reuse the stored retry key, never generate a new one')
+  if (retained && !changedIntentCarriesNewKey(retained, { ...firstRequest, payload: { name: 'B' }, retryKey: 'K-2' })) failures.push('a changed payload is a different intent and must not reuse the old key')
+  if (retained && retryKeyFor(retained, { ...retained }) !== retained.retryKey) failures.push('an exact resubmission must reuse the stored retry key, never generate a new one')
+  if (retained && retryKeyFor(retained, { ...firstRequest, payload: { name: 'B' }, retryKey: 'SENTINEL' }) === retained.retryKey) failures.push('a changed intent must never inherit the stored retry key')
+  if (retryKeyFor(null, { ...firstRequest, retryKey: 'SENTINEL' }) === 'SENTINEL') failures.push('without a retry intent a fresh submission must generate a new key')
+  if (managementRetryIntent(discardRetryIntent(afterRetryable)) !== null) failures.push('discarding the retry mode must remove the retry intent')
+  const afterSuccess = settleManagementMutation(beginManagementMutation(firstRequest), { ok: true, status: 201 })
+  if (isManagementMutationInFlight(afterSuccess) || managementRetryIntent(afterSuccess) !== null) failures.push('a successful mutation must release both in-flight and retry state; no deadlock may persist')
+
+  const expiredResult = { ok: false, status: 401, errorCode: 'expired' }
+  const afterExpired = settleManagementMutation(beginManagementMutation(firstRequest), expiredResult)
+  if (isManagementMutationInFlight(afterExpired) || managementRetryIntent(afterExpired) !== null) failures.push('session expiry must clear retry state; the only recovery action is a new login')
+  const afterDefinitive = settleManagementMutation(beginManagementMutation(firstRequest), { ok: false, status: 422 })
+  if (isManagementMutationInFlight(afterDefinitive) || managementRetryIntent(afterDefinitive) !== null) failures.push('a definitive rejection must not retain retry state')
+
+  const af401 = classifyAntiforgeryFailure(new Error('antiforgery-401'))
+  if (af401.status !== 401 || af401.errorCode !== 'expired') failures.push('an antiforgery 401 must surface as status 401 with errorCode expired')
+  if (managementMutationDisposition(af401) !== 'expired') failures.push('an antiforgery 401 must never be collapsed into a retryable runtime failure')
+  const af403 = classifyAntiforgeryFailure(new Error('antiforgery-403'))
+  if (af403.status !== 403 || af403.errorCode !== 'FORBIDDEN') failures.push('an antiforgery 403 must surface as status 403 with errorCode FORBIDDEN')
+  const af500 = classifyAntiforgeryFailure(new Error('antiforgery-500'))
+  if (af500.status !== 503 || af500.errorCode !== 'RUNTIME_FAILURE') failures.push('an antiforgery 5xx must surface as status 503 with errorCode RUNTIME_FAILURE')
+  if (!isRetryableManagementMutationResult(af500)) failures.push('an antiforgery 5xx is indeterminate and must be retryable')
+  const af503 = classifyAntiforgeryFailure(new Error('antiforgery-503'))
+  if (af503.status !== 503 || af503.errorCode !== 'RUNTIME_FAILURE') failures.push('an antiforgery 503 must surface as a retryable runtime failure')
+  const transport = classifyAntiforgeryFailure(new TypeError('fetch failed'))
+  if (transport.status !== 503 || transport.errorCode !== 'RUNTIME_FAILURE') failures.push('a transport failure must surface as status 503 with errorCode RUNTIME_FAILURE')
+  if (!isRetryableManagementMutationResult(transport)) failures.push('a transport failure must be retryable')
 
   if (safeConfigurationDate('') !== '—') failures.push('an absent date must render as an em dash')
   if (safeConfigurationDate('not-a-date') !== 'Không hợp lệ') failures.push('a malformed date must never render Invalid Date')

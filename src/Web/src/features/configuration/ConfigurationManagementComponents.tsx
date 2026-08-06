@@ -71,6 +71,9 @@ const FIELD_LABELS: Record<string, string> = {
   assetId: 'Tài sản cha',
   sourceId: 'Nguồn dữ liệu',
   pointId: 'Điểm đo',
+  metricId: 'Chỉ số',
+  unitId: 'Đơn vị',
+  dataOwnerUserId: 'Chủ dữ liệu',
   expectedIntervalSeconds: 'Chu kỳ (giây)',
   noDataAfterSeconds: 'No Data sau (giây)',
   minimumValue: 'Giá trị nhỏ nhất',
@@ -116,15 +119,33 @@ export function textValue(value: unknown): string {
   return String(value)
 }
 
+export function requiredFieldsFor(resource: string, mode: 'create' | 'edit'): string[] {
+  switch (resource) {
+    case 'sites': return ['name']
+    case 'areas': return mode === 'create' ? ['name', 'siteId'] : ['name']
+    case 'assets': return mode === 'create' ? ['name', 'areaId'] : ['name']
+    case 'points': return mode === 'create' ? ['name', 'assetId', 'metricId', 'unitId', 'dataOwnerUserId'] : ['metricId', 'unitId', 'dataOwnerUserId']
+    case 'data-sources': return mode === 'create' ? ['name', 'siteId'] : ['name']
+    case 'source-point-mappings': return mode === 'create' ? ['sourceId', 'pointId'] : []
+    case 'simulator-configurations': return mode === 'create' ? ['sourceId'] : []
+    default: return []
+  }
+}
+
 export function configurationValidationErrors(resource: string, mode: 'create' | 'edit', body: Record<string, unknown>): Array<{ key: string; label: string; message: string }> {
   const errors: Array<{ key: string; label: string; message: string }> = []
-  const required = (key: string, message: string) => { if (!String(body[key] ?? '').trim()) errors.push({ key, label: FIELD_LABELS[key] ?? key, message }) }
-  if (['sites', 'areas', 'assets', 'points', 'data-sources'].includes(resource)) required('name', 'Tên là bắt buộc.')
-  if (mode === 'create' && (resource === 'areas' || resource === 'data-sources')) required('siteId', 'Vui lòng chọn Địa điểm cha.')
-  if (mode === 'create' && resource === 'assets') required('areaId', 'Vui lòng chọn Khu vực cha.')
-  if (mode === 'create' && resource === 'points') required('assetId', 'Vui lòng chọn Tài sản cha.')
-  if (mode === 'create' && resource === 'source-point-mappings') { required('sourceId', 'Vui lòng chọn Nguồn dữ liệu.'); required('pointId', 'Vui lòng chọn Điểm đo.') }
-  if (mode === 'create' && resource === 'simulator-configurations') required('sourceId', 'Vui lòng chọn Nguồn dữ liệu.')
+  const messageFor = (key: string): string => key === 'name' ? 'Tên là bắt buộc.' :
+    key === 'siteId' ? 'Vui lòng chọn Địa điểm cha.' :
+    key === 'areaId' ? 'Vui lòng chọn Khu vực cha.' :
+    key === 'assetId' ? 'Vui lòng chọn Tài sản cha.' :
+    key === 'sourceId' ? 'Vui lòng chọn Nguồn dữ liệu.' :
+    key === 'pointId' ? 'Vui lòng chọn Điểm đo.' :
+    key === 'metricId' ? 'Vui lòng nhập Chỉ số.' :
+    key === 'unitId' ? 'Vui lòng nhập Đơn vị.' :
+    'Vui lòng nhập Chủ dữ liệu.'
+  for (const key of requiredFieldsFor(resource, mode)) {
+    if (!String(body[key] ?? '').trim()) errors.push({ key, label: FIELD_LABELS[key] ?? key, message: messageFor(key) })
+  }
   return errors
 }
 
@@ -138,7 +159,7 @@ export function configurationFormDirty(form: Record<string, string>, initialForm
   return JSON.stringify(canonicalFormValues(form)) !== JSON.stringify(canonicalFormValues(initialForm))
 }
 
-export function normalizeConfigurationForm(resource: string, mode: 'create' | 'edit', form: Record<string, string>): ConfigurationFormNormalization {
+export function normalizeConfigurationForm(resource: string, mode: 'create' | 'edit', form: Record<string, string>, initial?: Record<string, string>): ConfigurationFormNormalization {
   const body: Record<string, unknown> = {}
   const canonical: Record<string, string> = {}
   const errors: Array<{ key: string; label: string; message: string }> = []
@@ -183,13 +204,18 @@ export function normalizeConfigurationForm(resource: string, mode: 'create' | 'e
     const toRaw = canonical.effectiveToUtc
     const fromTime = fromRaw ? new Date(fromRaw).getTime() : Number.NaN
     const toTime = toRaw ? new Date(toRaw).getTime() : Number.NaN
-    if (fromRaw && Number.isNaN(fromTime)) errors.push({ key: 'effectiveFromUtc', label: 'Hiệu lực từ', message: 'Hiệu lực từ phải là một ngày giờ hợp lệ.' })
-    if (toRaw && Number.isNaN(toTime)) errors.push({ key: 'effectiveToUtc', label: 'Hiệu lực đến', message: 'Hiệu lực đến phải là một ngày giờ hợp lệ.' })
-    if (fromRaw && toRaw && !Number.isNaN(fromTime) && !Number.isNaN(toTime) && fromTime > toTime) errors.push({ key: 'effectiveToUtc', label: 'Hiệu lực đến', message: 'Hiệu lực đến phải không sớm hơn Hiệu lực từ.' })
-    if (fromRaw) body.effectiveFrom = fromRaw
-    if (toRaw) body.effectiveTo = toRaw
-    delete body.effectiveFromUtc
-    delete body.effectiveToUtc
+    const fromInvalid = Boolean(fromRaw) && Number.isNaN(fromTime)
+    const toInvalid = Boolean(toRaw) && Number.isNaN(toTime)
+    const reversedInterval = Boolean(fromRaw && toRaw) && !Number.isNaN(fromTime) && !Number.isNaN(toTime) && fromTime > toTime
+    if (fromInvalid) errors.push({ key: 'effectiveFromUtc', label: 'Hiệu lực từ', message: 'Hiệu lực từ phải là một ngày giờ hợp lệ.' })
+    if (toInvalid) errors.push({ key: 'effectiveToUtc', label: 'Hiệu lực đến', message: 'Hiệu lực đến phải là một ngày giờ hợp lệ.' })
+    if (reversedInterval) errors.push({ key: 'effectiveToUtc', label: 'Hiệu lực đến', message: 'Hiệu lực đến phải không sớm hơn Hiệu lực từ.' })
+    if (mode === 'edit' && !fromRaw) errors.push({ key: 'effectiveFromUtc', label: 'Hiệu lực từ', message: 'Hiệu lực từ là bắt buộc khi chỉnh sửa.' })
+    if (fromInvalid || reversedInterval || !fromRaw) delete body.effectiveFromUtc
+    if (reversedInterval || toInvalid) delete body.effectiveToUtc
+    else if (toRaw) body.effectiveToUtc = toRaw
+    else if (mode === 'edit' && String(initial?.effectiveToUtc ?? '').trim() !== '') body.effectiveToUtc = null
+    else delete body.effectiveToUtc
   }
   errors.push(...configurationValidationErrors(resource, mode, body))
   return { body, canonical, errors }
@@ -231,6 +257,47 @@ export function managementMutationDisposition(result: { ok: boolean; status: num
 
 export function isRetryableManagementMutationResult(result: { ok: boolean; status: number; errorCode?: string }): boolean {
   return managementMutationDisposition(result) === 'retryable'
+}
+
+export type ManagementMutationFlight =
+  | { kind: 'idle' }
+  | { kind: 'in-flight'; descriptor: PendingManagementMutation }
+  | { kind: 'retry-intent'; descriptor: PendingManagementMutation }
+
+export function beginManagementMutation(descriptor: PendingManagementMutation): ManagementMutationFlight {
+  return { kind: 'in-flight', descriptor }
+}
+
+export function settleManagementMutation(flight: ManagementMutationFlight, result: { ok: boolean; status: number; errorCode?: string }): ManagementMutationFlight {
+  if (flight.kind !== 'in-flight') return { kind: 'idle' }
+  if (managementMutationDisposition(result) === 'retryable') return { kind: 'retry-intent', descriptor: flight.descriptor }
+  return { kind: 'idle' }
+}
+
+export function discardRetryIntent(flight: ManagementMutationFlight): ManagementMutationFlight {
+  if (flight.kind !== 'retry-intent') return flight
+  return { kind: 'idle' }
+}
+
+export function isManagementMutationInFlight(flight: ManagementMutationFlight): boolean {
+  return flight.kind === 'in-flight'
+}
+
+export function managementRetryIntent(flight: ManagementMutationFlight): PendingManagementMutation | null {
+  return flight.kind === 'retry-intent' ? flight.descriptor : null
+}
+
+export function exactRetryReusesStoredKey(intent: PendingManagementMutation, retried: PendingManagementMutation): boolean {
+  return samePendingManagementMutation(intent, retried) && retried.retryKey === intent.retryKey
+}
+
+export function changedIntentCarriesNewKey(intent: PendingManagementMutation, changed: PendingManagementMutation): boolean {
+  return !samePendingManagementMutation(intent, changed) && changed.retryKey !== intent.retryKey
+}
+
+export function retryKeyFor(intent: PendingManagementMutation | null, descriptor: PendingManagementMutation): string {
+  if (intent && samePendingManagementMutation(intent, descriptor)) return intent.retryKey
+  return crypto.randomUUID()
 }
 
 export function mutationActionLabel(kind: ManagementMutationKind): string {
