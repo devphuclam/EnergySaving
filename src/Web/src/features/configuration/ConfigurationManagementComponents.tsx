@@ -1,23 +1,14 @@
-import { useEffect, useState } from 'react'
-import type { ManagementFilter, ManagementPage } from '../../gateways/webGateways'
+import { useEffect, useState, type ReactNode } from 'react'
+import type { ManagementFilter } from '../../gateways/webGateways'
 
 export type ManagementItem = Record<string, unknown> & { id?: string }
-
-export type { ManagementFilter, ManagementPage }
-
+export type { ManagementFilter }
 export type ManagementState = 'loading' | 'ready' | 'forbidden' | 'expired' | 'no-data' | 'validation' | 'conflict' | 'not-found' | 'dependency' | 'runtime' | 'error'
+export type ManagementFeedback = { tone: 'success' | 'warning' | 'error' | 'info'; message: string } | null
+export type ManagementColumn = { key: string; label: string; render?: (item: ManagementItem) => ReactNode }
+export type SortDirection = 'ascending' | 'descending'
 
-export type ManagementFeedback = {
-  tone: 'success' | 'warning' | 'error' | 'info'
-  message: string
-} | null
-
-export type ManagementColumn = {
-  key: string
-  label: string
-  render?: (item: ManagementItem) => React.ReactNode
-}
-
+export const configurationEntityKeys = ['sites', 'areas', 'assets', 'points', 'data-sources', 'source-point-mappings', 'simulator-configurations'] as const
 export const MANAGEMENT_RESOURCES = [
   { key: 'sites', label: 'Địa điểm' },
   { key: 'areas', label: 'Khu vực' },
@@ -27,6 +18,13 @@ export const MANAGEMENT_RESOURCES = [
   { key: 'source-point-mappings', label: 'Ánh xạ nguồn' },
   { key: 'simulator-configurations', label: 'Cấu hình mô phỏng' },
 ] as const
+
+export function configurationContractChecks(): string[] {
+  const failures: string[] = []
+  if (configurationEntityKeys.length !== 7) failures.push('configuration hub must expose exactly seven entities')
+  if (!configurationEntityKeys.includes('simulator-configurations')) failures.push('Simulator Configurations must remain a management entity')
+  return failures
+}
 
 export function resourceLabel(resource: string): string {
   return MANAGEMENT_RESOURCES.find(value => value.key === resource)?.label ?? resource
@@ -42,187 +40,68 @@ export function textValue(value: unknown): string {
   return String(value)
 }
 
-export function ManagementFilterBar(props: {
-  search?: string
-  onSearchChange: (value: string) => void
-  statuses: string[]
-  status?: string
-  onStatusChange: (value: string) => void
-  siteOptions: Array<{ id: string; label: string }>
-  siteId?: string
-  onSiteChange: (value: string) => void
-  busy?: boolean
-}) {
-  const { search, onSearchChange, statuses, status, onStatusChange, siteOptions, siteId, onSiteChange, busy } = props
-  return (
-    <div className="filter-bar" role="search" aria-label="Bộ lọc cấu hình">
-      <label className="field">
-        <span className="field-label">Tìm kiếm</span>
-        <input className="input" type="search" value={search ?? ''} disabled={busy}
-          placeholder="Mã, tên hoặc định danh…" onChange={event => onSearchChange(event.target.value)} />
-      </label>
-      <label className="field">
-        <span className="field-label">Trạng thái</span>
-        <select className="input" value={status ?? ''} disabled={busy}
-          onChange={event => onStatusChange(event.target.value)}>
-          <option value="">Tất cả</option>
-          {statuses.map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </label>
-      <label className="field">
-        <span className="field-label">Địa điểm</span>
-        <select className="input" value={siteId ?? ''} disabled={busy}
-          onChange={event => onSiteChange(event.target.value)}>
-          <option value="">Tất cả</option>
-          {siteOptions.map(value => <option key={value.id} value={value.id}>{value.label}</option>)}
-        </select>
-      </label>
-    </div>
-  )
+export function configurationValidationErrors(resource: string, mode: 'create' | 'edit', body: Record<string, unknown>): Array<{ key: string; message: string }> {
+  const errors: Array<{ key: string; message: string }> = []
+  const required = (key: string, message: string) => { if (!String(body[key] ?? '').trim()) errors.push({ key, message }) }
+  if (['sites', 'areas', 'assets', 'points', 'data-sources'].includes(resource)) required('name', 'Tên là bắt buộc.')
+  if (mode === 'create' && (resource === 'areas' || resource === 'data-sources')) required('siteId', 'Vui lòng chọn Địa điểm cha.')
+  if (mode === 'create' && resource === 'assets') required('areaId', 'Vui lòng chọn Khu vực cha.')
+  if (mode === 'create' && resource === 'points') required('assetId', 'Vui lòng chọn Tài sản cha.')
+  if (mode === 'create' && resource === 'source-point-mappings') { required('sourceId', 'Vui lòng chọn Nguồn dữ liệu.'); required('pointId', 'Vui lòng chọn Điểm đo.') }
+  if (mode === 'create' && resource === 'simulator-configurations') required('sourceId', 'Vui lòng chọn Nguồn dữ liệu.')
+  return errors
 }
 
-export function ManagementTable(props: {
-  resource: string
-  state: ManagementState
-  columns: ManagementColumn[]
-  items: ManagementItem[]
-  emptyMessage: string
-  renderActions?: (item: ManagementItem) => React.ReactNode
-}) {
-  const { resource, state, columns, items, emptyMessage, renderActions } = props
-  if (state === 'loading') {
-    return <p className="notice notice-info" role="status">Đang tải {resourceLabel(resource)}…</p>
-  }
-  if (state === 'forbidden') {
-    return <p className="notice notice-warning" role="alert">Bạn không có quyền xem {resourceLabel(resource)} trong phạm vi này.</p>
-  }
-  if (state === 'expired') {
-    return <p className="notice notice-warning" role="alert">Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.</p>
-  }
-  if (state === 'error') {
-    return <p className="notice notice-warning" role="alert">Không thể tải {resourceLabel(resource)}. Hãy thử lại sau.</p>
-  }
-  if (state === 'dependency' || state === 'runtime') {
-    return <p className="notice notice-warning" role="alert">Dịch vụ dữ liệu hiện không sẵn sàng. Không hiển thị dữ liệu dự phòng.</p>
-  }
-  if (state === 'conflict') {
-    return <p className="notice notice-warning" role="alert">Dữ liệu đã thay đổi bởi người khác. Hãy tải lại trước khi lưu.</p>
-  }
-  if (state === 'validation') {
-    return <p className="notice notice-warning" role="alert">Dữ liệu chưa hợp lệ; hãy sửa các trường được đánh dấu.</p>
-  }
-  if (state === 'not-found') {
-    return <p className="notice notice-info" role="status">Không tìm thấy thực thể trong phạm vi được cấp quyền.</p>
-  }
-  if (state === 'no-data' || items.length === 0) {
-    return <p className="notice notice-info" role="status">{emptyMessage}</p>
-  }
-  return (
-    <div className="table-scroll" role="region" aria-label={`Danh sách ${resourceLabel(resource)}`}>
-      <table className="data-table">
-        <thead>
-          <tr>
-            {columns.map(column => <th key={column.key} scope="col">{column.label}</th>)}
-            {renderActions ? <th scope="col"><span className="sr-only">Thao tác</span></th> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => (
-            <tr key={textValue(item.id ?? item.configurationId) || index}>
-              {columns.map(column => (
-                <td key={column.key}>{column.render ? column.render(item) : textValue(item[column.key])}</td>
-              ))}
-              {renderActions ? <td className="actions-cell">{renderActions(item)}</td> : null}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+export function sortManagementItems(items: readonly ManagementItem[], key: string, direction: SortDirection): ManagementItem[] {
+  const sign = direction === 'ascending' ? 1 : -1
+  return [...items].sort((left, right) => {
+    const a = textValue(left[key]); const b = textValue(right[key])
+    const numberA = Number(a); const numberB = Number(b)
+    const comparison = a !== '' && b !== '' && Number.isFinite(numberA) && Number.isFinite(numberB)
+      ? numberA - numberB : a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' })
+    return comparison * sign
+  })
 }
 
-export function PaginationControls(props: {
-  page: number
-  pageSize: number
-  totalCount: number
-  onPageChange: (page: number) => void
-  busy?: boolean
-}) {
-  const { page, pageSize, totalCount, onPageChange, busy } = props
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
-  const from = totalCount === 0 ? 0 : (page - 1) * pageSize + 1
-  const to = Math.min(page * pageSize, totalCount)
-  return (
-    <div className="pagination" role="navigation" aria-label="Phân trang">
-      <span className="muted">{from}–{to} / {totalCount}</span>
-      <button className="button button-quiet" type="button" disabled={busy || page <= 1}
-        onClick={() => onPageChange(page - 1)}>Trước</button>
-      <button className="button button-quiet" type="button" disabled={busy || page >= totalPages}
-        onClick={() => onPageChange(page + 1)}>Sau</button>
-    </div>
-  )
+export function configurationLifecyclePresentation(status: string): { label: string; cue: string; tone: 'success' | 'warning' | 'neutral' | 'danger' } {
+  if (status === 'Active') return { label: 'Đang hoạt động', cue: '●', tone: 'success' }
+  if (status === 'Draft') return { label: 'Bản nháp', cue: '◌', tone: 'warning' }
+  if (status === 'Suspended' || status === 'Inactive') return { label: status === 'Suspended' ? 'Tạm dừng' : 'Không hoạt động', cue: '!', tone: 'warning' }
+  if (status === 'Decommissioned' || status === 'Superseded') return { label: status === 'Decommissioned' ? 'Ngừng sử dụng' : 'Đã thay thế', cue: '×', tone: 'neutral' }
+  return { label: status || 'Chưa xác định', cue: '?', tone: 'neutral' }
 }
 
-export function FeedbackBanner(props: { feedback: ManagementFeedback }) {
-  const { feedback } = props
-  if (!feedback) return null
-  return <p className={`notice notice-${feedback.tone}`} role={feedback.tone === 'error' || feedback.tone === 'warning' ? 'alert' : 'status'}>{feedback.message}</p>
+export function managementStateMessage(state: ManagementState, resource: string, emptyMessage: string): { title: string; message: string; tone: 'loading' | 'empty' | 'forbidden' | 'error' | 'conflict' | 'blocked' | 'info' } | null {
+  if (state === 'ready') return null
+  if (state === 'loading') return { title: 'Đang tải', message: `Đang tải ${resourceLabel(resource)}…`, tone: 'loading' }
+  if (state === 'forbidden') return { title: 'Không được phép', message: `Bạn không có quyền xem ${resourceLabel(resource)} trong phạm vi này.`, tone: 'forbidden' }
+  if (state === 'expired') return { title: 'Phiên đã hết hạn', message: 'Vui lòng đăng nhập lại để tiếp tục.', tone: 'error' }
+  if (state === 'conflict') return { title: 'Có xung đột', message: 'Dữ liệu đã thay đổi bởi người khác. Hãy tải lại trước khi lưu.', tone: 'conflict' }
+  if (state === 'dependency' || state === 'runtime') return { title: 'Dịch vụ chưa sẵn sàng', message: 'Không hiển thị dữ liệu dự phòng. Hãy thử lại sau.', tone: 'blocked' }
+  if (state === 'validation') return { title: 'Cần kiểm tra', message: 'Dữ liệu chưa hợp lệ; hãy sửa trường được đánh dấu.', tone: 'error' }
+  if (state === 'not-found') return { title: 'Không tìm thấy', message: 'Thực thể không còn trong phạm vi được cấp quyền.', tone: 'info' }
+  return { title: 'Chưa có dữ liệu', message: emptyMessage, tone: 'empty' }
 }
 
-export function DuplicateButton(props: {
-  item: ManagementItem
-  busyItem?: string | null
-  onDuplicate: (item: ManagementItem) => void
-}) {
-  const { item, busyItem, onDuplicate } = props
+export function DuplicateButton({ item, busyItem, onDuplicate }: { item: ManagementItem; busyItem?: string | null; onDuplicate: (item: ManagementItem) => void }) {
   const id = textValue(item.id ?? item.configurationId)
-  const busy = busyItem === id
-  return (
-    <button className="button button-secondary" type="button" disabled={!id || busy}
-      onClick={() => onDuplicate(item)}>
-      {busy ? 'Đang nhân bản…' : 'Nhân bản'}
-    </button>
-  )
+  return <button className="button button-secondary" type="button" disabled={!id || busyItem === id} onClick={() => onDuplicate(item)}>{busyItem === id ? 'Đang nhân bản…' : 'Nhân bản'}</button>
 }
 
-export function ActivateVersionButton(props: {
-  item: ManagementItem
-  busyItem?: string | null
-  onActivate: (item: ManagementItem) => void
-  readyForActivation?: boolean
-}) {
-  const { item, busyItem, onActivate, readyForActivation = true } = props
+export function ActivateVersionButton({ item, busyItem, onActivate, readyForActivation = true }: { item: ManagementItem; busyItem?: string | null; onActivate: (item: ManagementItem) => void; readyForActivation?: boolean }) {
   const id = textValue(item.configurationId)
   const current = Number(item.currentConfigurationVersion ?? 0)
   const draft = Number(item.draftConfigurationVersion ?? 0)
   const hasDraft = draft > current
-  const busy = busyItem === id
-  return (
-    <button className="button button-primary" type="button"
-      disabled={!id || !hasDraft || busy || !readyForActivation}
-      title={!hasDraft ? 'Không có bản nháp để kích hoạt' : readyForActivation ? `Kích hoạt bản ${draft}` : 'Cần xem xét quan hệ và kiểm tra trước khi kích hoạt'}
-      onClick={() => onActivate(item)}>
-      {busy ? 'Đang kích hoạt…' : 'Kích hoạt'}
-    </button>
-  )
+  return <button className="button button-primary" type="button" disabled={!id || !hasDraft || busyItem === id || !readyForActivation} title={!hasDraft ? 'Không có bản nháp để kích hoạt' : readyForActivation ? `Kích hoạt bản ${draft}` : 'Cần xem xét quan hệ và kiểm tra trước khi kích hoạt'} onClick={() => onActivate(item)}>{busyItem === id ? 'Đang kích hoạt…' : 'Kích hoạt'}</button>
 }
 
-export function ManagementActionButton(props: {
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  tone?: 'primary' | 'secondary' | 'quiet' | 'danger'
-  title?: string
-}) {
-  const { label, onClick, disabled, tone = 'secondary', title } = props
+export function ManagementActionButton({ label, onClick, disabled, tone = 'secondary', title }: { label: string; onClick: () => void; disabled?: boolean; tone?: 'primary' | 'secondary' | 'quiet' | 'danger'; title?: string }) {
   return <button className={`button button-${tone}`} type="button" disabled={disabled} title={title} onClick={onClick}>{label}</button>
 }
 
 export function useDebouncedSearch(value: string, delay = 350): string {
   const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const handle = window.setTimeout(() => setDebounced(value), delay)
-    return () => window.clearTimeout(handle)
-  }, [value, delay])
+  useEffect(() => { const handle = window.setTimeout(() => setDebounced(value), delay); return () => window.clearTimeout(handle) }, [value, delay])
   return debounced
 }

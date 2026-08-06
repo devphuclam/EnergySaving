@@ -183,3 +183,26 @@ h2 { font-size: 1.125rem; margin: 0 0 .5rem; }
 .data-table th, .data-table td { min-height: 2.5rem; }
 @media (max-width: 900px) { .dashboard-scope-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }.dashboard-evidence-grid, .telemetry-evidence-grid { grid-template-columns: 1fr; } }
 @media (max-width: 767px) { .dashboard-scope-strip { grid-template-columns: 1fr; }.setup-runtime-panel { align-items: stretch; flex-direction: column; }.dashboard-summary-list li { grid-template-columns: minmax(0, 1fr) auto; }.dashboard-summary-list li .button { grid-column: 2; grid-row: 1; }.chart-header { flex-direction: column; } }
+
+/* Feature 004 Phase 3: configuration management only. Evidence-First Industrial Light keeps
+   tables compact for long scanning sessions while preserving visible labels and focus. */
+.configuration-page .entity-tabs { margin-bottom: 1rem; }
+.configuration-page .filter-bar { align-items: end; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; padding: .75rem; }
+.configuration-page .compact-filter { min-width: 10rem; }
+.configuration-page .inline-control { display: grid; gap: .35rem; margin: 1rem 0; max-width: 26rem; }
+.configuration-page .table-toolbar { align-items: end; display: flex; gap: 1rem; justify-content: space-between; margin: 1.25rem 0 .5rem; }
+.configuration-page .form-card { align-items: stretch; flex-direction: column; }
+.configuration-page .form-grid { display: grid; gap: .85rem 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.configuration-page .data-table th, .configuration-page .data-table td { min-height: 2.5rem; padding: .5rem .65rem; }
+.configuration-page .data-table tbody tr { height: 2.5rem; }
+.configuration-page .data-table .actions-cell { max-width: 24rem; }
+.configuration-page .actions-stack .button { min-height: 2.25rem; }
+.configuration-page .status-badge { white-space: nowrap; }
+@media (max-width: 767px) {
+  .configuration-page .table-toolbar { align-items: stretch; flex-direction: column; }
+  .configuration-page .form-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1279px) {
+  .configuration-page .data-table .actions-cell { min-width: 15rem; }
+  .configuration-page .actions-stack .button, .configuration-page .compact-filter .input { min-height: 2.75rem; }
+}
